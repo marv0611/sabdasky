@@ -597,16 +597,16 @@ let readyCount = 0;
 function checkReady() { if (++readyCount >= 4) { document.getElementById('loading').classList.add('done'); window.SABDA_READY = true; console.log('SABDA: All assets loaded, ready for rendering'); } }
 
 // ── BIRDS ──
+const BIRD_REF_DIST = 23;  // reference distance for consistent apparent size
 const birdsUrl = b64ToUrl('birdsdata', 'model/gltf-binary');
 loader.load(birdsUrl, gltf => {
   URL.revokeObjectURL(birdsUrl);
   const clip = gltf.animations[0];
   const configs = [
-    {angle:0.3,dist:22,y:3.5,scale:2.0},{angle:1.4,dist:24,y:4.8,scale:2.0},
-    {angle:2.5,dist:23,y:3.8,scale:2.0},{angle:3.7,dist:22,y:5.5,scale:2.0},
-    {angle:4.6,dist:24,y:4.2,scale:2.0},{angle:5.8,dist:23,y:3.2,scale:2.0},
+    {angle:0.3,dist:18,y:3.5,scale:2.5},{angle:1.4,dist:24,y:4.8,scale:2.0},
+    {angle:2.5,dist:30,y:3.8,scale:1.6},{angle:3.7,dist:20,y:5.5,scale:1.8},
+    {angle:4.6,dist:26,y:4.2,scale:2.2},{angle:5.8,dist:22,y:3.2,scale:1.7},
   ];
-  const BIRD_REF_DIST = 23;  // reference distance for consistent apparent size
   for (let fi=0; fi<configs.length; fi++) {
     const fc=configs[fi], ctr=new THREE.Group();
     ctr.position.set(Math.cos(fc.angle)*fc.dist, fc.y, Math.sin(fc.angle)*fc.dist);
