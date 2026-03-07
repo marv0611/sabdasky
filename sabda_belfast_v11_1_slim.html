@@ -145,15 +145,10 @@ const equirectMat = new THREE.ShaderMaterial({
       // Cloud brightness lift — raise dark/gray sky areas
       float skyLuma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
       float liftAmount = smoothstep(0.0, 0.55, skyLuma) * (1.0 - smoothstep(0.55, 0.92, skyLuma));
-      col.rgb += liftAmount * 0.18;
-      float darkCloud = (1.0 - smoothstep(0.0, 0.4, skyLuma)) * 0.05;
-      col.rgb += vec3(darkCloud * 0.6, darkCloud * 0.3, 0.0);
-      col.rgb = max(col.rgb, vec3(0.03));
-
-      // Horizontal edge softening — eases projector overlap blending
-      float hEdge = smoothstep(0.0, 0.035, vUv.x) * smoothstep(1.0, 0.965, vUv.x);
-      float edgeSoften = 1.0 - (1.0 - hEdge) * 0.4;
-      col.rgb *= edgeSoften;
+      col.rgb += liftAmount * 0.30;
+      float darkCloud = (1.0 - smoothstep(0.0, 0.5, skyLuma)) * 0.08;
+      col.rgb += vec3(darkCloud * 0.7, darkCloud * 0.4, darkCloud * 0.15);
+      col.rgb = max(col.rgb, vec3(0.06));
 
       // Add ±0.5 LSB dithering noise — invisible but eliminates banding
       col.rgb += dither(gl_FragCoord.xy) / 255.0;
@@ -1095,13 +1090,18 @@ function animate() {
     const alt = bd.homeY + (bd.isGliding ? -0.6 : 0.4);
     bd.vy += (alt - bd.ctr.position.y) * 0.03 * dt; bd.vy *= 0.96;
     bd.ctr.position.y += bd.vy;
-    if (bd.ctr.position.y < 2.5) { bd.ctr.position.y = 2.5; bd.vy = Math.max(bd.vy, 0); }
-    if (bd.ctr.position.y > 7.0) { bd.ctr.position.y = 7.0; bd.vy = Math.min(bd.vy, 0); }
+    // Only clamp when in normal flight range — allow fly-in from below
+    if (bd.ctr.position.y > 2.0) {
+      if (bd.ctr.position.y < 2.5) { bd.vy += (2.5 - bd.ctr.position.y) * 0.04; }
+      if (bd.ctr.position.y > 7.0) { bd.ctr.position.y = 7.0; bd.vy = Math.min(bd.vy, 0); }
+    }
 
     if (dist > 45) {
       const a = Math.atan2(pz, px) + Math.PI;
       bd.ctr.position.x = Math.cos(a) * bd.homeDist;
       bd.ctr.position.z = Math.sin(a) * bd.homeDist;
+      bd.ctr.position.y = -6;  // below visible area
+      bd.vy = 0.06;
       bd.heading = a;
     }
 

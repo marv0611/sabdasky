@@ -168,9 +168,9 @@ function makeEquirectMat(azStartFrac, azEndFrac) {
         // 1. Black floor lift — subtle, prevents dark patches in overlap zones
         col.rgb = col.rgb * 0.97 + 0.015;
 
-        // 2. Strong contrast — 80% S-curve
+        // 2. Moderate contrast — 50% S-curve (reduced from 80% — room needs brightness)
         vec3 scurve = col.rgb * col.rgb * (3.0 - 2.0 * col.rgb);
-        col.rgb = mix(col.rgb, scurve, 0.80);
+        col.rgb = mix(col.rgb, scurve, 0.50);
 
         // 3. Saturation boost — 28%
         float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
@@ -182,13 +182,6 @@ function makeEquirectMat(azStartFrac, azEndFrac) {
         // 4. Gentle vignette on vertical edges — helps blend zones
         float topBottomFade = smoothstep(0.0, 0.02, vUv.y) * smoothstep(1.0, 0.98, vUv.y);
         col.rgb *= topBottomFade * 0.05 + 0.95;
-
-        // 5. Horizontal edge softening — eases projector overlap blending
-        // Reduce contrast processing intensity near left/right edges of each wall
-        float hEdge = smoothstep(0.0, 0.035, vUv.x) * smoothstep(1.0, 0.965, vUv.x);
-        // Re-blend toward less processed color near edges (softer contrast)
-        float edgeSoften = 1.0 - (1.0 - hEdge) * 0.4;
-        col.rgb *= edgeSoften;
 
         col.rgb += dither(gl_FragCoord.xy) / 255.0;
         gl_FragColor = col;
@@ -338,16 +331,17 @@ const skySphereMat = new THREE.ShaderMaterial({
       vec4 a = texture2D(texA, vUv);
       vec4 b = texture2D(texB, vUv);
       vec3 col = mix(a.rgb, b.rgb, mixVal) * tintColor;
-      // Cloud brightness lift — raise dark/gray areas so clouds look soft, not muddy
+      // Cloud brightness lift — raise dark/gray areas so clouds look soft and luminous
       float skyLuma = dot(col, vec3(0.299, 0.587, 0.114));
-      // Wider range: lift starts earlier and extends further into mid-tones
-      float liftAmount = smoothstep(0.0, 0.55, skyLuma) * (1.0 - smoothstep(0.55, 0.92, skyLuma));
-      col += liftAmount * 0.22;  // stronger lift on mid-tones — keeps gray clouds warm
-      // Gentle warm tint on darker cloud areas to avoid cold/dull appearance
-      float darkCloud = (1.0 - smoothstep(0.0, 0.4, skyLuma)) * 0.06;
+      // Wide range lift: brightens everything below bright highlights
+      float liftAmount = smoothstep(0.0, 0.6, skyLuma) * (1.0 - smoothstep(0.6, 0.95, skyLuma));
+      col += liftAmount * 0.35;  // strong lift — room needs brightness
+      // Warm tint on darker cloud areas
+      float darkCloud = (1.0 - smoothstep(0.0, 0.5, skyLuma)) * 0.10;
       col.r += darkCloud * 0.8;
-      col.g += darkCloud * 0.4;
-      col = max(col, vec3(0.04));  // floor lift — no pure black in sky
+      col.g += darkCloud * 0.5;
+      col.b += darkCloud * 0.2;
+      col = max(col, vec3(0.07));  // higher floor — no dark patches in room
       col += dither(gl_FragCoord.xy) / 255.0;
       gl_FragColor = vec4(col, 1.0);
     }
@@ -744,7 +738,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   // ── SKY WARMTH ──
   const skyPhase = (time/1800)*Math.PI*2;
   const warmthRaw = (Math.sin(skyPhase)+1)/2;
-  const warmth = Math.pow(warmthRaw, 2.0);  // squash toward 0 = Belfast dominates ~70%
+  const warmth = warmthRaw;  // linear = 50/50 Belfast/Evening split
   skySphereMat.uniforms.mixVal.value = 1.0 - warmth;  // warmth=1 → sky A (evening), warmth=0 → sky B (belfast)
   skySphereMat.uniforms.tintColor.value.setRGB(0.95+warmth*0.05, 0.92+warmth*0.08, 0.94+(1-warmth)*0.06);
   sun.intensity = 0.45+warmth*0.40+b*0.10;
@@ -885,14 +879,16 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     const maxTurn = 0.004 * dt * 30;  // tighter max turn cap
     bd.turnRate=Math.max(-maxTurn,Math.min(maxTurn,bd.turnRate));
     bd.heading+=bd.turnRate;bd.ctr.position.x+=Math.sin(bd.heading)*bd.cruiseSpeed*dt*30;bd.ctr.position.z+=Math.cos(bd.heading)*bd.cruiseSpeed*dt*30;
-    // Hard boundary — teleport back to home orbit pointing inward (they're offscreen at this distance)
+    // Hard boundary — if bird drifts too far, move below frame at home orbit
     if(dist>40){
       const a = Math.random() * Math.PI * 2;
       bd.ctr.position.x = Math.cos(a) * bd.homeDist;
       bd.ctr.position.z = Math.sin(a) * bd.homeDist;
+      bd.ctr.position.y = -6;  // below visible area — will fly up naturally
+      bd.vy = 0.06;
       bd.heading = a + Math.PI/2 + (Math.random()-0.5)*0.5;
     }
-    // Smooth loop boundary — fade out last 12s, fade in first 12s, staggered per bird
+    // Smooth loop boundary — birds fly below visible area near loop point
     const birdLoopT = time % 1800;
     const loopFadeDur = 10;
     const stagger = bd._fadeOffset * 1.2;  // 0, 1.56, 3.12, 4.68, 6.24, 7.8
@@ -904,27 +900,30 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     } else if (birdLoopT < fadeInEnd) {
       birdFade = birdLoopT < stagger ? 0 : Math.min(1, (birdLoopT - stagger) / loopFadeDur);
     }
-    // Smooth curve
     birdFade = birdFade * birdFade * (3 - 2 * birdFade);
-    // Reset position while invisible
+    // Reset position while offscreen (below visible area)
     if (birdFade < 0.01) {
-      bd.ctr.position.set(Math.cos(bd._initAngle)*bd.homeDist, bd.homeY, Math.sin(bd._initAngle)*bd.homeDist);
+      bd.ctr.position.set(Math.cos(bd._initAngle)*bd.homeDist, -8, Math.sin(bd._initAngle)*bd.homeDist);
       bd.heading = bd._initAngle + Math.PI / 2;
-      bd.vy = 0; bd.turnRate = 0; bd.bankAngle = 0; bd.pitchAngle = 0;
+      bd.vy = 0.08; bd.turnRate = 0; bd.bankAngle = 0; bd.pitchAngle = 0;
     }
-    // Distance-compensated scale — flattened curve: only 30% of the raw ratio applies
-    // This prevents visible size pops when birds cross between screens
+    // Distance-compensated scale — constant, no fade shrinking
     const rawDistScale = BIRD_REF_DIST / Math.max(15, dist);
-    const distScale = 0.7 + 0.3 * rawDistScale;  // range ~0.87 to ~1.16 instead of 0.58 to 1.53
-    bd.ctr.scale.setScalar((0.3 + birdFade * 0.7) * distScale);
-    bd.ctr.visible = birdFade > 0.01;
+    const distScale = 0.7 + 0.3 * rawDistScale;
+    bd.ctr.scale.setScalar(distScale);
+    // Spatial fade: bird flies up from below into view, flies down to exit
+    // Target Y shifts based on birdFade: 0 = deep below, 1 = normal altitude
+    const fadeY = bd.homeY * birdFade + (-8) * (1 - birdFade);
+    bd.ctr.visible = true;  // always visible — spatial position handles entry/exit
     if (birdFade > 0.01) {
-    const alt=bd.homeY+(bd.isGliding?-0.3:0.2);bd.vy+=(alt-bd.ctr.position.y)*0.02*dt;bd.vy*=Math.pow(0.96, dt*30);bd.ctr.position.y+=bd.vy;
-    // Soft altitude limits — push back gently instead of hard clamp
-    if(bd.ctr.position.y<2.8){bd.vy+=(2.8-bd.ctr.position.y)*0.05*dt;}
-    if(bd.ctr.position.y>6.5){bd.vy-=(bd.ctr.position.y-6.5)*0.05*dt;}
-    // Safety backstop — should never fire, but prevents any edge case
-    bd.ctr.position.y=Math.max(2.0, Math.min(7.5, bd.ctr.position.y));
+    const alt = fadeY + (bd.isGliding ? -0.3 : 0.2);
+    bd.vy+=(alt-bd.ctr.position.y)*0.04*dt;bd.vy*=Math.pow(0.96, dt*30);bd.ctr.position.y+=bd.vy;
+    // Only clamp when fully visible — allow birds below frame during transitions
+    if (birdFade > 0.95) {
+      if(bd.ctr.position.y<2.8){bd.vy+=(2.8-bd.ctr.position.y)*0.05*dt;}
+      if(bd.ctr.position.y>6.5){bd.vy-=(bd.ctr.position.y-6.5)*0.05*dt;}
+      bd.ctr.position.y=Math.max(2.0, Math.min(7.5, bd.ctr.position.y));
+    }
     // Clamp vy to prevent runaway velocity
     bd.vy = Math.max(-0.15, Math.min(0.15, bd.vy));
     // Distance boundary — if bird drifts too far, flip heading inward
