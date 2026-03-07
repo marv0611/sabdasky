@@ -141,6 +141,20 @@ const equirectMat = new THREE.ShaderMaterial({
       float ce = cos(elevation);
       vec3 dir = vec3(sin(azimuth) * ce, sin(elevation), -cos(azimuth) * ce);
       vec4 col = textureCube(tCube, dir);
+
+      // Cloud brightness lift — raise dark/gray sky areas
+      float skyLuma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+      float liftAmount = smoothstep(0.0, 0.55, skyLuma) * (1.0 - smoothstep(0.55, 0.92, skyLuma));
+      col.rgb += liftAmount * 0.18;
+      float darkCloud = (1.0 - smoothstep(0.0, 0.4, skyLuma)) * 0.05;
+      col.rgb += vec3(darkCloud * 0.6, darkCloud * 0.3, 0.0);
+      col.rgb = max(col.rgb, vec3(0.03));
+
+      // Horizontal edge softening — eases projector overlap blending
+      float hEdge = smoothstep(0.0, 0.035, vUv.x) * smoothstep(1.0, 0.965, vUv.x);
+      float edgeSoften = 1.0 - (1.0 - hEdge) * 0.4;
+      col.rgb *= edgeSoften;
+
       // Add ±0.5 LSB dithering noise — invisible but eliminates banding
       col.rgb += dither(gl_FragCoord.xy) / 255.0;
       gl_FragColor = col;
@@ -278,15 +292,27 @@ contentScene.add(rayGroup);
 // ── SHOOTING STAR ──
 const shootingStarState = {
   active: false, timer: 1,
-  pos: new THREE.Vector3(), vel: new THREE.Vector3(), life: 0, maxLife: 0,
+  pos: new THREE.Vector3(), vel: new THREE.Vector3(), life: 0, maxLife: 0, tailBonus: 0,
+  _theta: 0, _phi: 0, _dTheta: 0, _dPhi: 0,
 };
-// Shooting star = 2-triangle quad, vertices updated each frame in world space
+// Shooting star = multi-segment triangle strip following dome curvature
+const SS_SEGMENTS = 12;
 const ssGeo = new THREE.BufferGeometry();
-const ssVerts = new Float32Array(6 * 3);
-const ssUvs = new Float32Array(6 * 2);
-ssUvs.set([0,1, 1,1, 0,0, 1,1, 1,0, 0,0]);
+const ssVerts = new Float32Array((SS_SEGMENTS + 1) * 2 * 3);
+const ssUvs = new Float32Array((SS_SEGMENTS + 1) * 2 * 2);
+const ssIndices = [];
+for (let i = 0; i <= SS_SEGMENTS; i++) {
+  const t = i / SS_SEGMENTS;
+  ssUvs[i*4]   = 0; ssUvs[i*4+1] = t;
+  ssUvs[i*4+2] = 1; ssUvs[i*4+3] = t;
+  if (i < SS_SEGMENTS) {
+    const b = i * 2;
+    ssIndices.push(b, b+1, b+2, b+1, b+3, b+2);
+  }
+}
 ssGeo.setAttribute('position', new THREE.BufferAttribute(ssVerts, 3));
 ssGeo.setAttribute('uv', new THREE.BufferAttribute(ssUvs, 2));
+ssGeo.setIndex(ssIndices);
 const ssMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
   uniforms: {
@@ -941,20 +967,17 @@ function animate() {
     const loopT = time % 1800;
     if (ss.timer <= 0 && loopT > 2 && loopT < 1785) {
       ss.active = true;
-      ss.maxLife = 2.0 + Math.random() * 1.0;
+      ss.tailBonus = 150 + Math.random() * 400;
+      ss.maxLife = 3.5 + Math.random() * 2.5;
       ss.life = ss.maxLife;
-      const sTheta = Math.random() * Math.PI * 2;
-      const sElev = (30 + Math.random() * 25) * Math.PI / 180;
+      ss._theta = Math.random() * Math.PI * 2;
+      ss._phi = (30 + Math.random() * 25) * Math.PI / 180;
+      const hSpeed = (0.25 + Math.random() * 0.20) * (Math.random() < 0.5 ? 1 : -1);
+      const vSpeed = -(0.008 + Math.random() * 0.012);
+      ss._dTheta = hSpeed;
+      ss._dPhi = vSpeed;
       const sR = 340;
-      ss.pos.set(Math.cos(sElev)*Math.cos(sTheta)*sR, Math.sin(sElev)*sR, Math.cos(sElev)*Math.sin(sTheta)*sR);
-      const entryAngle = (5 + Math.random() * 7) * Math.PI / 180;
-      const travelTheta = sTheta + 0.3 + Math.random() * 0.3;
-      const speed = 150;
-      ss.vel.set(
-        Math.cos(travelTheta) * Math.cos(entryAngle) * speed,
-        -Math.sin(entryAngle) * speed,
-        Math.sin(travelTheta) * Math.cos(entryAngle) * speed
-      );
+      ss.pos.set(Math.cos(ss._phi)*Math.cos(ss._theta)*sR, Math.sin(ss._phi)*sR, Math.cos(ss._phi)*Math.sin(ss._theta)*sR);
       ssStreak.visible = true;
     }
   }
@@ -966,29 +989,38 @@ function animate() {
     else if (progress < 0.6) opacity = 1.0;
     else opacity = Math.pow((1 - progress) / 0.4, 0.7);
     opacity = Math.max(0, opacity);
-    ss.pos.addScaledVector(ss.vel, dt);
-    const velDir = ss.vel.clone().normalize();
-    const head = ss.pos.clone();
-    const camDir = head.clone().normalize();
-    const velPerp = velDir.clone().sub(camDir.clone().multiplyScalar(velDir.dot(camDir)));
-    const perpSpeed = velPerp.length();
-    const tailLen = 300 + perpSpeed * 150;
-    const tail = head.clone().sub(velDir.clone().multiplyScalar(tailLen));
-    const side = velDir.clone().cross(camDir);
-    if (side.lengthSq() < 0.001) side.set(0, 1, 0);
-    side.normalize();
-    const hw = 1.2;
+    ss._theta += ss._dTheta * dt;
+    ss._phi += ss._dPhi * dt;
+    ss._phi = Math.max(5 * Math.PI / 180, ss._phi);
+    const sR2 = 340;
+    ss.pos.set(Math.cos(ss._phi)*Math.cos(ss._theta)*sR2, Math.sin(ss._phi)*sR2, Math.cos(ss._phi)*Math.sin(ss._theta)*sR2);
+    const tailAngle = (0.65 + ss.tailBonus * 0.003);
+    const tailTime = tailAngle / Math.max(0.01, Math.abs(ss._dTheta));
     const p = ssGeo.attributes.position.array;
-    const hL = head.clone().add(side.clone().multiplyScalar(hw));
-    const hR = head.clone().sub(side.clone().multiplyScalar(hw));
-    const tL = tail.clone().add(side.clone().multiplyScalar(hw));
-    const tR = tail.clone().sub(side.clone().multiplyScalar(hw));
-    p[0]=hL.x; p[1]=hL.y; p[2]=hL.z;
-    p[3]=hR.x; p[4]=hR.y; p[5]=hR.z;
-    p[6]=tL.x; p[7]=tL.y; p[8]=tL.z;
-    p[9]=hR.x;  p[10]=hR.y; p[11]=hR.z;
-    p[12]=tR.x; p[13]=tR.y; p[14]=tR.z;
-    p[15]=tL.x; p[16]=tL.y; p[17]=tL.z;
+    const hw = 1.5;
+    for (let i = 0; i <= SS_SEGMENTS; i++) {
+      const t = i / SS_SEGMENTS;
+      const segTheta = ss._theta - ss._dTheta * tailTime * (1 - t);
+      const segPhi = ss._phi - ss._dPhi * tailTime * (1 - t);
+      const clampedPhi = Math.max(3 * Math.PI / 180, segPhi);
+      const px = Math.cos(clampedPhi) * Math.cos(segTheta) * sR2;
+      const py = Math.sin(clampedPhi) * sR2;
+      const pz = Math.cos(clampedPhi) * Math.sin(segTheta) * sR2;
+      const radLen = Math.sqrt(px*px + py*py + pz*pz);
+      const rx = px/radLen, ry = py/radLen, rz = pz/radLen;
+      const dTh = 0.01 * Math.sign(ss._dTheta || 1);
+      const tx = Math.cos(clampedPhi)*Math.cos(segTheta+dTh)*sR2 - px;
+      const ty = 0;
+      const tz = Math.cos(clampedPhi)*Math.sin(segTheta+dTh)*sR2 - pz;
+      let sx = ty*rz - tz*ry;
+      let sy = tz*rx - tx*rz;
+      let sz = tx*ry - ty*rx;
+      const sLen = Math.sqrt(sx*sx + sy*sy + sz*sz) || 1;
+      sx /= sLen; sy /= sLen; sz /= sLen;
+      const idx = i * 2 * 3;
+      p[idx]   = px + sx * hw; p[idx+1] = py + sy * hw; p[idx+2] = pz + sz * hw;
+      p[idx+3] = px - sx * hw; p[idx+4] = py - sy * hw; p[idx+5] = pz - sz * hw;
+    }
     ssGeo.attributes.position.needsUpdate = true;
     ssStreak.position.set(0, 0, 0);
     ssStreak.rotation.set(0, 0, 0);
@@ -1031,9 +1063,11 @@ function animate() {
 
     bd.turnChangeTimer -= dt;
     if (bd.turnChangeTimer <= 0) {
-      bd.desiredTurnRate = (Math.random() - 0.5) * 0.025;
-      if (Math.random() < 0.25) bd.desiredTurnRate *= 0.15;
-      bd.turnChangeTimer = 6 + Math.random() * 9;
+      const r = Math.random();
+      if (r < 0.75) bd.desiredTurnRate = (Math.random()-0.5)*0.005;
+      else if (r < 0.95) bd.desiredTurnRate = (Math.random()-0.5)*0.012;
+      else bd.desiredTurnRate = (Math.random()-0.5)*0.020;
+      bd.turnChangeTimer = 18 + Math.random() * 25;
     }
 
     const px = bd.ctr.position.x, pz = bd.ctr.position.z;
@@ -1043,17 +1077,17 @@ function animate() {
       const tc = Math.atan2(-pz, -px);
       let hd = tc - bd.heading;
       while (hd > Math.PI) hd -= Math.PI * 2; while (hd < -Math.PI) hd += Math.PI * 2;
-      btb = hd * 0.008 * (1 + Math.min(1, (dist - bd.homeDist - 5) * 0.05) * 3);
+      btb = hd * 0.004 * (1 + Math.min(1, (dist - bd.homeDist - 5) * 0.03) * 1.5);
     }
     if (dist < 10) {
       const aa = Math.atan2(pz, px);
       let ad = aa - bd.heading;
       while (ad > Math.PI) ad -= Math.PI * 2; while (ad < -Math.PI) ad += Math.PI * 2;
-      btb = ad * 0.01;
+      btb = ad * 0.005;
     }
 
-    bd.turnRate += (bd.desiredTurnRate + btb - bd.turnRate) * 0.4 * dt;
-    bd.turnRate = Math.max(-0.03, Math.min(0.03, bd.turnRate));
+    bd.turnRate += (bd.desiredTurnRate + btb - bd.turnRate) * 0.15 * dt;
+    bd.turnRate = Math.max(-0.012, Math.min(0.012, bd.turnRate));
     bd.heading += bd.turnRate * dt;
     bd.ctr.position.x += Math.sin(bd.heading) * bd.cruiseSpeed;
     bd.ctr.position.z += Math.cos(bd.heading) * bd.cruiseSpeed;
@@ -1077,6 +1111,10 @@ function animate() {
     bd.pitchAngle += (-bd.vy * 2.5 - bd.pitchAngle) * 1.5 * dt;
     bd.ctr.rotation.x = bd.pitchAngle;
     bd.ctr.rotation.y = bd.heading;
+    // Distance-compensated scale — flattened curve for consistent apparent size
+    const rawDistScale = 23.0 / Math.max(15, dist);
+    const distScale = 0.7 + 0.3 * rawDistScale;
+    bd.ctr.scale.setScalar(distScale);
   }
 
   // ═══════════════════════════════════════
