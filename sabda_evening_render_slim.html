@@ -872,6 +872,21 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     bd.ctr.position.x+=Math.sin(bd.heading)*bd.cruiseSpeed*dt*30;
     bd.ctr.position.z+=Math.cos(bd.heading)*bd.cruiseSpeed*dt*30;
 
+    // Inter-flock spacing — gentle push away from any flock that's too close
+    const MIN_FLOCK_DIST = 12;  // minimum distance between flock centers
+    for (const other of birdFlocks) {
+      if (other === bd) continue;
+      const dx = bd.ctr.position.x - other.ctr.position.x;
+      const dz = bd.ctr.position.z - other.ctr.position.z;
+      const flockDist = Math.sqrt(dx*dx + dz*dz);
+      if (flockDist < MIN_FLOCK_DIST && flockDist > 0.1) {
+        // Gentle push — stronger as they get closer
+        const push = (1 - flockDist / MIN_FLOCK_DIST) * 0.02 * dt * 30;
+        bd.ctr.position.x += (dx / flockDist) * push;
+        bd.ctr.position.z += (dz / flockDist) * push;
+      }
+    }
+
     const px=bd.ctr.position.x,pz=bd.ctr.position.z,dist=Math.sqrt(px*px+pz*pz);
 
     // When bird exits the visible area, reposition at far edge
