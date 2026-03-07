@@ -28,137 +28,6 @@ canvas{position:absolute;top:0;left:0}
 <script id="planetdata" type="text/plain">ASSET_PLACEHOLDER</script>
 <script id="saturndata" type="text/plain">ASSET_PLACEHOLDER</script>
 
-<!-- ═══ MURMURATION GPGPU SHADERS ═══ -->
-<script id="murmPositionShader" type="x-shader/x-fragment">
-uniform float time;
-uniform float delta;
-void main() {
-  vec2 uv = gl_FragCoord.xy / resolution.xy;
-  vec4 tmpPos = texture2D( texturePosition, uv );
-  vec3 position = tmpPos.xyz;
-  vec3 velocity = texture2D( textureVelocity, uv ).xyz;
-  float phase = tmpPos.w;
-  phase = mod( ( phase + delta +
-    length( velocity.xz ) * delta * 3. +
-    max( velocity.y, 0.0 ) * delta * 6. ), 62.83 );
-  gl_FragColor = vec4( position + velocity * delta * 2., phase );
-}
-</script>
-<script id="murmVelocityShader" type="x-shader/x-fragment">
-uniform float time;
-uniform float testing;
-uniform float delta;
-uniform float separationDistance;
-uniform float alignmentDistance;
-uniform float cohesionDistance;
-uniform float freedomFactor;
-uniform vec3 predator;
-const float width = resolution.x;
-const float height = resolution.y;
-const float PI = 3.141592653589793;
-const float PI_2 = PI * 2.0;
-const float UPPER_BOUNDS = BOUNDS;
-const float LOWER_BOUNDS = -UPPER_BOUNDS;
-const float SPEED_LIMIT = 1.5;
-
-void main() {
-  float visualRange = separationDistance + alignmentDistance + cohesionDistance;
-  float visualRangeSq = visualRange * visualRange;
-  float protectedRange = separationDistance;
-  float protectedRangeSq = protectedRange * protectedRange;
-
-  vec2 uv = gl_FragCoord.xy / resolution.xy;
-  vec3 selfPosition = texture2D( texturePosition, uv ).xyz;
-  vec3 selfVelocity = texture2D( textureVelocity, uv ).xyz;
-
-  vec3 close_d = vec3(0.0);
-  vec3 pos_avg = vec3(0.0);
-  vec3 vel_avg = vec3(0.0);
-  float neighbors = 0.0;
-
-  // Boids loop — classic Cornell algorithm
-  for ( float y = 0.0; y < height; y++ ) {
-    for ( float x = 0.0; x < width; x++ ) {
-      vec2 ref = vec2( x + 0.5, y + 0.5 ) / resolution.xy;
-      vec3 birdPos = texture2D( texturePosition, ref ).xyz;
-      vec3 diff = selfPosition - birdPos;
-      float distSq = dot(diff, diff);
-
-      if ( distSq < 0.0001 ) continue; // self
-
-      if ( distSq < protectedRangeSq ) {
-        // Separation — push away from too-close birds
-        close_d += diff;
-      } else if ( distSq < visualRangeSq ) {
-        // In visual range — accumulate for alignment + cohesion
-        pos_avg += birdPos;
-        vel_avg += texture2D( textureVelocity, ref ).xyz;
-        neighbors += 1.0;
-      }
-    }
-  }
-
-  vec3 velocity = selfVelocity;
-
-  // Apply separation (gentle)
-  velocity += close_d * 0.03;
-
-  // Apply alignment + cohesion
-  if ( neighbors > 0.0 ) {
-    pos_avg /= neighbors;
-    vel_avg /= neighbors;
-    // Cohesion — VERY strong pull toward flock center
-    velocity += (pos_avg - selfPosition) * 0.04;
-    // Alignment — match neighbor velocity strongly
-    velocity += (vel_avg - velocity) * 0.12;
-  }
-
-  // VERY strong center attraction — holds mass as one blob
-  vec3 center = vec3(0.0);
-  vec3 toCenter = center - selfPosition;
-  velocity += toCenter * 0.08;
-
-  // Flatten vertical — murmurations stay roughly level
-  velocity.y *= 0.85;
-
-  // Predator — very gentle, subtle shape-shifting
-  vec3 predPos = predator * UPPER_BOUNDS;
-  vec3 toPred = selfPosition - predPos;
-  float predDist = length(toPred);
-  if ( predDist < UPPER_BOUNDS * 0.6 ) {
-    velocity += normalize(toPred) * (1.0 - predDist / (UPPER_BOUNDS * 0.6)) * 0.4;
-  }
-
-  // Speed limits — both min and max
-  float speed = length(velocity);
-  if ( speed > SPEED_LIMIT ) {
-    velocity = normalize(velocity) * SPEED_LIMIT;
-  } else if ( speed < 0.5 ) {
-    velocity = normalize(velocity) * 0.5;
-  }
-
-  gl_FragColor = vec4( velocity, 1.0 );
-}
-</script>
-<script type="x-shader/x-vertex" id="murmBirdVS">
-attribute vec2 reference;
-uniform sampler2D texturePosition;
-uniform float uSize;
-void main() {
-  vec3 pos = texture2D( texturePosition, reference ).xyz;
-  vec4 mvPos = modelViewMatrix * vec4( pos, 1.0 );
-  gl_PointSize = uSize * (150.0 / -mvPos.z);
-  gl_PointSize = clamp(gl_PointSize, 4.0, 30.0);
-  gl_Position = projectionMatrix * mvPos;
-}
-</script>
-<script type="x-shader/x-fragment" id="murmBirdFS">
-void main() {
-  float d = length(gl_PointCoord - vec2(0.5));
-  if (d > 0.4) discard;
-  gl_FragColor = vec4(0.02, 0.02, 0.02, 1.0);
-}
-</script>
 
 <script type="importmap">{"imports":{
   "three":"https://unpkg.com/three@0.162.0/build/three.module.js",
@@ -900,84 +769,131 @@ saturnLoader1.load(saturnUrl1, gltf => {
 });
 
 // ═══════════════════════════════════════════════════════
-// MURMURATION — GPGPU BOIDS (256 birds, tight flocking)
+// MURMURATION — PURE CPU BOIDS (no GPU readback issues)
 // ═══════════════════════════════════════════════════════
-const MURM_WIDTH = 32; // 32x32 = 1024 birds (64x64 crashes WebGL shader)
-const MURM_BIRDS = MURM_WIDTH * MURM_WIDTH;
-const MURM_BOUNDS = 15; // ultra-tight — forces dense mass
-let murmGpuCompute, murmVelVar, murmPosVar, murmPosUniforms, murmVelUniforms, murmBirdUniforms;
-let murmPrevTime = performance.now() / 1000;
+const MURM_N = 800;
+const murmPos = [], murmVel = [];
+const MURM_CENTER = new THREE.Vector3(0, 15, 0); // high in sky
 
-class GPUCompute {
-  constructor(sX, sY, r) {
-    this.variables=[]; this.currentTextureIndex=0; this._sX=sX; this._sY=sY; this._r=r;
-    const pu={passThruTexture:{value:null}};
-    this._pt=this._cm('uniform sampler2D passThruTexture;\nvoid main(){vec2 uv=gl_FragCoord.xy/resolution.xy;gl_FragColor=texture2D(passThruTexture,uv);}',pu);
-    this._pu=pu;
-    const m=new THREE.Mesh(new THREE.PlaneGeometry(2,2),this._pt);
-    this._sc=new THREE.Scene(); this._sc.add(m); this._m=m;
-    this._cam=new THREE.Camera(); this._cam.position.z=1;
-  }
-  _cm(f,u){u=u||{};const m=new THREE.ShaderMaterial({uniforms:u,vertexShader:'void main(){gl_Position=vec4(position,1.0);}',fragmentShader:f});m.defines.resolution='vec2('+this._sX.toFixed(1)+','+this._sY.toFixed(1)+')';return m;}
-  addVariable(n,f,t){const m=this._cm(f);const v={name:n,initialValueTexture:t,material:m,dependencies:null,renderTargets:[],wrapS:null,wrapT:null};this.variables.push(v);return v;}
-  setVariableDependencies(v,d){v.dependencies=d;}
-  init(){for(let i=0;i<this.variables.length;i++){const v=this.variables[i];v.renderTargets[0]=this._crt();v.renderTargets[1]=this._crt();this._rtex(v.initialValueTexture,v.renderTargets[0]);this._rtex(v.initialValueTexture,v.renderTargets[1]);if(v.dependencies)for(let d=0;d<v.dependencies.length;d++){const dp=v.dependencies[d];v.material.uniforms[dp.name]={value:null};v.material.fragmentShader='\nuniform sampler2D '+dp.name+';\n'+v.material.fragmentShader;}}this.currentTextureIndex=0;return null;}
-  compute(){const c=this.currentTextureIndex,n=c===0?1:0;for(let i=0;i<this.variables.length;i++){const v=this.variables[i];if(v.dependencies)for(let d=0;d<v.dependencies.length;d++)v.material.uniforms[v.dependencies[d].name].value=v.dependencies[d].renderTargets[c].texture;this._drt(v.material,v.renderTargets[n]);}this.currentTextureIndex=n;}
-  getCurrentRenderTarget(v){return v.renderTargets[this.currentTextureIndex];}
-  createTexture(){const d=new Float32Array(this._sX*this._sY*4);const t=new THREE.DataTexture(d,this._sX,this._sY,THREE.RGBAFormat,THREE.FloatType);t.needsUpdate=true;return t;}
-  _crt(){return new THREE.WebGLRenderTarget(this._sX,this._sY,{wrapS:THREE.ClampToEdgeWrapping,wrapT:THREE.ClampToEdgeWrapping,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,format:THREE.RGBAFormat,type:THREE.FloatType,depthBuffer:false});}
-  _rtex(i,o){this._pu.passThruTexture.value=i;this._drt(this._pt,o);this._pu.passThruTexture.value=null;}
-  _drt(mat,o){const p=this._r.getRenderTarget();this._m.material=mat;this._r.setRenderTarget(o);this._r.render(this._sc,this._cam);this._m.material=this._pt;this._r.setRenderTarget(p);}
+// Init — tight ball
+for (let i = 0; i < MURM_N; i++) {
+  murmPos.push(new THREE.Vector3((Math.random()-0.5)*3, (Math.random()-0.5)*3, (Math.random()-0.5)*3));
+  murmVel.push(new THREE.Vector3((Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3));
 }
 
-murmGpuCompute = new GPUCompute(MURM_WIDTH, MURM_WIDTH, renderer);
-const dtP = murmGpuCompute.createTexture();
-const dtV = murmGpuCompute.createTexture();
-// Tight initial cluster — all birds start together
-const pA = dtP.image.data;
-for (let k=0;k<pA.length;k+=4) {
-  pA[k]=(Math.random()-0.5)*3; pA[k+1]=(Math.random()-0.5)*3; pA[k+2]=(Math.random()-0.5)*3; pA[k+3]=1;
-}
-const vA = dtV.image.data;
-for (let k=0;k<vA.length;k+=4) {
-  vA[k]=(Math.random()-0.5)*0.5; vA[k+1]=(Math.random()-0.5)*0.5; vA[k+2]=(Math.random()-0.5)*0.5; vA[k+3]=1;
-}
-murmVelVar = murmGpuCompute.addVariable('textureVelocity', document.getElementById('murmVelocityShader').textContent, dtV);
-murmPosVar = murmGpuCompute.addVariable('texturePosition', document.getElementById('murmPositionShader').textContent, dtP);
-murmGpuCompute.setVariableDependencies(murmVelVar, [murmPosVar, murmVelVar]);
-murmGpuCompute.setVariableDependencies(murmPosVar, [murmPosVar, murmVelVar]);
-murmPosUniforms = murmPosVar.material.uniforms;
-murmVelUniforms = murmVelVar.material.uniforms;
-murmPosUniforms['time']={value:0}; murmPosUniforms['delta']={value:0};
-murmVelUniforms['time']={value:0}; murmVelUniforms['delta']={value:0};
-murmVelUniforms['testing']={value:1.0};
-// DENSE MASS: scaled for BOUNDS=15
-murmVelUniforms['separationDistance']={value:1.0};   // almost no personal space
-murmVelUniforms['alignmentDistance']={value:3.0};    // tight alignment
-murmVelUniforms['cohesionDistance']={value:10.0};    // strong pull
-murmVelUniforms['freedomFactor']={value:0.75};
-murmVelUniforms['predator']={value:new THREE.Vector3()};
-murmVelVar.material.defines.BOUNDS = MURM_BOUNDS.toFixed(2);
-murmVelVar.wrapS=THREE.RepeatWrapping; murmVelVar.wrapT=THREE.RepeatWrapping;
-murmPosVar.wrapS=THREE.RepeatWrapping; murmPosVar.wrapT=THREE.RepeatWrapping;
-const mErr = murmGpuCompute.init();
-if(mErr) console.error('Murmuration init error:', mErr);
-
-// InstancedMesh — tiny dark spheres that DEFINITELY render through CubeCamera
-const murmSphereGeo = new THREE.SphereGeometry(0.2, 4, 3);
+// InstancedMesh — tiny dark spheres
+const murmSphereGeo = new THREE.SphereGeometry(0.15, 4, 3);
 const murmSphereMat = new THREE.MeshBasicMaterial({ color: 0x080808, fog: false });
-const murmMesh = new THREE.InstancedMesh(murmSphereGeo, murmSphereMat, MURM_BIRDS);
-murmMesh.position.set(0, 15, 0);
-murmMesh.frustumCulled = false;
+const murmIMesh = new THREE.InstancedMesh(murmSphereGeo, murmSphereMat, MURM_N);
+murmIMesh.frustumCulled = false;
 const murmDummy = new THREE.Object3D();
-for (let i = 0; i < MURM_BIRDS; i++) {
-  murmDummy.position.set(0, 0, 0);
+for (let i = 0; i < MURM_N; i++) {
+  murmDummy.position.copy(murmPos[i]).add(MURM_CENTER);
   murmDummy.updateMatrix();
-  murmMesh.setMatrixAt(i, murmDummy.matrix);
+  murmIMesh.setMatrixAt(i, murmDummy.matrix);
 }
-murmMesh.instanceMatrix.needsUpdate = true;
-contentScene.add(murmMesh);
-console.log('SABDA: Murmuration ready —', MURM_BIRDS, 'instanced spheres');
+murmIMesh.instanceMatrix.needsUpdate = true;
+contentScene.add(murmIMesh);
+console.log('SABDA: Murmuration ready —', MURM_N, 'CPU boids');
+
+function updateMurmuration() {
+  const protectedRange = 0.8;
+  const visualRange = 8.0;
+  const protectedRangeSq = protectedRange * protectedRange;
+  const visualRangeSq = visualRange * visualRange;
+  const avoidFactor = 0.05;
+  const matchingFactor = 0.05;
+  const centeringFactor = 0.005;
+  const centerPull = 0.02;
+  const maxSpeed = 1.2;
+  const minSpeed = 0.3;
+
+  // Wandering predator
+  const t = performance.now() / 1000 * 0.04;
+  const predX = Math.sin(t*1.7)*4 + Math.sin(t*0.7+2.1)*2;
+  const predY = Math.cos(t*1.3)*3 + Math.sin(t*0.5+1.3)*1.5;
+  const predZ = Math.sin(t*1.1+0.8)*3;
+
+  for (let i = 0; i < MURM_N; i++) {
+    const p = murmPos[i];
+    const v = murmVel[i];
+    let closeDx = 0, closeDy = 0, closeDz = 0;
+    let posAvgX = 0, posAvgY = 0, posAvgZ = 0;
+    let velAvgX = 0, velAvgY = 0, velAvgZ = 0;
+    let neighbors = 0;
+
+    for (let j = 0; j < MURM_N; j++) {
+      if (i === j) continue;
+      const o = murmPos[j];
+      const dx = p.x - o.x, dy = p.y - o.y, dz = p.z - o.z;
+      const distSq = dx*dx + dy*dy + dz*dz;
+      if (distSq < protectedRangeSq) {
+        closeDx += dx; closeDy += dy; closeDz += dz;
+      } else if (distSq < visualRangeSq) {
+        posAvgX += o.x; posAvgY += o.y; posAvgZ += o.z;
+        const ov = murmVel[j];
+        velAvgX += ov.x; velAvgY += ov.y; velAvgZ += ov.z;
+        neighbors++;
+      }
+    }
+
+    // Separation
+    v.x += closeDx * avoidFactor;
+    v.y += closeDy * avoidFactor;
+    v.z += closeDz * avoidFactor;
+
+    if (neighbors > 0) {
+      posAvgX /= neighbors; posAvgY /= neighbors; posAvgZ /= neighbors;
+      velAvgX /= neighbors; velAvgY /= neighbors; velAvgZ /= neighbors;
+      // Cohesion
+      v.x += (posAvgX - p.x) * centeringFactor;
+      v.y += (posAvgY - p.y) * centeringFactor;
+      v.z += (posAvgZ - p.z) * centeringFactor;
+      // Alignment
+      v.x += (velAvgX - v.x) * matchingFactor;
+      v.y += (velAvgY - v.y) * matchingFactor;
+      v.z += (velAvgZ - v.z) * matchingFactor;
+    }
+
+    // Center pull — keeps flock as dense mass
+    v.x -= p.x * centerPull;
+    v.y -= p.y * centerPull;
+    v.z -= p.z * centerPull;
+
+    // Flatten vertical
+    v.y *= 0.92;
+
+    // Predator avoidance
+    const pdx = p.x - predX, pdy = p.y - predY, pdz = p.z - predZ;
+    const predDist = Math.sqrt(pdx*pdx + pdy*pdy + pdz*pdz);
+    if (predDist < 6.0 && predDist > 0.01) {
+      const f = (1.0 - predDist / 6.0) * 0.15;
+      v.x += (pdx / predDist) * f;
+      v.y += (pdy / predDist) * f;
+      v.z += (pdz / predDist) * f;
+    }
+
+    // Speed limits
+    const speed = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+    if (speed > maxSpeed) { const s = maxSpeed/speed; v.x*=s; v.y*=s; v.z*=s; }
+    else if (speed < minSpeed && speed > 0.001) { const s = minSpeed/speed; v.x*=s; v.y*=s; v.z*=s; }
+
+    // Update position
+    p.x += v.x; p.y += v.y; p.z += v.z;
+  }
+
+  // Update InstancedMesh
+  for (let i = 0; i < MURM_N; i++) {
+    murmDummy.position.set(
+      murmPos[i].x + MURM_CENTER.x,
+      murmPos[i].y + MURM_CENTER.y,
+      murmPos[i].z + MURM_CENTER.z
+    );
+    murmDummy.updateMatrix();
+    murmIMesh.setMatrixAt(i, murmDummy.matrix);
+  }
+  murmIMesh.instanceMatrix.needsUpdate = true;
+}
 
 // ═══════════════════════════════════════════════════════
 // ANIMATION LOOP
@@ -1283,31 +1199,8 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   // ── RENDER 4 WALLS ──
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.setRenderTarget(null);
-  // ── MURMURATION COMPUTE ──
-  const murmNow = performance.now() / 1000;
-  let murmDelta = murmNow - murmPrevTime;
-  if (murmDelta > 1) murmDelta = 1/60;
-  murmPrevTime = murmNow;
-  murmPosUniforms['time'].value = murmNow;
-  murmPosUniforms['delta'].value = murmDelta;
-  murmVelUniforms['time'].value = murmNow;
-  murmVelUniforms['delta'].value = murmDelta;
-  // Wandering predator — very slow, gentle organic shifts
-  const wt = murmNow * 0.04;
-  const px = Math.sin(wt*1.7)*0.15 + Math.sin(wt*0.7+2.1)*0.1;
-  const py = Math.cos(wt*1.3)*0.1 + Math.sin(wt*0.5+1.3)*0.06;
-  murmVelUniforms['predator'].value.set(px, py, 0);
-  murmGpuCompute.compute();
-  // Read GPU positions back to CPU and update InstancedMesh
-  const murmRT = murmGpuCompute.getCurrentRenderTarget(murmPosVar);
-  const murmPixBuf = new Float32Array(MURM_WIDTH * MURM_WIDTH * 4);
-  renderer.readRenderTargetPixels(murmRT, 0, 0, MURM_WIDTH, MURM_WIDTH, murmPixBuf);
-  for (let i = 0; i < MURM_BIRDS; i++) {
-    murmDummy.position.set(murmPixBuf[i*4], murmPixBuf[i*4+1], murmPixBuf[i*4+2]);
-    murmDummy.updateMatrix();
-    murmMesh.setMatrixAt(i, murmDummy.matrix);
-  }
-  murmMesh.instanceMatrix.needsUpdate = true;
+  // ── MURMURATION ──
+  updateMurmuration();
 
   cubeCamera.update(renderer, contentScene);
 
