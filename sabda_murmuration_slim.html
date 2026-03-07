@@ -134,16 +134,15 @@ void main() {
   vec3 pos = texture2D( texturePosition, reference ).xyz;
   vec4 mvPos = modelViewMatrix * vec4( pos, 1.0 );
   gl_PointSize = uSize * (300.0 / -mvPos.z);
-  gl_PointSize = clamp(gl_PointSize, 1.0, 8.0);
+  gl_PointSize = clamp(gl_PointSize, 1.5, 12.0);
   gl_Position = projectionMatrix * mvPos;
 }
 </script>
 <script type="x-shader/x-fragment" id="murmBirdFS">
 void main() {
   float d = length(gl_PointCoord - vec2(0.5));
-  if (d > 0.5) discard;
-  float alpha = smoothstep(0.5, 0.15, d);
-  gl_FragColor = vec4(0.05, 0.04, 0.03, alpha * 0.85);
+  if (d > 0.45) discard;
+  gl_FragColor = vec4(0.06, 0.05, 0.04, 1.0);
 }
 </script>
 
@@ -891,7 +890,7 @@ saturnLoader1.load(saturnUrl1, gltf => {
 // ═══════════════════════════════════════════════════════
 const MURM_WIDTH = 32; // 32x32 = 1024 birds
 const MURM_BIRDS = MURM_WIDTH * MURM_WIDTH;
-const MURM_BOUNDS = 120; // tight bounds — flock stays compact
+const MURM_BOUNDS = 300; // background distance — between close birds and sky
 let murmGpuCompute, murmVelVar, murmPosVar, murmPosUniforms, murmVelUniforms, murmBirdUniforms;
 let murmPrevTime = performance.now() / 1000;
 
@@ -920,10 +919,10 @@ class GPUCompute {
 murmGpuCompute = new GPUCompute(MURM_WIDTH, MURM_WIDTH, renderer);
 const dtP = murmGpuCompute.createTexture();
 const dtV = murmGpuCompute.createTexture();
-// Tight initial cluster — all birds in small ball
+// Tight initial cluster — all birds start together
 const pA = dtP.image.data;
 for (let k=0;k<pA.length;k+=4) {
-  pA[k]=(Math.random()-0.5)*40; pA[k+1]=(Math.random()-0.5)*40; pA[k+2]=(Math.random()-0.5)*40; pA[k+3]=1;
+  pA[k]=(Math.random()-0.5)*80; pA[k+1]=(Math.random()-0.5)*80; pA[k+2]=(Math.random()-0.5)*80; pA[k+3]=1;
 }
 const vA = dtV.image.data;
 for (let k=0;k<vA.length;k+=4) {
@@ -938,10 +937,10 @@ murmVelUniforms = murmVelVar.material.uniforms;
 murmPosUniforms['time']={value:0}; murmPosUniforms['delta']={value:0};
 murmVelUniforms['time']={value:0}; murmVelUniforms['delta']={value:0};
 murmVelUniforms['testing']={value:1.0};
-// TIGHT FLOCK: small separation, strong alignment + cohesion
-murmVelUniforms['separationDistance']={value:8.0};
-murmVelUniforms['alignmentDistance']={value:30.0};
-murmVelUniforms['cohesionDistance']={value:40.0};
+// TIGHT FLOCK: scaled for BOUNDS=300
+murmVelUniforms['separationDistance']={value:20.0};
+murmVelUniforms['alignmentDistance']={value:60.0};
+murmVelUniforms['cohesionDistance']={value:80.0};
 murmVelUniforms['freedomFactor']={value:0.75};
 murmVelUniforms['predator']={value:new THREE.Vector3()};
 murmVelVar.material.defines.BOUNDS = MURM_BOUNDS.toFixed(2);
@@ -964,16 +963,16 @@ mGeo.setAttribute('reference', new THREE.BufferAttribute(mRefs, 2));
 
 murmBirdUniforms = {
   'texturePosition':{value:null},
-  'uSize':{value:3.0}
+  'uSize':{value:8.0}
 };
 const mMat = new THREE.ShaderMaterial({
   uniforms: murmBirdUniforms,
   vertexShader: document.getElementById('murmBirdVS').textContent,
   fragmentShader: document.getElementById('murmBirdFS').textContent,
-  transparent: true, depthWrite: false, fog: false
+  transparent: false, depthWrite: true, fog: false
 });
 const murmMesh = new THREE.Points(mGeo, mMat);
-murmMesh.position.set(0, 8, 0);
+murmMesh.position.set(0, 12, 0); // above eye level, in the sky
 murmMesh.frustumCulled = false;
 contentScene.add(murmMesh);
 console.log('SABDA: Murmuration ready —', MURM_BIRDS, 'dark specks');
