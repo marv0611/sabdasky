@@ -648,26 +648,6 @@ const planetGroup = new THREE.Group();
 const plDist = 85, plAngle = Math.PI + 0.85, plElev = 15*Math.PI/180;
 planetGroup.position.set(Math.cos(plAngle)*Math.cos(plElev)*plDist, Math.sin(plElev)*plDist, Math.sin(plAngle)*Math.cos(plElev)*plDist);
 planetGroup.scale.setScalar(12.0); planetGroup.rotation.z = 0.12; planetGroup.rotation.x = -0.08;
-// Subtle atmospheric haze — just softens edge into sky, not a visible disc
-const planetHazeMat = new THREE.SpriteMaterial({
-  map: (function(){
-    const c=document.createElement('canvas'); c.width=256; c.height=256;
-    const ctx=c.getContext('2d');
-    const g=ctx.createRadialGradient(128,128,0,128,128,128);
-    g.addColorStop(0,'rgba(255,255,255,0.0)');
-    g.addColorStop(0.30,'rgba(255,255,255,0.0)');
-    g.addColorStop(0.45,'rgba(255,255,255,0.12)');
-    g.addColorStop(0.60,'rgba(255,255,255,0.06)');
-    g.addColorStop(0.80,'rgba(255,255,255,0.015)');
-    g.addColorStop(1.0,'rgba(255,255,255,0.0)');
-    ctx.fillStyle=g; ctx.fillRect(0,0,256,256);
-    return new THREE.CanvasTexture(c);
-  })(),
-  transparent: true, blending: THREE.NormalBlending, depthWrite: false, fog: false,
-  color: new THREE.Color(0.72, 0.52, 0.58)
-});
-const planetHaze = new THREE.Sprite(planetHazeMat); planetHaze.scale.setScalar(4.0);
-planetGroup.add(planetHaze);
 contentScene.add(planetGroup);
 
 // (Saturn Star removed — was creating UFO-like artifact)
@@ -731,14 +711,14 @@ loader.load(birdsUrl, gltf => {
       c.material=new THREE.MeshStandardMaterial({color:isY?0xa08030:0x352010,roughness:0.5,metalness:0,side:THREE.DoubleSide,
         emissive:isY?new THREE.Color(0x605020):new THREE.Color(0x201008),emissiveIntensity:0.15});}});
     ctr.add(clone); contentScene.add(ctr);
-    const mixer=new THREE.AnimationMixer(clone), bts=0.4+fi*0.06;
+    const mixer=new THREE.AnimationMixer(clone), bts=0.7+fi*0.08;
     const action=mixer.clipAction(clip); action.timeScale=bts; action.play();
     birdFlocks.push({ctr,mixer,action,heading:fc.angle+Math.PI/2+(Math.random()-0.5)*0.3,
       _initAngle:fc.angle, _fadeOffset: fi * 1.3,
-      cruiseSpeed:0.015+Math.random()*0.008,vy:0,homeY:fc.y,homeDist:fc.dist,
+      cruiseSpeed:0.035+Math.random()*0.015,vy:0,homeY:fc.y,homeDist:fc.dist,
       turnRate:0,desiredTurnRate:(Math.random()-0.5)*0.015,turnChangeTimer:10+Math.random()*15,
-      isGliding:false,glideTimer:3+Math.random()*4,glideDuration:3.0+Math.random()*4.0,
-      flapDuration:3.0+Math.random()*4.0,targetTimeScale:bts,currentTimeScale:bts,baseTimeScale:bts,
+      isGliding:false,glideTimer:2+Math.random()*3,glideDuration:1.5+Math.random()*2.5,
+      flapDuration:2.5+Math.random()*3.0,targetTimeScale:bts,currentTimeScale:bts,baseTimeScale:bts,
       bankAngle:0,pitchAngle:0});
   }
   checkReady();
@@ -993,8 +973,6 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   const hazeWarm = new THREE.Color(0.78, 0.55, 0.62);
   const hazeCool = new THREE.Color(0.50, 0.54, 0.68);
   const hazeCol = hazeWarm.clone().lerp(hazeCool, 1.0 - warmth);
-  planetHazeMat.color.copy(hazeCol);
-  planetHazeMat.opacity = 0.55 + b * 0.15;
   saturnHazeMat.color.copy(hazeCol);
   saturnHazeMat.opacity = 0.50 + b * 0.15;
 
@@ -1002,10 +980,10 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   for(const bd of birdFlocks){
     bd.glideTimer-=dt;
     if(bd.glideTimer<=0){bd.isGliding=!bd.isGliding;
-      bd.glideTimer=bd.isGliding? bd.glideDuration+Math.random()*5.0 : bd.flapDuration+Math.random()*5.0;
-      bd.targetTimeScale=bd.isGliding? 0.08+Math.random()*0.12 : bd.baseTimeScale*0.6+Math.random()*bd.baseTimeScale*0.4;}
-    // Very slow lerp — wings ease in and out like breathing
-    bd.currentTimeScale+=(bd.targetTimeScale-bd.currentTimeScale)*0.15*dt;
+      bd.glideTimer=bd.isGliding? bd.glideDuration+Math.random()*2.0 : bd.flapDuration+Math.random()*2.5;
+      bd.targetTimeScale=bd.isGliding? 0.25+Math.random()*0.15 : bd.baseTimeScale*0.75+Math.random()*bd.baseTimeScale*0.5;}
+    // Wing ease — responsive but smooth
+    bd.currentTimeScale+=(bd.targetTimeScale-bd.currentTimeScale)*0.4*dt;
     const flapWave = 1.0 + Math.sin(time * (0.5 + bd._fadeOffset * 0.2)) * 0.15
                          + Math.sin(time * (0.17 + bd._fadeOffset * 0.07)) * 0.08;
     bd.action.timeScale=Math.min(bd.currentTimeScale * flapWave, bd.baseTimeScale*1.8);bd.mixer.update(dt);
