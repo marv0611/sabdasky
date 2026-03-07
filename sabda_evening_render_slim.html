@@ -729,8 +729,8 @@ loader.load(b64ToUrl('planetdata','model/gltf-binary'), gltf => {
   const model = gltf.scene;
   model.traverse(c => { if(c.isMesh){c.frustumCulled=false; if(c.material){
     const mn=(c.material.name||'').toLowerCase(), oMap=c.material.map, oNorm=c.material.normalMap;
-    if(mn.includes('cloud')){c.material=new THREE.MeshPhysicalMaterial({map:oMap,normalMap:oNorm,transparent:true,opacity:0.40,roughness:0.3,metalness:0,emissive:new THREE.Color(0xd0b0ff),emissiveIntensity:0.15,side:THREE.FrontSide,depthWrite:false});}
-    else{c.material=new THREE.MeshPhysicalMaterial({map:oMap,normalMap:oNorm,roughness:0.45,metalness:0.05,emissive:new THREE.Color(0x7744cc),emissiveIntensity:0.35,clearcoat:0.15,clearcoatRoughness:0.35});}
+    if(mn.includes('cloud')){c.material=new THREE.MeshBasicMaterial({map:oMap,transparent:true,opacity:0.30,color:new THREE.Color(0xe0c8ff),side:THREE.FrontSide,depthWrite:false,fog:false});}
+    else{c.material=new THREE.MeshBasicMaterial({map:oMap,color:new THREE.Color(0xb090dd),fog:false});}
   }}});
   planetGroup.add(model);
   if(gltf.animations&&gltf.animations.length>0){planetMixer=new THREE.AnimationMixer(model);const a=planetMixer.clipAction(gltf.animations[0]);a.timeScale=1;a.play();}
