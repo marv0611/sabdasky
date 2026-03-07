@@ -413,10 +413,10 @@ for (let i = 0; i < 3; i++) {
   const cvs = document.createElement('canvas'); cvs.width = 4; cvs.height = 128;
   const ctx = cvs.getContext('2d');
   const grd = ctx.createLinearGradient(0, 128, 0, 0);
-  grd.addColorStop(0, 'rgba(255,200,120,0.04)');
-  grd.addColorStop(0.2, 'rgba(255,180,100,0.025)');
-  grd.addColorStop(0.5, 'rgba(255,160,80,0.008)');
-  grd.addColorStop(1.0, 'rgba(255,140,60,0.0)');
+  grd.addColorStop(0, 'rgba(255,180,140,0.045)');
+  grd.addColorStop(0.2, 'rgba(255,160,120,0.028)');
+  grd.addColorStop(0.5, 'rgba(240,140,110,0.010)');
+  grd.addColorStop(1.0, 'rgba(220,120,90,0.0)');
   ctx.fillStyle = grd; ctx.fillRect(0, 0, 4, 128);
   const mat = new THREE.MeshBasicMaterial({
     map: new THREE.CanvasTexture(cvs), transparent: true, depthWrite: false,
@@ -715,10 +715,11 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     colC.lerp(new THREE.Color(0.7, 0.5, 0.4), colEased * 0.15);
   }
   const tR=0.5+colC.r*0.5,tG=0.5+colC.g*0.5,tB=0.5+colC.b*0.5;
-  ambient.color.setRGB(0.42*tR,0.33*tG,0.25*tB);
-  hemi.color.setRGB(0.77*tR,0.50*tG,0.25*tB);
-  hemi.groundColor.setRGB(0.10*tB,0.15*tG,0.12*tR);
-  rim.color.setRGB(0.25*tB,0.31*tG,0.50*tR);
+  // Ambient/hemi: richer tones — rose-amber ambient, violet-gold hemi
+  ambient.color.setRGB(0.48*tR, 0.30*tG, 0.32*tB);   // rose-tinted ambient
+  hemi.color.setRGB(0.80*tR, 0.45*tG, 0.30*tB);      // warm golden sky
+  hemi.groundColor.setRGB(0.12*tB, 0.10*tG, 0.18*tR); // cool violet ground
+  rim.color.setRGB(0.30*tB, 0.25*tG, 0.55*tR);        // violet rim
   renderer.toneMappingExposure = 0.82+b*0.14;
   hemi.intensity = 0.32+b*0.08;
 
@@ -727,12 +728,33 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   const warmthRaw = (Math.sin(skyPhase)+1)/2;
   const warmth = warmthRaw;  // linear = 50/50 Belfast/Evening split
   skySphereMat.uniforms.mixVal.value = 1.0 - warmth;  // warmth=1 → sky A (evening), warmth=0 → sky B (belfast)
-  skySphereMat.uniforms.tintColor.value.setRGB(0.95+warmth*0.05, 0.92+warmth*0.08, 0.94+(1-warmth)*0.06);
+  // Dreamy tint: warm phase = rich amber/rose, cool phase = soft lavender/violet
+  // Values stay high (0.80-1.05) to keep room bright — tint, not darken
+  skySphereMat.uniforms.tintColor.value.setRGB(
+    0.92 + warmth * 0.13,                    // R: 0.92 (cool) → 1.05 (warm) — warm glow
+    0.82 + warmth * 0.12,                    // G: 0.82 (cool=less green=violet) → 0.94 (warm)
+    0.90 + (1-warmth) * 0.12 - warmth * 0.08 // B: 1.02 (cool=lavender) → 0.82 (warm=amber)
+  );
   sun.intensity = 0.45+warmth*0.40+b*0.10;
-  sun.color.setRGB(tR*(0.8+warmth*0.2), 0.56*tG*(0.6+warmth*0.4), 0.31*tB*(0.7+warmth*0.3));
+  // Sun: richer amber/rose during warm, cooler violet during cool
+  sun.color.setRGB(
+    tR*(0.85+warmth*0.20),                   // strong warm red
+    0.45*tG*(0.5+warmth*0.5),                // less green = more magenta
+    0.35*tB*(0.8+warmth*0.1)                 // hint of blue warmth
+  );
   ambient.intensity = 0.28+warmth*0.10+b*0.06;
-  contentScene.fog.color.setRGB(0.45+warmth*0.08, 0.36+warmth*0.04, 0.44+(1-warmth)*0.06);
-  dustMat.uniforms.uColor.value.setRGB(0.9+warmth*0.1, 0.75+warmth*0.13, 0.50+(1-warmth)*0.20);
+  // Fog: rose/lavender tint instead of neutral gray
+  contentScene.fog.color.setRGB(
+    0.48 + warmth * 0.10,                    // warm rose
+    0.34 + warmth * 0.04,                    // subdued green
+    0.48 + (1-warmth) * 0.08                 // cool = more blue/lavender
+  );
+  // Dust: warm gold during evening, soft violet during belfast
+  dustMat.uniforms.uColor.value.setRGB(
+    0.92 + warmth * 0.08,                    // warm gold
+    0.70 + warmth * 0.15,                    // amber
+    0.45 + (1-warmth) * 0.35                 // cool = violet dust
+  );
 
   // ── STARS ──
   starMat.uniforms.uTime.value = time;
