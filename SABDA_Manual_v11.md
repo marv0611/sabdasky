@@ -1523,7 +1523,7 @@ HAP Q uses GPU-accelerated decompression but produces much larger files (~10×).
 
 ## 20. Lessons Learned Log (v8 + v9 + v10 + v11 + v12 Additions)
 
-Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49, v10 adds lessons 50-52, v11 adds lessons 53-59, v11.1 adds 61-74, v11.5 adds 75-86, v12 adds 87-106.
+Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49, v10 adds lessons 50-52, v11 adds lessons 53-59, v11.1 adds 61-74, v11.5 adds 75-86, v12 adds 87-108.
 
 31. **(v8) ALWAYS visually inspect before delivering.** Six consecutive builds were delivered and rejected because the agent trusted numbers without looking. The moment the agent used `view` to inspect the wall preview, the problem (flat featureless water patch) was immediately visible. Visual inspection would have caught this on build #1 and saved hours. This is now Absolute Rule #1.
 
@@ -1686,6 +1686,10 @@ Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49,
 105. **(v12) God rays: rose-tint for dreamy feel.** Original pure orange rays (`rgba(255,200,120)`) were too naturalistic. Shifting toward rose (`rgba(255,180,140)`) adds warmth and fantasy character while staying bright. The dreamy quality comes from colour richness, not from darkening.
 
 106. **(v12) Dreamy atmosphere = richer tints at HIGH brightness, not darker.** The temptation is to add mood by darkening. In a projection room, darker = dull. Instead: push sky tint toward amber/magenta during warm phase, lavender/violet during cool phase, with all channels staying above 0.85. Add blue to fog and dust during cool phase. Rose-tint the ambient light. The result feels like a painted sky without losing any luminosity.
+
+107. **(v12) Saturn has TWO groups — understand the model's internal units before touching either.** The Saturn GLB is ~1200 internal units. `saturnMainGroup` (scale 0.023) = 28 world units = the VISIBLE ringed Saturn. `saturnGroup` (scale 10) = 12,000 units = invisible (bigger than the 340-radius sky dome) — exists ONLY to hold a glow sprite. Scaling saturnMainGroup to 10 makes Saturn 12,000 units, wrapping around the entire scene invisibly. Never change Saturn scale without checking the model's internal unit size first. If removing the "UFO" glow dot, remove `saturnGroup` and keep `saturnMainGroup` — not the other way around.
+
+108. **(v12) Sky phase offset controls cycle start position.** `skyPhase = ((time + OFFSET) / 1800) * Math.PI * 2` shifts where in the warmth cycle the visual begins. +300s = start in blue Belfast. Only affects warmth/crossfade — cloud drift, planets, birds stay at t=0. Simple way to control "what does the audience see first" without restructuring the timeline. Combined with `pow()` bias on warmthRaw, this gives full control over both the ratio and the starting point of the crossfade.
 
 
 ## 21. Content Calendar
