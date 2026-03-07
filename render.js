@@ -62,6 +62,9 @@ function startFFmpeg(wallName, w, h) {
     '-c:v', 'libx264',
     '-crf', CRF,
     '-preset', PRESET_WALLS,
+    '-tune', 'film',
+    '-profile:v', 'high', '-level', '5.1',
+    '-g', String(FPS),  // keyframe every 1 second — instant Watchout seek
     '-pix_fmt', 'yuv420p',
     '-movflags', '+faststart',
     outPath
@@ -202,6 +205,8 @@ async function main() {
     '-i', path.join(OUTPUT_DIR, 'wall_front.mp4'),
     '-filter_complex', '[0:v][1:v]hstack=inputs=2',
     '-c:v', 'libx264', '-crf', CRF, '-preset', PRESET_MERGE,
+    '-tune', 'film', '-profile:v', 'high', '-level', '5.1',
+    '-g', String(FPS),
     '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
     path.join(OUTPUT_DIR, 'sabda_top.mp4')
   ]);
@@ -213,6 +218,8 @@ async function main() {
     '-i', path.join(OUTPUT_DIR, 'wall_back.mp4'),
     '-filter_complex', '[0:v][1:v]hstack=inputs=2',
     '-c:v', 'libx264', '-crf', CRF, '-preset', PRESET_MERGE,
+    '-tune', 'film', '-profile:v', 'high', '-level', '5.1',
+    '-g', String(FPS),
     '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
     path.join(OUTPUT_DIR, 'sabda_top.mp4').replace('top', 'bottom')
   ]);
