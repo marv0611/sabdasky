@@ -1521,9 +1521,9 @@ HAP Q uses GPU-accelerated decompression but produces much larger files (~10×).
 | **v11.5** | **Shooting star dome-following with Rodrigues rotation, 50/50 size mix (12-115 degree arc wall-crossers), bird physics overhaul (dt-scaled turns, hard teleport boundary, model flip by distance, organic flapping with sinusoidal modulation), projection optimization shader pipeline (S-curve contrast 80%, saturation boost 28%, black floor lift, highlight ceiling, edge softening), timelapse test mode (T key, 30x), 30-minute loop fade transition for birds, lighting adjustments for projector environments** |
 ---
 
-## 20. Lessons Learned Log (v8 + v9 + v10 + v11 Additions)
+## 20. Lessons Learned Log (v8 + v9 + v10 + v11 + v12 Additions)
 
-Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49, v10 adds lessons 50-52, v11 adds lessons 53-59.
+Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49, v10 adds lessons 50-52, v11 adds lessons 53-59, v11.1 adds 61-74, v11.5 adds 75-86, v12 adds 87-106.
 
 31. **(v8) ALWAYS visually inspect before delivering.** Six consecutive builds were delivered and rejected because the agent trusted numbers without looking. The moment the agent used `view` to inspect the wall preview, the problem (flat featureless water patch) was immediately visible. Visual inspection would have caught this on build #1 and saved hours. This is now Absolute Rule #1.
 
@@ -1644,6 +1644,48 @@ Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49,
 85. **(v11.5) Variable declaration order matters in spawn blocks.** If isGiant is used in maxLife calculation but declared after it, the entire render loop crashes silently. Always declare spawn-time variables at the top of the spawn block before any code that references them.
 
 86. **(v11.5) Timelapse mode reveals physics bugs that normal speed hides.** At 1x speed, a bird with insufficient turn rate correction slowly drifts outward over 10 minutes — barely noticeable. At 30x, the same bird flies out of the scene in 20 seconds. Always test new physics at both normal and timelapse speed.
+
+### v12 Additions: Room Testing & Visual Polish (March 2026)
+
+87. **(v12) Shooting star movement: NEVER use spherical coordinates (theta/phi).** Spherical-coord trajectory creates rigid straight lines that look unnatural. The original Cartesian velocity (`pos.addScaledVector(vel, dt)`) + dome re-projection (`pos.normalize().multiplyScalar(340)`) creates a natural curved arc as the star falls. Keep Cartesian movement always.
+
+88. **(v12) Shooting star wall crossing: multi-segment geometry, not flat quad.** A single flat quad (2 triangles) kinks at wall boundaries because the quad stretches across the projection seam. A 12-segment triangle strip follows the dome curvature smoothly — each segment is small enough to approximate the curve without visible kinking. Keep the original Cartesian physics, just replace the rendering geometry.
+
+89. **(v12) Shooting star entry angle: 2-7° from horizontal, speed 120-200.** These values were tested in the room and looked good. Attempts to make stars "fall from above" (vertical dominant, 60-90°) made them nearly invisible — they traverse too little horizontal distance. Attempts at 15-30° looked mechanical. The 2-7° range creates the classic shallow sweeping streak.
+
+90. **(v12) Bird scale must NEVER be multiplied by a fade factor.** Any system that scales birds toward zero at boundaries causes visible "evaporation" — birds shrink and vanish unnaturally. Birds must maintain constant distance-compensated scale at all times.
+
+91. **(v12) Bird visibility must NEVER be toggled.** Setting `visible = false` at any point causes pop-in/pop-out artifacts. Birds must be `visible = true` at all times, repositioned only when they naturally exit the far edge (dist > 42) where they're already tiny.
+
+92. **(v12) Bird loop boundary fade is a dead end — remove entirely.** Three iterations of loop fade systems all failed: (a) scale fade = evaporation, (b) visibility toggle = pop in/out, (c) spatial fly-in-from-below = unnatural. The working solution: no loop boundary handling at all. Birds fly continuously, reposition when they exit the scene edge. The 30-min loop seam has a tiny position discontinuity but birds are small and distant — unnoticeable.
+
+93. **(v12) Bird homing forces cause circular orbiting.** Any boundary steering that curves birds back toward a "home distance" creates visible orbiting patterns. The fix: zero homing, zero boundary steering. Birds fly in straight lines (90% dead straight, 10% barely perceptible drift), exit one side, reappear at the opposite edge. Turn rate capped at 0.001 rad/s, steering response 0.03.
+
+94. **(v12) Bird entry direction: 70% horizontal, 30% front-to-back.** Horizontal traversals (tangent to scene circle = left-to-right across horizon) look most natural, like birds crossing the sky over ocean. Front-to-back adds variety. Pure front-to-back only looks monotonous.
+
+95. **(v12) Variable scope: shared constants must be at module scope.** `BIRD_REF_DIST` was declared inside an async GLTFLoader callback but referenced in the render function — ReferenceError crashed the animation loop silently. Any constant used in the render loop must be declared at module scope, never inside callbacks.
+
+96. **(v12) Never use non-uniform scale on a rotating group.** Setting `scale.set(10.5, 13.5, 13.5)` on a group that rotates around Y causes the compressed X axis to rotate, making the object wobble between wide and narrow throughout the cycle. Always use uniform `setScalar()` on rotating groups.
+
+97. **(v12) When removing a scene object, grep ALL references.** The Saturn Star removal required deleting: (a) the group creation, (b) the loader's `group.add()` call, (c) the render loop's `group.rotation.y` update, (d) the cloned mesh code. Missing any one crashes the scene. Always run `grep -n "objectName" file.html` before committing.
+
+98. **(v12) S-curve contrast ≤50% for projectors.** 80% crushes dark cloud areas into mud on projectors. 50% provides good contrast without destroying the dark tones that projectors already struggle to reproduce.
+
+99. **(v12) Saturation boost 45% is the sweet spot.** 28% was too dull (no pop on blues), higher than 50% risks oversaturation on warm tones. 45% works for both the vivid Belfast blues and the warm evening ambers.
+
+100. **(v12) Cloud brightness lift must be aggressive for projection.** Lift 0.45, floor 0.10. What looks fine on a monitor looks dull and dark on projected walls. Dark cloud tint must include blue channel (R+G only = muddy brown; adding B shifts grays toward luminous lavender).
+
+101. **(v12) Sky tint channels must stay above 0.85.** Anything lower visibly darkens the room. The tint should add colour character, never subtract brightness. Blue channel minimum 0.92 — suppressing blue during warm phase drains vividness from the entire scene.
+
+102. **(v12) Don't bake projector edge blending into content.** Horizontal edge softening in the equirect shader created visible dark vertical bands at every wall boundary — worse than no treatment. Soft-edge blending between projectors is Watchout's job (Display > Soft Edge in Watchout stage editor). Content should be continuous and uniform edge-to-edge.
+
+103. **(v12) Crossfade ratio: pow() biases the split.** `pow(warmthRaw, 2.0)` = 70/30 Belfast bias. Linear `warmthRaw` = 50/50. Don't apply pow() unless an intentional bias is wanted.
+
+104. **(v12) Don't overwrite data arrays when editing nearby code.** Bird config arrays (`configs = [{angle, dist, y, scale}, ...]`) were accidentally replaced with uniform values when editing adjacent bird scaling code. Never touch data arrays unless explicitly asked to modify them.
+
+105. **(v12) God rays: rose-tint for dreamy feel.** Original pure orange rays (`rgba(255,200,120)`) were too naturalistic. Shifting toward rose (`rgba(255,180,140)`) adds warmth and fantasy character while staying bright. The dreamy quality comes from colour richness, not from darkening.
+
+106. **(v12) Dreamy atmosphere = richer tints at HIGH brightness, not darker.** The temptation is to add mood by darkening. In a projection room, darker = dull. Instead: push sky tint toward amber/magenta during warm phase, lavender/violet during cool phase, with all channels staying above 0.85. Add blue to fog and dust during cool phase. Rose-tint the ambient light. The result feels like a painted sky without losing any luminosity.
 
 
 ## 21. Content Calendar
