@@ -726,7 +726,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   // ── SKY WARMTH ──
   const skyPhase = (time/1800)*Math.PI*2;
   const warmthRaw = (Math.sin(skyPhase)+1)/2;
-  const warmth = warmthRaw;  // linear = 50/50 Belfast/Evening split
+  const warmth = Math.pow(warmthRaw, 1.4);  // gentle bias toward Belfast (blue) ~60/40
   skySphereMat.uniforms.mixVal.value = 1.0 - warmth;  // warmth=1 → sky A (evening), warmth=0 → sky B (belfast)
   // Dreamy tint: warm = amber/rose, cool = lavender — but NEVER suppress blue vividness
   skySphereMat.uniforms.tintColor.value.setRGB(
