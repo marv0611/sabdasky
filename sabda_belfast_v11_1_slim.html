@@ -925,12 +925,12 @@ function animate() {
       ss.maxLife = 3.5 + Math.random() * 2.5;
       ss.life = ss.maxLife;
       ss._theta = Math.random() * Math.PI * 2;
-      ss._phi = (30 + Math.random() * 25) * Math.PI / 180;
-      const hSpeed = (0.25 + Math.random() * 0.20) * (Math.random() < 0.5 ? 1 : -1);
-      const descentAngle = (15 + Math.random() * 15) * Math.PI / 180;
-      const vSpeed = -Math.abs(hSpeed) * Math.tan(descentAngle);
-      ss._dTheta = hSpeed;
-      ss._dPhi = vSpeed;
+      ss._phi = (40 + Math.random() * 30) * Math.PI / 180;
+      const fallSpeed = -(0.08 + Math.random() * 0.06);
+      const drift = (Math.random()-0.5) * 0.04;
+      ss._dTheta = drift;
+      
+      ss._dPhi = fallSpeed;
       const sR = 340;
       ss.pos.set(Math.cos(ss._phi)*Math.cos(ss._theta)*sR, Math.sin(ss._phi)*sR, Math.cos(ss._phi)*Math.sin(ss._theta)*sR);
       ssStreak.visible = true;

@@ -756,14 +756,13 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
       ss.life = ss.maxLife;
       // Spawn in upper sky (spherical coords)
       ss._theta = Math.random() * Math.PI * 2;  // azimuth
-      ss._phi = (30 + Math.random() * 25) * Math.PI / 180;  // elevation
+      ss._phi = (40 + Math.random() * 30) * Math.PI / 180;  // elevation 40-70° — high up
       // Velocity in spherical: dTheta/dt and dPhi/dt
-      // Natural descent: 15-30° angle from horizontal — like real shooting stars
-      const hSpeed = (0.25 + Math.random() * 0.20) * (Math.random() < 0.5 ? 1 : -1);  // rad/s azimuth
-      const descentAngle = (15 + Math.random() * 15) * Math.PI / 180;  // 15-30° from horizontal
-      const vSpeed = -Math.abs(hSpeed) * Math.tan(descentAngle);  // descent scales with horizontal speed
-      ss._dTheta = hSpeed;
-      ss._dPhi = vSpeed;
+      // Shooting stars FALL from above — dominant vertical descent with slight horizontal drift
+      const fallSpeed = -(0.08 + Math.random() * 0.06);  // rad/s downward (dominant)
+      const drift = (Math.random()-0.5) * 0.04;  // slight horizontal drift only
+      ss._dTheta = drift;
+      ss._dPhi = fallSpeed;
       const sR = 340;
       ss.pos.set(Math.cos(ss._phi)*Math.cos(ss._theta)*sR, Math.sin(ss._phi)*sR, Math.cos(ss._phi)*Math.sin(ss._theta)*sR);
       ssStreak.visible = true;
