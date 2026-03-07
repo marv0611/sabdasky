@@ -750,16 +750,18 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
       ss.tailBonus = 150 + Math.random() * 400;
       ss.maxLife = 3.5 + Math.random() * 2.5;
       ss.life = ss.maxLife;
-      // Spherical-coord trajectory — straight line in theta/phi = straight line across walls
-      ss._theta = Math.random() * Math.PI * 2;
-      ss._phi = (40 + Math.random() * 30) * Math.PI / 180;
-      const fallSpeed = -(0.08 + Math.random() * 0.06);
-      const drift = (Math.random()-0.5) * 0.04;
-      ss._dTheta = drift;
-      
-      ss._dPhi = fallSpeed;
+      const sTheta = Math.random() * Math.PI * 2;
+      const sElev = (30 + Math.random() * 25) * Math.PI / 180;
       const sR = 340;
-      ss.pos.set(Math.cos(ss._phi)*Math.cos(ss._theta)*sR, Math.sin(ss._phi)*sR, Math.cos(ss._phi)*Math.sin(ss._theta)*sR);
+      ss.pos.set(Math.cos(sElev)*Math.cos(sTheta)*sR, Math.sin(sElev)*sR, Math.cos(sElev)*Math.sin(sTheta)*sR);
+      const entryAngle = (2 + Math.random() * 5) * Math.PI / 180;
+      const travelTheta = sTheta + 0.4 + Math.random() * 0.6;
+      const speed = 120 + Math.random() * 80;
+      ss.vel.set(
+        Math.cos(travelTheta) * Math.cos(entryAngle) * speed,
+        -Math.sin(entryAngle) * speed,
+        Math.sin(travelTheta) * Math.cos(entryAngle) * speed
+      );
       ssStreak.visible = true;
     }
   }
@@ -771,35 +773,24 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     else if (progress < 0.6) opacity = 1.0;
     else opacity = Math.pow((1 - progress) / 0.4, 0.7);
     opacity = Math.max(0, opacity);
-    // Move along spherical coordinates — constant direction across walls
-    ss._theta += ss._dTheta * dt;
-    ss._phi += ss._dPhi * dt;
-    ss._phi = Math.max(5 * Math.PI / 180, ss._phi);
-    const sR2 = 340;
-    ss.pos.set(Math.cos(ss._phi)*Math.cos(ss._theta)*sR2, Math.sin(ss._phi)*sR2, Math.cos(ss._phi)*Math.sin(ss._theta)*sR2);
-    // Multi-segment streak following dome curvature
+    ss.pos.addScaledVector(ss.vel, dt);
+    ss.pos.normalize().multiplyScalar(340);
     const tailAngle = (0.65 + ss.tailBonus * 0.003);
-    const totalSpeed = Math.sqrt(ss._dTheta*ss._dTheta + ss._dPhi*ss._dPhi);
-    const tailTime = tailAngle / Math.max(0.01, totalSpeed);
+    const velDir = ss.vel.clone().normalize();
     const p = ssGeo.attributes.position.array;
     const hw = 1.5;
+    const sR2 = 340;
     for (let i = 0; i <= SS_SEGMENTS; i++) {
       const t = i / SS_SEGMENTS;
-      const segTheta = ss._theta - ss._dTheta * tailTime * (1 - t);
-      const segPhi = ss._phi - ss._dPhi * tailTime * (1 - t);
-      const clampedPhi = Math.max(3 * Math.PI / 180, segPhi);
-      const px = Math.cos(clampedPhi) * Math.cos(segTheta) * sR2;
-      const py = Math.sin(clampedPhi) * sR2;
-      const pz = Math.cos(clampedPhi) * Math.sin(segTheta) * sR2;
+      const stepBack = tailAngle * (1 - t);
+      const segPos = ss.pos.clone().addScaledVector(velDir, -stepBack * sR2);
+      segPos.normalize().multiplyScalar(sR2);
+      const px = segPos.x, py = segPos.y, pz = segPos.z;
       const radLen = Math.sqrt(px*px + py*py + pz*pz);
       const rx = px/radLen, ry = py/radLen, rz = pz/radLen;
-      const dTh = 0.01 * Math.sign(ss._dTheta || 1);
-      const tx = Math.cos(clampedPhi)*Math.cos(segTheta+dTh)*sR2 - px;
-      const ty = 0;
-      const tz = Math.cos(clampedPhi)*Math.sin(segTheta+dTh)*sR2 - pz;
-      let sx = ty*rz - tz*ry;
-      let sy = tz*rx - tx*rz;
-      let sz = tx*ry - ty*rx;
+      let sx = velDir.y*rz - velDir.z*ry;
+      let sy = velDir.z*rx - velDir.x*rz;
+      let sz = velDir.x*ry - velDir.y*rx;
       const sLen = Math.sqrt(sx*sx + sy*sy + sz*sz) || 1;
       sx /= sLen; sy /= sLen; sz /= sLen;
       const idx = i * 2 * 3;
@@ -807,11 +798,9 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
       p[idx+3] = px - sx * hw; p[idx+4] = py - sy * hw; p[idx+5] = pz - sz * hw;
     }
     ssGeo.attributes.position.needsUpdate = true;
-    // Reset transform — geometry is in world space
     ssStreak.position.set(0, 0, 0);
     ssStreak.rotation.set(0, 0, 0);
     ssStreak.scale.set(1, 1, 1);
-    // Material
     ssMat.uniforms.uOpacity.value = opacity;
     ssMat.uniforms.uColor.value.setRGB(1, 0.97 - progress * 0.05, 0.92 - progress * 0.1);
     if (ss.life <= 0) { ss.active = false; ssStreak.visible = false; ss.timer = 25 + Math.random() * 10; }
