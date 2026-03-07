@@ -781,20 +781,18 @@ for (let i = 0; i < MURM_N; i++) {
   murmVel.push(new THREE.Vector3((Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3));
 }
 
-// InstancedMesh — tiny dark spheres
-const murmSphereGeo = new THREE.SphereGeometry(0.5, 6, 4);
-const murmSphereMat = new THREE.MeshBasicMaterial({ color: 0xff0000, fog: false });
-const murmIMesh = new THREE.InstancedMesh(murmSphereGeo, murmSphereMat, MURM_N);
-murmIMesh.frustumCulled = false;
-const murmDummy = new THREE.Object3D();
+// Plain Mesh objects — same as existing birds, guaranteed to render
+const murmSphereGeo = new THREE.SphereGeometry(0.3, 4, 3);
+const murmSphereMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+const murmMeshes = [];
 for (let i = 0; i < MURM_N; i++) {
-  murmDummy.position.copy(murmPos[i]).add(MURM_CENTER);
-  murmDummy.updateMatrix();
-  murmIMesh.setMatrixAt(i, murmDummy.matrix);
+  const m = new THREE.Mesh(murmSphereGeo, murmSphereMat);
+  m.position.copy(murmPos[i]).add(MURM_CENTER);
+  m.frustumCulled = false;
+  contentScene.add(m);
+  murmMeshes.push(m);
 }
-murmIMesh.instanceMatrix.needsUpdate = true;
-contentScene.add(murmIMesh);
-console.log('SABDA: Murmuration ready —', MURM_N, 'CPU boids');
+console.log('SABDA: Murmuration ready —', MURM_N, 'plain Mesh spheres added to contentScene');
 
 function updateMurmuration() {
   const protectedRange = 0.8;
@@ -882,17 +880,14 @@ function updateMurmuration() {
     p.x += v.x; p.y += v.y; p.z += v.z;
   }
 
-  // Update InstancedMesh
+  // Update mesh positions
   for (let i = 0; i < MURM_N; i++) {
-    murmDummy.position.set(
+    murmMeshes[i].position.set(
       murmPos[i].x + MURM_CENTER.x,
       murmPos[i].y + MURM_CENTER.y,
       murmPos[i].z + MURM_CENTER.z
     );
-    murmDummy.updateMatrix();
-    murmIMesh.setMatrixAt(i, murmDummy.matrix);
   }
-  murmIMesh.instanceMatrix.needsUpdate = true;
   if (Math.random() < 0.003) console.log('MURM pos[0]:', murmPos[0].x.toFixed(1), murmPos[0].y.toFixed(1), murmPos[0].z.toFixed(1), 'world:', (murmPos[0].x+MURM_CENTER.x).toFixed(1), (murmPos[0].y+MURM_CENTER.y).toFixed(1), (murmPos[0].z+MURM_CENTER.z).toFixed(1));
 }
 
