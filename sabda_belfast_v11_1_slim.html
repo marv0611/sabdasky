@@ -1003,11 +1003,13 @@ function animate() {
     bd.glideTimer -= dt;
     if (bd.glideTimer <= 0) {
       bd.isGliding = !bd.isGliding;
-      bd.glideTimer = bd.isGliding ? bd.glideDuration + Math.random() * 0.5 : bd.flapDuration + Math.random() * 2;
-      bd.targetTimeScale = bd.isGliding ? 0.35 : bd.baseTimeScale + Math.random() * 0.15;
+      bd.glideTimer = bd.isGliding ? bd.glideDuration + Math.random() * 5.0 : bd.flapDuration + Math.random() * 5.0;
+      bd.targetTimeScale = bd.isGliding ? 0.08 + Math.random() * 0.12 : bd.baseTimeScale * 0.6 + Math.random() * bd.baseTimeScale * 0.4;
     }
-    bd.currentTimeScale += (bd.targetTimeScale - bd.currentTimeScale) * 1.5 * dt;
-    bd.action.timeScale = bd.currentTimeScale;
+    bd.currentTimeScale += (bd.targetTimeScale - bd.currentTimeScale) * 0.15 * dt;
+    const flapWave = 1.0 + Math.sin(time * (0.5 + bd._fadeOffset * 0.2)) * 0.15
+                         + Math.sin(time * (0.17 + bd._fadeOffset * 0.07)) * 0.08;
+    bd.action.timeScale = Math.min(bd.currentTimeScale * flapWave, bd.baseTimeScale * 1.8);
     bd.mixer.update(dt);
 
 
