@@ -641,8 +641,11 @@ const saturnUrl1 = b64ToUrl('saturndata','model/gltf-binary');
 saturnLoader1.load(saturnUrl1, gltf => {
   URL.revokeObjectURL(saturnUrl1);
   applySaturnMaterials(gltf.scene);
-  // Only one Saturn group — the visible ringed planet
   saturnGroup.add(gltf.scene); checkReady();
+  console.log('SABDA: Saturn loaded OK, meshes:', gltf.scene.children.length);
+}, undefined, err => {
+  console.error('SABDA: Saturn FAILED to load:', err);
+  checkReady(); // still count it so scene starts
 });
 
 // ═══════════════════════════════════════════════════════
