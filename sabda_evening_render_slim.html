@@ -874,7 +874,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     if(dist>42){
       const exitAngle = Math.atan2(px, pz);
       const entryDist = 38 + Math.random() * 4;
-      if (Math.random() < 0.5) {
+      if (Math.random() < 0.7) {
         // HORIZONTAL TRAVERSAL: enter from side, fly across the horizon
         const entryAngle = exitAngle + Math.PI + (Math.random()-0.5)*0.6;
         bd.ctr.position.x = Math.sin(entryAngle) * entryDist;
@@ -919,7 +919,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
         bd.homeY + (Math.random()-0.5)*1.0,
         Math.cos(entryAngle) * entryDist
       );
-      if (Math.random() < 0.5) {
+      if (Math.random() < 0.7) {
         // Horizontal traversal
         const tangent = entryAngle + (Math.random() < 0.5 ? Math.PI/2 : -Math.PI/2);
         bd.heading = tangent + (Math.random()-0.5)*0.3;
@@ -936,10 +936,10 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     // Scale: distance-compensated, fade only at loop boundaries
     const rawDistScale = BIRD_REF_DIST / Math.max(15, dist);
     const distScale = 0.7 + 0.3 * rawDistScale;
-    bd.ctr.scale.setScalar(distScale * birdFade);
-    bd.ctr.visible = birdFade > 0.01;
+    bd.ctr.scale.setScalar(distScale);
+    bd.ctr.visible = birdFade > 0.05;
 
-    if (birdFade > 0.01) {
+    if (birdFade > 0.05) {
     // Gentle altitude float — slight bob, no dramatic vertical movement
     const alt=bd.homeY+(bd.isGliding?-0.3:0.2);
     bd.vy+=(alt-bd.ctr.position.y)*0.02*dt;bd.vy*=Math.pow(0.97, dt*30);bd.ctr.position.y+=bd.vy;
