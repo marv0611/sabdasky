@@ -133,16 +133,16 @@ uniform float uSize;
 void main() {
   vec3 pos = texture2D( texturePosition, reference ).xyz;
   vec4 mvPos = modelViewMatrix * vec4( pos, 1.0 );
-  gl_PointSize = uSize * (300.0 / -mvPos.z);
-  gl_PointSize = clamp(gl_PointSize, 1.5, 12.0);
+  gl_PointSize = uSize * (200.0 / -mvPos.z);
+  gl_PointSize = clamp(gl_PointSize, 2.5, 16.0);
   gl_Position = projectionMatrix * mvPos;
 }
 </script>
 <script type="x-shader/x-fragment" id="murmBirdFS">
 void main() {
   float d = length(gl_PointCoord - vec2(0.5));
-  if (d > 0.45) discard;
-  gl_FragColor = vec4(0.06, 0.05, 0.04, 1.0);
+  if (d > 0.4) discard;
+  gl_FragColor = vec4(0.02, 0.02, 0.02, 1.0);
 }
 </script>
 
@@ -888,9 +888,9 @@ saturnLoader1.load(saturnUrl1, gltf => {
 // ═══════════════════════════════════════════════════════
 // MURMURATION — GPGPU BOIDS (256 birds, tight flocking)
 // ═══════════════════════════════════════════════════════
-const MURM_WIDTH = 32; // 32x32 = 1024 birds
+const MURM_WIDTH = 32;
 const MURM_BIRDS = MURM_WIDTH * MURM_WIDTH;
-const MURM_BOUNDS = 300; // background distance — between close birds and sky
+const MURM_BOUNDS = 80; // very tight — dense cloud
 let murmGpuCompute, murmVelVar, murmPosVar, murmPosUniforms, murmVelUniforms, murmBirdUniforms;
 let murmPrevTime = performance.now() / 1000;
 
@@ -922,11 +922,11 @@ const dtV = murmGpuCompute.createTexture();
 // Tight initial cluster — all birds start together
 const pA = dtP.image.data;
 for (let k=0;k<pA.length;k+=4) {
-  pA[k]=(Math.random()-0.5)*80; pA[k+1]=(Math.random()-0.5)*80; pA[k+2]=(Math.random()-0.5)*80; pA[k+3]=1;
+  pA[k]=(Math.random()-0.5)*20; pA[k+1]=(Math.random()-0.5)*20; pA[k+2]=(Math.random()-0.5)*20; pA[k+3]=1;
 }
 const vA = dtV.image.data;
 for (let k=0;k<vA.length;k+=4) {
-  vA[k]=(Math.random()-0.5)*5; vA[k+1]=(Math.random()-0.5)*5; vA[k+2]=(Math.random()-0.5)*5; vA[k+3]=1;
+  vA[k]=(Math.random()-0.5)*2; vA[k+1]=(Math.random()-0.5)*2; vA[k+2]=(Math.random()-0.5)*2; vA[k+3]=1;
 }
 murmVelVar = murmGpuCompute.addVariable('textureVelocity', document.getElementById('murmVelocityShader').textContent, dtV);
 murmPosVar = murmGpuCompute.addVariable('texturePosition', document.getElementById('murmPositionShader').textContent, dtP);
@@ -937,10 +937,10 @@ murmVelUniforms = murmVelVar.material.uniforms;
 murmPosUniforms['time']={value:0}; murmPosUniforms['delta']={value:0};
 murmVelUniforms['time']={value:0}; murmVelUniforms['delta']={value:0};
 murmVelUniforms['testing']={value:1.0};
-// TIGHT FLOCK: scaled for BOUNDS=300
-murmVelUniforms['separationDistance']={value:20.0};
-murmVelUniforms['alignmentDistance']={value:60.0};
-murmVelUniforms['cohesionDistance']={value:80.0};
+// DENSE CLOUD: minimal separation, massive cohesion
+murmVelUniforms['separationDistance']={value:5.0};
+murmVelUniforms['alignmentDistance']={value:15.0};
+murmVelUniforms['cohesionDistance']={value:60.0};
 murmVelUniforms['freedomFactor']={value:0.75};
 murmVelUniforms['predator']={value:new THREE.Vector3()};
 murmVelVar.material.defines.BOUNDS = MURM_BOUNDS.toFixed(2);
@@ -963,7 +963,7 @@ mGeo.setAttribute('reference', new THREE.BufferAttribute(mRefs, 2));
 
 murmBirdUniforms = {
   'texturePosition':{value:null},
-  'uSize':{value:8.0}
+  'uSize':{value:12.0}
 };
 const mMat = new THREE.ShaderMaterial({
   uniforms: murmBirdUniforms,
@@ -1290,10 +1290,10 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   murmPosUniforms['delta'].value = murmDelta;
   murmVelUniforms['time'].value = murmNow;
   murmVelUniforms['delta'].value = murmDelta;
-  // Wandering predator — slow organic path that drives shape-shifting
-  const wt = murmNow * 0.12;
-  const px = Math.sin(wt*1.7)*0.3 + Math.sin(wt*0.7+2.1)*0.2 + Math.sin(wt*3.1+0.5)*0.1;
-  const py = Math.cos(wt*1.3)*0.25 + Math.sin(wt*0.5+1.3)*0.15;
+  // Wandering predator — very slow, gentle path
+  const wt = murmNow * 0.06;
+  const px = Math.sin(wt*1.7)*0.2 + Math.sin(wt*0.7+2.1)*0.1;
+  const py = Math.cos(wt*1.3)*0.15 + Math.sin(wt*0.5+1.3)*0.08;
   murmVelUniforms['predator'].value.set(px, py, 0);
   murmGpuCompute.compute();
   murmBirdUniforms['texturePosition'].value = murmGpuCompute.getCurrentRenderTarget(murmPosVar).texture;
