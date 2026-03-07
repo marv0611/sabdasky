@@ -536,7 +536,7 @@ let planetMixer = null, glowMat = null;
 const planetGroup = new THREE.Group();
 const plDist = 85, plAngle = Math.PI + 0.85, plElev = 15*Math.PI/180;
 planetGroup.position.set(Math.cos(plAngle)*Math.cos(plElev)*plDist, Math.sin(plElev)*plDist, Math.sin(plAngle)*Math.cos(plElev)*plDist);
-planetGroup.scale.set(10.5, 13.5, 13.5); planetGroup.rotation.z = 0.12; planetGroup.rotation.x = -0.08;
+planetGroup.scale.setScalar(12.0); planetGroup.rotation.z = 0.12; planetGroup.rotation.x = -0.08;
 const glowCanvas = document.createElement('canvas'); glowCanvas.width=512; glowCanvas.height=512;
 const gCtx = glowCanvas.getContext('2d');
 const g1 = gCtx.createRadialGradient(256,256,0,256,256,256);

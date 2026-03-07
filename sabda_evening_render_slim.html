@@ -434,7 +434,7 @@ contentScene.add(rayGroup);
 
 // ── SHOOTING STAR ──
 const shootingStarState = {
-  active: false, timer: 1, // DEBUG: fast start
+  active: false, timer: 8,
   pos: new THREE.Vector3(), vel: new THREE.Vector3(), life: 0, maxLife: 0, tailBonus: 0,
 };
 // Shooting star = multi-segment triangle strip following dome curvature
@@ -537,7 +537,7 @@ let planetMixer = null, glowMat = null;
 const planetGroup = new THREE.Group();
 const plDist = 85, plAngle = Math.PI + 0.85, plElev = 15*Math.PI/180;
 planetGroup.position.set(Math.cos(plAngle)*Math.cos(plElev)*plDist, Math.sin(plElev)*plDist, Math.sin(plAngle)*Math.cos(plElev)*plDist);
-planetGroup.scale.set(10.5, 13.5, 13.5); planetGroup.rotation.z = 0.12; planetGroup.rotation.x = -0.08;
+planetGroup.scale.setScalar(12.0); planetGroup.rotation.z = 0.12; planetGroup.rotation.x = -0.08;
 const glowCanvas = document.createElement('canvas'); glowCanvas.width=512; glowCanvas.height=512;
 const gCtx = glowCanvas.getContext('2d');
 const g1 = gCtx.createRadialGradient(256,256,0,256,256,256);
@@ -833,7 +833,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     ssStreak.scale.set(1, 1, 1);
     ssMat.uniforms.uOpacity.value = opacity;
     ssMat.uniforms.uColor.value.setRGB(1, 0.97 - progress * 0.05, 0.92 - progress * 0.1);
-    if (ss.life <= 0) { ss.active = false; ssStreak.visible = false; ss.timer = 2; } // DEBUG: 2s respawn
+    if (ss.life <= 0) { ss.active = false; ssStreak.visible = false; ss.timer = 25 + Math.random() * 10; }
   }
 
 
