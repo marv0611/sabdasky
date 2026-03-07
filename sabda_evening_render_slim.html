@@ -544,7 +544,7 @@ contentScene.add(rayGroup);
 
 // ── SHOOTING STAR ──
 const shootingStarState = {
-  active: false, timer: 4,
+  active: false, timer: 30,
   pos: new THREE.Vector3(), vel: new THREE.Vector3(), life: 0, maxLife: 0, tailBonus: 0,
 };
 // Shooting star = multi-segment triangle strip following dome curvature
@@ -643,21 +643,50 @@ dustSystem.frustumCulled = false;
 contentScene.add(dustSystem);
 
 // ── PLANET ──
-let planetMixer = null, glowMat = null;
+let planetMixer = null;
 const planetGroup = new THREE.Group();
 const plDist = 85, plAngle = Math.PI + 0.85, plElev = 15*Math.PI/180;
 planetGroup.position.set(Math.cos(plAngle)*Math.cos(plElev)*plDist, Math.sin(plElev)*plDist, Math.sin(plAngle)*Math.cos(plElev)*plDist);
 planetGroup.scale.setScalar(12.0); planetGroup.rotation.z = 0.12; planetGroup.rotation.x = -0.08;
-const glowCanvas = document.createElement('canvas'); glowCanvas.width=512; glowCanvas.height=512;
-const gCtx = glowCanvas.getContext('2d');
-const g1 = gCtx.createRadialGradient(256,256,0,256,256,256);
-g1.addColorStop(0,'rgba(200,160,240,0.3)'); g1.addColorStop(0.05,'rgba(190,150,230,0.2)');
-g1.addColorStop(0.15,'rgba(170,130,210,0.08)'); g1.addColorStop(0.3,'rgba(150,110,190,0.02)');
-g1.addColorStop(0.5,'rgba(130,90,170,0.0)'); g1.addColorStop(1.0,'rgba(100,60,140,0.0)');
-gCtx.fillStyle=g1; gCtx.fillRect(0,0,512,512);
-glowMat = new THREE.SpriteMaterial({ map:new THREE.CanvasTexture(glowCanvas), transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, fog:false });
-const glowSprite = new THREE.Sprite(glowMat); glowSprite.scale.setScalar(6.0);
-planetGroup.add(glowSprite); contentScene.add(planetGroup);
+// Atmospheric haze — blends planet INTO the sky instead of popping out
+const planetHazeMat = new THREE.SpriteMaterial({
+  map: (function(){
+    const c=document.createElement('canvas'); c.width=512; c.height=512;
+    const ctx=c.getContext('2d');
+    const g=ctx.createRadialGradient(256,256,0,256,256,256);
+    g.addColorStop(0,'rgba(255,255,255,0.40)');
+    g.addColorStop(0.08,'rgba(255,255,255,0.25)');
+    g.addColorStop(0.20,'rgba(255,255,255,0.12)');
+    g.addColorStop(0.40,'rgba(255,255,255,0.04)');
+    g.addColorStop(0.65,'rgba(255,255,255,0.01)');
+    g.addColorStop(1.0,'rgba(255,255,255,0.0)');
+    ctx.fillStyle=g; ctx.fillRect(0,0,512,512);
+    return new THREE.CanvasTexture(c);
+  })(),
+  transparent: true, blending: THREE.NormalBlending, depthWrite: false, fog: false,
+  color: new THREE.Color(0.72, 0.52, 0.58) // will be updated per-frame to match sky
+});
+const planetHaze = new THREE.Sprite(planetHazeMat); planetHaze.scale.setScalar(8.0);
+planetGroup.add(planetHaze);
+// Tiny inner luminous core (additive, subtle)
+const planetCoreMat = new THREE.SpriteMaterial({
+  map: (function(){
+    const c=document.createElement('canvas'); c.width=256; c.height=256;
+    const ctx=c.getContext('2d');
+    const g=ctx.createRadialGradient(128,128,0,128,128,128);
+    g.addColorStop(0,'rgba(220,180,255,0.35)');
+    g.addColorStop(0.10,'rgba(200,160,240,0.15)');
+    g.addColorStop(0.25,'rgba(180,140,220,0.04)');
+    g.addColorStop(0.5,'rgba(160,120,200,0.0)');
+    g.addColorStop(1.0,'rgba(140,100,180,0.0)');
+    ctx.fillStyle=g; ctx.fillRect(0,0,256,256);
+    return new THREE.CanvasTexture(c);
+  })(),
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+});
+const planetCore = new THREE.Sprite(planetCoreMat); planetCore.scale.setScalar(3.5);
+planetGroup.add(planetCore);
+contentScene.add(planetGroup);
 
 // (Saturn Star removed — was creating UFO-like artifact)
 
@@ -666,15 +695,45 @@ const saturnMainGroup = new THREE.Group();
 const satMainAngle=0.85, satMainDist=85, satMainElev=15*Math.PI/180;
 saturnMainGroup.position.set(Math.cos(satMainAngle)*Math.cos(satMainElev)*satMainDist, Math.sin(satMainElev)*satMainDist, Math.sin(satMainAngle)*Math.cos(satMainElev)*satMainDist);
 saturnMainGroup.scale.setScalar(0.023); saturnMainGroup.rotation.x=-0.3; saturnMainGroup.rotation.z=0.12;
-const satMGlowCvs = document.createElement('canvas'); satMGlowCvs.width=512; satMGlowCvs.height=512;
-const smgCtx = satMGlowCvs.getContext('2d');
-const smg1 = smgCtx.createRadialGradient(256,256,0,256,256,256);
-smg1.addColorStop(0,'rgba(240,200,140,0.3)'); smg1.addColorStop(0.05,'rgba(230,190,130,0.2)');
-smg1.addColorStop(0.15,'rgba(210,170,110,0.08)'); smg1.addColorStop(0.3,'rgba(190,150,100,0.02)');
-smg1.addColorStop(0.5,'rgba(170,130,80,0.0)'); smg1.addColorStop(1.0,'rgba(140,100,60,0.0)');
-smgCtx.fillStyle=smg1; smgCtx.fillRect(0,0,512,512);
-const satMGlowSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map:new THREE.CanvasTexture(satMGlowCvs), transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, fog:false }));
-satMGlowSprite.scale.setScalar(260); saturnMainGroup.add(satMGlowSprite); contentScene.add(saturnMainGroup);
+// Saturn atmospheric haze — same approach, sky-matched
+const saturnHazeMat = new THREE.SpriteMaterial({
+  map: (function(){
+    const c=document.createElement('canvas'); c.width=512; c.height=512;
+    const ctx=c.getContext('2d');
+    const g=ctx.createRadialGradient(256,256,0,256,256,256);
+    g.addColorStop(0,'rgba(255,255,255,0.35)');
+    g.addColorStop(0.06,'rgba(255,255,255,0.22)');
+    g.addColorStop(0.18,'rgba(255,255,255,0.10)');
+    g.addColorStop(0.35,'rgba(255,255,255,0.03)');
+    g.addColorStop(0.60,'rgba(255,255,255,0.008)');
+    g.addColorStop(1.0,'rgba(255,255,255,0.0)');
+    ctx.fillStyle=g; ctx.fillRect(0,0,512,512);
+    return new THREE.CanvasTexture(c);
+  })(),
+  transparent: true, blending: THREE.NormalBlending, depthWrite: false, fog: false,
+  color: new THREE.Color(0.72, 0.52, 0.58) // synced per-frame
+});
+const saturnHaze = new THREE.Sprite(saturnHazeMat); saturnHaze.scale.setScalar(350);
+saturnMainGroup.add(saturnHaze);
+// Saturn inner core glow
+const saturnCoreMat = new THREE.SpriteMaterial({
+  map: (function(){
+    const c=document.createElement('canvas'); c.width=256; c.height=256;
+    const ctx=c.getContext('2d');
+    const g=ctx.createRadialGradient(128,128,0,128,128,128);
+    g.addColorStop(0,'rgba(255,220,160,0.30)');
+    g.addColorStop(0.10,'rgba(240,200,140,0.12)');
+    g.addColorStop(0.25,'rgba(220,180,120,0.03)');
+    g.addColorStop(0.5,'rgba(200,160,100,0.0)');
+    g.addColorStop(1.0,'rgba(180,140,80,0.0)');
+    ctx.fillStyle=g; ctx.fillRect(0,0,256,256);
+    return new THREE.CanvasTexture(c);
+  })(),
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+});
+const saturnCore = new THREE.Sprite(saturnCoreMat); saturnCore.scale.setScalar(180);
+saturnMainGroup.add(saturnCore);
+contentScene.add(saturnMainGroup);
 
 // ── GLB LOADER ──
 function b64ToUrl(id, mime) {
@@ -959,14 +1018,23 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     ssStreak.scale.set(1, 1, 1);
     ssMat.uniforms.uOpacity.value = opacity;
     ssMat.uniforms.uColor.value.setRGB(1, 0.97 - progress * 0.05, 0.92 - progress * 0.1);
-    if (ss.life <= 0) { ss.active = false; ssStreak.visible = false; ss.timer = 8 + Math.random() * 7; }
+    if (ss.life <= 0) { ss.active = false; ssStreak.visible = false; ss.timer = 25 + Math.random() * 10; }
   }
 
 
   // ── PLANETS ──
   planetGroup.rotation.y = (time / 1800) * Math.PI * 2 * 2; saturnMainGroup.rotation.y = (time / 1800) * Math.PI * 2 * 1;
   if(planetMixer){const clip=planetMixer._actions&&planetMixer._actions[0]?planetMixer._actions[0].getClip():null;if(clip){const cd=clip.duration;const totalAnimTime=1800*0.15;const nC=Math.max(1,Math.round(totalAnimTime/cd));const loopAnimTime=nC*cd;planetMixer.setTime(((time%1800)/1800)*loopAnimTime);}}
-  if(glowMat)glowMat.opacity=0.50+b*0.15;
+  // Atmospheric haze colour sync — match sky warmth
+  const hazeWarm = new THREE.Color(0.78, 0.55, 0.62);
+  const hazeCool = new THREE.Color(0.50, 0.54, 0.68);
+  const hazeCol = hazeWarm.clone().lerp(hazeCool, 1.0 - warmth);
+  planetHazeMat.color.copy(hazeCol);
+  planetHazeMat.opacity = 0.55 + b * 0.15;
+  planetCoreMat.opacity = 0.40 + b * 0.15;
+  saturnHazeMat.color.copy(hazeCol);
+  saturnHazeMat.opacity = 0.50 + b * 0.15;
+  saturnCoreMat.opacity = 0.35 + b * 0.12;
 
   // ── BIRDS ──
   for(const bd of birdFlocks){
