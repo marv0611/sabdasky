@@ -363,116 +363,6 @@ const fill = new THREE.DirectionalLight(0xcc6030, 0.2); fill.position.set(0, 5, 
 // ── FOG ──
 contentScene.fog = new THREE.FogExp2(0x9a7a90, 0.003);
 
-// ── LOWER CLOUD BANK ──
-// Fills the weak lower panorama with drifting volumetric-look clouds
-const CLOUD_LAYERS = 3;
-const cloudMeshes = [];
-for (let li = 0; li < CLOUD_LAYERS; li++) {
-  const cloudGeo = new THREE.PlaneGeometry(900, 900, 1, 1);
-  const cloudMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
-    uniforms: {
-      uTime: { value: 0 },
-      uLayer: { value: li },
-      uOpacity: { value: [0.35, 0.25, 0.18][li] },
-      uSkyColor: { value: new THREE.Color(0.72, 0.52, 0.58) },
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      varying float vDist;
-      void main() {
-        vUv = uv;
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vDist = length(wp.xz);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      precision highp float;
-      uniform float uTime, uLayer, uOpacity;
-      uniform vec3 uSkyColor;
-      varying vec2 vUv;
-      varying float vDist;
-
-      // Simplex-style noise
-      vec3 mod289(vec3 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
-      vec2 mod289(vec2 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
-      vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
-      float snoise(vec2 v) {
-        const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-        vec2 i = floor(v + dot(v, C.yy));
-        vec2 x0 = v - i + dot(i, C.xx);
-        vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-        vec4 x12 = x0.xyxy + C.xxzz;
-        x12.xy -= i1;
-        i = mod289(i);
-        vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
-        vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
-        m = m*m; m = m*m;
-        vec3 x = 2.0 * fract(p * C.www) - 1.0;
-        vec3 h = abs(x) - 0.5;
-        vec3 ox = floor(x + 0.5);
-        vec3 a0 = x - ox;
-        m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
-        vec3 g;
-        g.x = a0.x * x0.x + h.x * x0.y;
-        g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-        return 130.0 * dot(m, g);
-      }
-
-      float fbm(vec2 p) {
-        float f = 0.0;
-        f += 0.5000 * snoise(p); p *= 2.01;
-        f += 0.2500 * snoise(p); p *= 2.02;
-        f += 0.1250 * snoise(p); p *= 2.03;
-        f += 0.0625 * snoise(p);
-        return f;
-      }
-
-      void main() {
-        vec2 uv = vUv - 0.5; // center
-        float r = length(uv) * 2.0; // 0 at center, 1 at edge
-
-        // Circular fade — soft at edges, invisible at far distance
-        float edgeFade = 1.0 - smoothstep(0.6, 1.0, r);
-
-        // Distance fade from camera (inner hole so no clouds directly underfoot)
-        float innerFade = smoothstep(20.0, 80.0, vDist);
-        float outerFade = 1.0 - smoothstep(300.0, 420.0, vDist);
-
-        // Animated cloud noise
-        float speed = 0.008 + uLayer * 0.003;
-        float scale = 0.008 - uLayer * 0.001;
-        vec2 cloudUv = uv * 450.0 * scale + vec2(uTime * speed, uTime * speed * 0.7);
-        float n = fbm(cloudUv);
-        float n2 = fbm(cloudUv * 1.8 + vec2(3.7, 1.2));
-
-        // Cloud shape — billowy with clear patches
-        float cloud = smoothstep(-0.1, 0.45, n) * smoothstep(-0.2, 0.5, n2);
-        cloud = pow(cloud, 0.8);
-
-        // Color: warm sky-matched tones with subtle variation
-        vec3 col = uSkyColor;
-        col += vec3(0.08, 0.04, 0.06) * n; // subtle warm variation
-        col += vec3(0.05, 0.02, 0.08) * (1.0 - cloud) * 0.5; // purple in gaps
-
-        // Brightness lift for luminous cloud feel
-        col += vec3(0.12, 0.08, 0.10) * cloud;
-
-        float alpha = cloud * edgeFade * innerFade * outerFade * uOpacity;
-        gl_FragColor = vec4(col, alpha);
-      }
-    `,
-  });
-  const cloudPlane = new THREE.Mesh(cloudGeo, cloudMat);
-  cloudPlane.rotation.x = -Math.PI / 2;
-  // Stack layers at different heights below horizon
-  cloudPlane.position.y = -3.0 - li * 2.5;
-  cloudPlane.renderOrder = -10 + li;
-  contentScene.add(cloudPlane);
-  cloudMeshes.push(cloudPlane);
-}
-
 // ── STAR FIELD ──
 const STAR_COUNT = 200;
 const starGeo = new THREE.BufferGeometry();
@@ -544,7 +434,7 @@ contentScene.add(rayGroup);
 
 // ── SHOOTING STAR ──
 const shootingStarState = {
-  active: false, timer: 4,
+  active: false, timer: 8,
   pos: new THREE.Vector3(), vel: new THREE.Vector3(), life: 0, maxLife: 0, tailBonus: 0,
 };
 // Shooting star = multi-segment triangle strip following dome curvature
@@ -788,11 +678,6 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   // ── SKY DRIFT ──
   skySphere.rotation.y = (time/1800)*Math.PI*2;
 
-  // ── CLOUD BANK ──
-  for (let ci = 0; ci < cloudMeshes.length; ci++) {
-    cloudMeshes[ci].material.uniforms.uTime.value = time;
-  }
-
   // ── DUST ──
   dustMat.uniforms.uTime.value = time;
   const dPos = dustGeo.attributes.position.array;
@@ -846,14 +731,6 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   const warmthRaw = (Math.sin(skyPhase)+1)/2;
   const warmth = Math.pow(warmthRaw, 2.5);  // strong bias toward Belfast (blue) ~80/20
   skySphereMat.uniforms.mixVal.value = 1.0 - warmth;  // warmth=1 → sky A (evening), warmth=0 → sky B (belfast)
-
-  // Cloud bank colour sync — warm pink when evening sky, cool blue-grey when Belfast
-  const cloudWarm = new THREE.Color(0.72, 0.52, 0.58); // evening rose
-  const cloudCool = new THREE.Color(0.48, 0.52, 0.62); // belfast blue-grey
-  const cloudCol = cloudWarm.clone().lerp(cloudCool, 1.0 - warmth);
-  for (let ci = 0; ci < cloudMeshes.length; ci++) {
-    cloudMeshes[ci].material.uniforms.uSkyColor.value.copy(cloudCol);
-  }
   // Dreamy tint: warm = amber/rose, cool = lavender — but NEVER suppress blue vividness
   skySphereMat.uniforms.tintColor.value.setRGB(
     0.94 + warmth * 0.11,                    // R: 0.94→1.05 warm glow
@@ -959,7 +836,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     ssStreak.scale.set(1, 1, 1);
     ssMat.uniforms.uOpacity.value = opacity;
     ssMat.uniforms.uColor.value.setRGB(1, 0.97 - progress * 0.05, 0.92 - progress * 0.1);
-    if (ss.life <= 0) { ss.active = false; ssStreak.visible = false; ss.timer = 8 + Math.random() * 7; }
+    if (ss.life <= 0) { ss.active = false; ssStreak.visible = false; ss.timer = 25 + Math.random() * 10; }
   }
 
 
