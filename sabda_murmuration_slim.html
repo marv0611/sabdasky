@@ -771,125 +771,142 @@ saturnLoader1.load(saturnUrl1, gltf => {
 // ═══════════════════════════════════════════════════════
 // MURMURATION — PURE CPU BOIDS (no GPU readback issues)
 // ═══════════════════════════════════════════════════════
-const MURM_N = 800;
-const murmPos = [], murmVel = [];
-const MURM_CENTER = new THREE.Vector3(40, 8, -30); // out in the sky, visible from walls
+// ═══ 4 MURMURATION FLOCKS — triangle birds spread across 360° ═══
+const FLOCK_SIZE = 150; // birds per flock
+const FLOCK_COUNT = 4;
 
-// Init — tight ball
-for (let i = 0; i < MURM_N; i++) {
-  murmPos.push(new THREE.Vector3((Math.random()-0.5)*3, (Math.random()-0.5)*3, (Math.random()-0.5)*3));
-  murmVel.push(new THREE.Vector3((Math.random()-0.5)*0.1, (Math.random()-0.5)*0.1, (Math.random()-0.5)*0.1));
-}
+// Bird triangle shape — body + 2 wings
+const birdShape = new THREE.BufferGeometry();
+const bverts = new Float32Array([
+  0,0,-0.6,  0,0.12,-0.6,  0,0,0.9,   // body
+  0,0,-0.4,  -0.6,0,0,  0,0,0.4,      // left wing
+  0,0,0.4,   0.6,0,0,   0,0,-0.4      // right wing
+]);
+birdShape.setAttribute('position', new THREE.BufferAttribute(bverts, 3));
+birdShape.computeVertexNormals();
+const birdMat = new THREE.MeshBasicMaterial({ color: 0x0c0908, side: THREE.DoubleSide });
 
-// Plain Mesh objects — same as existing birds, guaranteed to render
-const murmSphereGeo = new THREE.SphereGeometry(0.2, 4, 3);
-const murmSphereMat = new THREE.MeshBasicMaterial({ color: 0x0a0a0a });
-const murmMeshes = [];
-for (let i = 0; i < MURM_N; i++) {
-  const m = new THREE.Mesh(murmSphereGeo, murmSphereMat);
-  m.position.copy(murmPos[i]).add(MURM_CENTER);
-  m.frustumCulled = false;
-  contentScene.add(m);
-  murmMeshes.push(m);
+// 4 flock centers — spread around the panorama at bird-height distance
+const flockCenters = [
+  new THREE.Vector3(35, 6, -25),   // front-right sky
+  new THREE.Vector3(-30, 7, -35),  // front-left sky
+  new THREE.Vector3(-25, 5, 30),   // back-left sky
+  new THREE.Vector3(30, 8, 35),    // back-right sky
+];
+
+// Each flock has its own predator phase offset for independent motion
+const flockPhaseOffsets = [0, 17.3, 41.7, 63.1];
+
+const allFlocks = [];
+for (let fi = 0; fi < FLOCK_COUNT; fi++) {
+  const flock = { pos: [], vel: [], meshes: [], center: flockCenters[fi], phaseOffset: flockPhaseOffsets[fi] };
+  for (let i = 0; i < FLOCK_SIZE; i++) {
+    flock.pos.push(new THREE.Vector3((Math.random()-0.5)*4, (Math.random()-0.5)*2, (Math.random()-0.5)*4));
+    flock.vel.push(new THREE.Vector3((Math.random()-0.5)*0.08, (Math.random()-0.5)*0.04, (Math.random()-0.5)*0.08));
+    const m = new THREE.Mesh(birdShape, birdMat);
+    m.frustumCulled = false;
+    m.position.copy(flock.pos[i]).add(flock.center);
+    contentScene.add(m);
+    flock.meshes.push(m);
+  }
+  allFlocks.push(flock);
 }
-console.log('SABDA: Murmuration ready —', MURM_N, 'plain Mesh spheres added to contentScene');
+console.log('SABDA: Murmuration ready —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, '=', FLOCK_COUNT*FLOCK_SIZE, 'triangle birds');
 
 function updateMurmuration() {
-  const protectedRange = 0.6;
-  const visualRange = 6.0;
-  const protectedRangeSq = protectedRange * protectedRange;
-  const visualRangeSq = visualRange * visualRange;
-  const avoidFactor = 0.03;
-  const matchingFactor = 0.04;
-  const centeringFactor = 0.003;
-  const maxSpeed = 0.4;
-  const minSpeed = 0.08;
-
-  // Wandering predator — irregular, never-repeating path
+  const protectedRangeSq = 0.5 * 0.5;
+  const visualRangeSq = 5.0 * 5.0;
+  const avoidFactor = 0.025;
+  const matchingFactor = 0.035;
+  const centeringFactor = 0.0025;
+  const maxSpeed = 0.3;
+  const minSpeed = 0.06;
   const t = performance.now() / 1000;
-  const predX = Math.sin(t*0.011)*5 + Math.sin(t*0.0073+1.3)*3 + Math.sin(t*0.019+4.1)*2;
-  const predY = Math.cos(t*0.013)*2 + Math.sin(t*0.0057+2.7)*1.5;
-  const predZ = Math.sin(t*0.009+0.8)*4 + Math.cos(t*0.017+3.2)*2;
 
-  for (let i = 0; i < MURM_N; i++) {
-    const p = murmPos[i];
-    const v = murmVel[i];
-    let closeDx = 0, closeDy = 0, closeDz = 0;
-    let posAvgX = 0, posAvgY = 0, posAvgZ = 0;
-    let velAvgX = 0, velAvgY = 0, velAvgZ = 0;
-    let neighbors = 0;
+  for (let fi = 0; fi < FLOCK_COUNT; fi++) {
+    const flock = allFlocks[fi];
+    const N = flock.pos.length;
+    const po = flock.phaseOffset;
 
-    for (let j = 0; j < MURM_N; j++) {
-      if (i === j) continue;
-      const o = murmPos[j];
-      const dx = p.x - o.x, dy = p.y - o.y, dz = p.z - o.z;
-      const distSq = dx*dx + dy*dy + dz*dz;
-      if (distSq < protectedRangeSq) {
-        closeDx += dx; closeDy += dy; closeDz += dz;
-      } else if (distSq < visualRangeSq) {
-        posAvgX += o.x; posAvgY += o.y; posAvgZ += o.z;
-        const ov = murmVel[j];
-        velAvgX += ov.x; velAvgY += ov.y; velAvgZ += ov.z;
-        neighbors++;
+    // Each flock has its own wandering predator — very irregular
+    const predX = Math.sin((t+po)*0.013)*6 + Math.sin((t+po)*0.0071+1.3)*3 + Math.cos((t+po)*0.023+4.1)*2;
+    const predY = Math.cos((t+po)*0.011)*2 + Math.sin((t+po)*0.0053+2.7)*1;
+    const predZ = Math.sin((t+po)*0.009+0.8)*5 + Math.cos((t+po)*0.019+3.2)*2.5;
+
+    for (let i = 0; i < N; i++) {
+      const p = flock.pos[i];
+      const v = flock.vel[i];
+      let closeDx=0, closeDy=0, closeDz=0;
+      let posAvgX=0, posAvgY=0, posAvgZ=0;
+      let velAvgX=0, velAvgY=0, velAvgZ=0;
+      let neighbors = 0;
+
+      for (let j = 0; j < N; j++) {
+        if (i === j) continue;
+        const o = flock.pos[j];
+        const dx = p.x-o.x, dy = p.y-o.y, dz = p.z-o.z;
+        const dSq = dx*dx + dy*dy + dz*dz;
+        if (dSq < protectedRangeSq) {
+          closeDx += dx; closeDy += dy; closeDz += dz;
+        } else if (dSq < visualRangeSq) {
+          posAvgX += o.x; posAvgY += o.y; posAvgZ += o.z;
+          const ov = flock.vel[j];
+          velAvgX += ov.x; velAvgY += ov.y; velAvgZ += ov.z;
+          neighbors++;
+        }
+      }
+
+      v.x += closeDx * avoidFactor;
+      v.y += closeDy * avoidFactor;
+      v.z += closeDz * avoidFactor;
+
+      if (neighbors > 0) {
+        posAvgX/=neighbors; posAvgY/=neighbors; posAvgZ/=neighbors;
+        velAvgX/=neighbors; velAvgY/=neighbors; velAvgZ/=neighbors;
+        v.x += (posAvgX - p.x) * centeringFactor;
+        v.y += (posAvgY - p.y) * centeringFactor;
+        v.z += (posAvgZ - p.z) * centeringFactor;
+        v.x += (velAvgX - v.x) * matchingFactor;
+        v.y += (velAvgY - v.y) * matchingFactor;
+        v.z += (velAvgZ - v.z) * matchingFactor;
+      }
+
+      // Soft boundary — nudge back if drifting too far
+      const fd = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+      if (fd > 15) {
+        const pull = (fd - 15) * 0.001;
+        v.x -= (p.x/fd)*pull; v.y -= (p.y/fd)*pull; v.z -= (p.z/fd)*pull;
+      }
+
+      v.y *= 0.97; // flatten vertical
+
+      // Predator
+      const pdx=p.x-predX, pdy=p.y-predY, pdz=p.z-predZ;
+      const predDist = Math.sqrt(pdx*pdx+pdy*pdy+pdz*pdz);
+      if (predDist < 10.0 && predDist > 0.01) {
+        const f = (1.0 - predDist/10.0) * 0.04;
+        v.x += (pdx/predDist)*f; v.y += (pdy/predDist)*f; v.z += (pdz/predDist)*f;
+      }
+
+      const speed = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+      if (speed > maxSpeed) { const s=maxSpeed/speed; v.x*=s; v.y*=s; v.z*=s; }
+      else if (speed < minSpeed && speed > 0.001) { const s=minSpeed/speed; v.x*=s; v.y*=s; v.z*=s; }
+
+      p.x += v.x; p.y += v.y; p.z += v.z;
+    }
+
+    // Update meshes — position + orient along velocity
+    for (let i = 0; i < N; i++) {
+      const m = flock.meshes[i];
+      const p = flock.pos[i];
+      const v = flock.vel[i];
+      m.position.set(p.x + flock.center.x, p.y + flock.center.y, p.z + flock.center.z);
+      // Point bird along velocity direction
+      const speed = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+      if (speed > 0.001) {
+        m.lookAt(m.position.x + v.x, m.position.y + v.y, m.position.z + v.z);
       }
     }
-
-    // Separation
-    v.x += closeDx * avoidFactor;
-    v.y += closeDy * avoidFactor;
-    v.z += closeDz * avoidFactor;
-
-    if (neighbors > 0) {
-      posAvgX /= neighbors; posAvgY /= neighbors; posAvgZ /= neighbors;
-      velAvgX /= neighbors; velAvgY /= neighbors; velAvgZ /= neighbors;
-      // Cohesion — pull toward neighbors
-      v.x += (posAvgX - p.x) * centeringFactor;
-      v.y += (posAvgY - p.y) * centeringFactor;
-      v.z += (posAvgZ - p.z) * centeringFactor;
-      // Alignment — match neighbor direction
-      v.x += (velAvgX - v.x) * matchingFactor;
-      v.y += (velAvgY - v.y) * matchingFactor;
-      v.z += (velAvgZ - v.z) * matchingFactor;
-    }
-
-    // Gentle boundary — if too far from flock center, nudge back (not orbit)
-    const flockDist = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
-    if (flockDist > 12) {
-      const pull = (flockDist - 12) * 0.002;
-      v.x -= (p.x / flockDist) * pull;
-      v.y -= (p.y / flockDist) * pull;
-      v.z -= (p.z / flockDist) * pull;
-    }
-
-    // Flatten vertical gently
-    v.y *= 0.96;
-
-    // Predator avoidance — creates the shape-shifting
-    const pdx = p.x - predX, pdy = p.y - predY, pdz = p.z - predZ;
-    const predDist = Math.sqrt(pdx*pdx + pdy*pdy + pdz*pdz);
-    if (predDist < 8.0 && predDist > 0.01) {
-      const f = (1.0 - predDist / 8.0) * 0.06;
-      v.x += (pdx / predDist) * f;
-      v.y += (pdy / predDist) * f;
-      v.z += (pdz / predDist) * f;
-    }
-
-    // Speed limits
-    const speed = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
-    if (speed > maxSpeed) { const s = maxSpeed/speed; v.x*=s; v.y*=s; v.z*=s; }
-    else if (speed < minSpeed && speed > 0.001) { const s = minSpeed/speed; v.x*=s; v.y*=s; v.z*=s; }
-
-    // Update position
-    p.x += v.x; p.y += v.y; p.z += v.z;
-  }
-
-  // Update mesh positions
-  for (let i = 0; i < MURM_N; i++) {
-    murmMeshes[i].position.set(
-      murmPos[i].x + MURM_CENTER.x,
-      murmPos[i].y + MURM_CENTER.y,
-      murmPos[i].z + MURM_CENTER.z
-    );
   }
 }
 
