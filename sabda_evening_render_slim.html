@@ -331,17 +331,17 @@ const skySphereMat = new THREE.ShaderMaterial({
       vec4 a = texture2D(texA, vUv);
       vec4 b = texture2D(texB, vUv);
       vec3 col = mix(a.rgb, b.rgb, mixVal) * tintColor;
-      // Cloud brightness lift — raise dark/gray areas so clouds look soft and luminous
+      // Cloud brightness lift — gray clouds must look luminous in the room
       float skyLuma = dot(col, vec3(0.299, 0.587, 0.114));
-      // Wide range lift: brightens everything below bright highlights
-      float liftAmount = smoothstep(0.0, 0.6, skyLuma) * (1.0 - smoothstep(0.6, 0.95, skyLuma));
-      col += liftAmount * 0.35;  // strong lift — room needs brightness
-      // Warm tint on darker cloud areas
-      float darkCloud = (1.0 - smoothstep(0.0, 0.5, skyLuma)) * 0.10;
-      col.r += darkCloud * 0.8;
+      // Aggressive lift on everything below bright highlights
+      float liftAmount = smoothstep(0.0, 0.65, skyLuma) * (1.0 - smoothstep(0.65, 0.98, skyLuma));
+      col += liftAmount * 0.45;  // very strong lift
+      // Warm tint on gray/dark cloud areas — rose/lavender instead of dull gray
+      float darkCloud = (1.0 - smoothstep(0.0, 0.55, skyLuma)) * 0.14;
+      col.r += darkCloud * 0.9;
       col.g += darkCloud * 0.5;
-      col.b += darkCloud * 0.2;
-      col = max(col, vec3(0.07));  // higher floor — no dark patches in room
+      col.b += darkCloud * 0.6;  // add blue too — keeps it luminous, not muddy
+      col = max(col, vec3(0.10));  // high floor — nothing dark in the room
       col += dither(gl_FragCoord.xy) / 255.0;
       gl_FragColor = vec4(col, 1.0);
     }
@@ -537,7 +537,7 @@ let planetMixer = null, glowMat = null;
 const planetGroup = new THREE.Group();
 const plDist = 85, plAngle = Math.PI + 0.85, plElev = 15*Math.PI/180;
 planetGroup.position.set(Math.cos(plAngle)*Math.cos(plElev)*plDist, Math.sin(plElev)*plDist, Math.sin(plAngle)*Math.cos(plElev)*plDist);
-planetGroup.scale.setScalar(13.5); planetGroup.rotation.z = 0.12; planetGroup.rotation.x = -0.08;
+planetGroup.scale.set(10.5, 13.5, 13.5); planetGroup.rotation.z = 0.12; planetGroup.rotation.x = -0.08;
 const glowCanvas = document.createElement('canvas'); glowCanvas.width=512; glowCanvas.height=512;
 const gCtx = glowCanvas.getContext('2d');
 const g1 = gCtx.createRadialGradient(256,256,0,256,256,256);
