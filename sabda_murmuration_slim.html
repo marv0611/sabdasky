@@ -963,33 +963,21 @@ murmPosVar.wrapS=THREE.RepeatWrapping; murmPosVar.wrapT=THREE.RepeatWrapping;
 const mErr = murmGpuCompute.init();
 if(mErr) console.error('Murmuration init error:', mErr);
 
-// Points-based flock — each bird is a tiny dark speck
-const mGeo = new THREE.BufferGeometry();
-const mPositions = new Float32Array(MURM_BIRDS * 3); // dummy positions, overridden by shader
-const mRefs = new Float32Array(MURM_BIRDS * 2);
-for (let i = 0; i < MURM_BIRDS; i++) {
-  mPositions[i*3] = 0; mPositions[i*3+1] = 0; mPositions[i*3+2] = 0;
-  mRefs[i*2] = (i % MURM_WIDTH) / MURM_WIDTH;
-  mRefs[i*2+1] = Math.floor(i / MURM_WIDTH) / MURM_WIDTH;
-}
-mGeo.setAttribute('position', new THREE.BufferAttribute(mPositions, 3));
-mGeo.setAttribute('reference', new THREE.BufferAttribute(mRefs, 2));
-
-murmBirdUniforms = {
-  'texturePosition':{value:null},
-  'uSize':{value:25.0}
-};
-const mMat = new THREE.ShaderMaterial({
-  uniforms: murmBirdUniforms,
-  vertexShader: document.getElementById('murmBirdVS').textContent,
-  fragmentShader: document.getElementById('murmBirdFS').textContent,
-  transparent: false, depthWrite: true, fog: false
-});
-const murmMesh = new THREE.Points(mGeo, mMat);
-murmMesh.position.set(0, 15, 0); // high in sky background
+// InstancedMesh — tiny dark spheres that DEFINITELY render through CubeCamera
+const murmSphereGeo = new THREE.SphereGeometry(0.2, 4, 3);
+const murmSphereMat = new THREE.MeshBasicMaterial({ color: 0x080808, fog: false });
+const murmMesh = new THREE.InstancedMesh(murmSphereGeo, murmSphereMat, MURM_BIRDS);
+murmMesh.position.set(0, 15, 0);
 murmMesh.frustumCulled = false;
+const murmDummy = new THREE.Object3D();
+for (let i = 0; i < MURM_BIRDS; i++) {
+  murmDummy.position.set(0, 0, 0);
+  murmDummy.updateMatrix();
+  murmMesh.setMatrixAt(i, murmDummy.matrix);
+}
+murmMesh.instanceMatrix.needsUpdate = true;
 contentScene.add(murmMesh);
-console.log('SABDA: Murmuration ready —', MURM_BIRDS, 'dark specks');
+console.log('SABDA: Murmuration ready —', MURM_BIRDS, 'instanced spheres');
 
 // ═══════════════════════════════════════════════════════
 // ANIMATION LOOP
@@ -1310,7 +1298,16 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   const py = Math.cos(wt*1.3)*0.1 + Math.sin(wt*0.5+1.3)*0.06;
   murmVelUniforms['predator'].value.set(px, py, 0);
   murmGpuCompute.compute();
-  murmBirdUniforms['texturePosition'].value = murmGpuCompute.getCurrentRenderTarget(murmPosVar).texture;
+  // Read GPU positions back to CPU and update InstancedMesh
+  const murmRT = murmGpuCompute.getCurrentRenderTarget(murmPosVar);
+  const murmPixBuf = new Float32Array(MURM_WIDTH * MURM_WIDTH * 4);
+  renderer.readRenderTargetPixels(murmRT, 0, 0, MURM_WIDTH, MURM_WIDTH, murmPixBuf);
+  for (let i = 0; i < MURM_BIRDS; i++) {
+    murmDummy.position.set(murmPixBuf[i*4], murmPixBuf[i*4+1], murmPixBuf[i*4+2]);
+    murmDummy.updateMatrix();
+    murmMesh.setMatrixAt(i, murmDummy.matrix);
+  }
+  murmMesh.instanceMatrix.needsUpdate = true;
 
   cubeCamera.update(renderer, contentScene);
 
