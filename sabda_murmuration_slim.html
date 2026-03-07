@@ -128,44 +128,22 @@ void main() {
 </script>
 <script type="x-shader/x-vertex" id="murmBirdVS">
 attribute vec2 reference;
-attribute float birdVertex;
-attribute vec3 birdColor;
 uniform sampler2D texturePosition;
-uniform sampler2D textureVelocity;
-varying vec4 vColor;
-varying float z;
-uniform float time;
+uniform float uSize;
 void main() {
-  vec4 tmpPos = texture2D( texturePosition, reference );
-  vec3 pos = tmpPos.xyz;
-  vec3 velocity = normalize(texture2D( textureVelocity, reference ).xyz);
-  vec3 newPosition = position;
-  if ( birdVertex == 4.0 || birdVertex == 7.0 ) {
-    newPosition.y = sin( tmpPos.w ) * 5.;
-  }
-  newPosition = mat3( modelMatrix ) * newPosition;
-  velocity.z *= -1.;
-  float xz = length( velocity.xz );
-  float x = sqrt( 1. - velocity.y * velocity.y );
-  float cosry = velocity.x / xz;
-  float sinry = velocity.z / xz;
-  float cosrz = x;
-  float sinrz = velocity.y;
-  mat3 maty = mat3( cosry, 0, -sinry, 0, 1, 0, sinry, 0, cosry );
-  mat3 matz = mat3( cosrz, sinrz, 0, -sinrz, cosrz, 0, 0, 0, 1 );
-  newPosition = maty * matz * newPosition;
-  newPosition += pos;
-  z = newPosition.z;
-  vColor = vec4( birdColor, 1.0 );
-  gl_Position = projectionMatrix * viewMatrix * vec4( newPosition, 1.0 );
+  vec3 pos = texture2D( texturePosition, reference ).xyz;
+  vec4 mvPos = modelViewMatrix * vec4( pos, 1.0 );
+  gl_PointSize = uSize * (300.0 / -mvPos.z);
+  gl_PointSize = clamp(gl_PointSize, 1.0, 8.0);
+  gl_Position = projectionMatrix * mvPos;
 }
 </script>
 <script type="x-shader/x-fragment" id="murmBirdFS">
-varying vec4 vColor;
-varying float z;
 void main() {
-  float depth = clamp(0.08 + (500. - z) / 1500., 0.03, 0.25);
-  gl_FragColor = vec4( depth, depth * 0.85, depth * 0.7, 1.0 );
+  float d = length(gl_PointCoord - vec2(0.5));
+  if (d > 0.5) discard;
+  float alpha = smoothstep(0.5, 0.15, d);
+  gl_FragColor = vec4(0.05, 0.04, 0.03, alpha * 0.85);
 }
 </script>
 
@@ -911,9 +889,9 @@ saturnLoader1.load(saturnUrl1, gltf => {
 // ═══════════════════════════════════════════════════════
 // MURMURATION — GPGPU BOIDS (256 birds, tight flocking)
 // ═══════════════════════════════════════════════════════
-const MURM_WIDTH = 16;
+const MURM_WIDTH = 32; // 32x32 = 1024 birds
 const MURM_BIRDS = MURM_WIDTH * MURM_WIDTH;
-const MURM_BOUNDS = 800;
+const MURM_BOUNDS = 120; // tight bounds — flock stays compact
 let murmGpuCompute, murmVelVar, murmPosVar, murmPosUniforms, murmVelUniforms, murmBirdUniforms;
 let murmPrevTime = performance.now() / 1000;
 
@@ -942,14 +920,14 @@ class GPUCompute {
 murmGpuCompute = new GPUCompute(MURM_WIDTH, MURM_WIDTH, renderer);
 const dtP = murmGpuCompute.createTexture();
 const dtV = murmGpuCompute.createTexture();
-// Tight initial cluster — birds start together
+// Tight initial cluster — all birds in small ball
 const pA = dtP.image.data;
 for (let k=0;k<pA.length;k+=4) {
-  pA[k]=(Math.random()-0.5)*200; pA[k+1]=(Math.random()-0.5)*200; pA[k+2]=(Math.random()-0.5)*200; pA[k+3]=1;
+  pA[k]=(Math.random()-0.5)*40; pA[k+1]=(Math.random()-0.5)*40; pA[k+2]=(Math.random()-0.5)*40; pA[k+3]=1;
 }
 const vA = dtV.image.data;
 for (let k=0;k<vA.length;k+=4) {
-  vA[k]=(Math.random()-0.5)*10; vA[k+1]=(Math.random()-0.5)*10; vA[k+2]=(Math.random()-0.5)*10; vA[k+3]=1;
+  vA[k]=(Math.random()-0.5)*5; vA[k+1]=(Math.random()-0.5)*5; vA[k+2]=(Math.random()-0.5)*5; vA[k+3]=1;
 }
 murmVelVar = murmGpuCompute.addVariable('textureVelocity', document.getElementById('murmVelocityShader').textContent, dtV);
 murmPosVar = murmGpuCompute.addVariable('texturePosition', document.getElementById('murmPositionShader').textContent, dtP);
@@ -960,9 +938,10 @@ murmVelUniforms = murmVelVar.material.uniforms;
 murmPosUniforms['time']={value:0}; murmPosUniforms['delta']={value:0};
 murmVelUniforms['time']={value:0}; murmVelUniforms['delta']={value:0};
 murmVelUniforms['testing']={value:1.0};
-murmVelUniforms['separationDistance']={value:15.0};  // close comfort zone
-murmVelUniforms['alignmentDistance']={value:25.0};   // strong alignment
-murmVelUniforms['cohesionDistance']={value:30.0};     // strong pull together
+// TIGHT FLOCK: small separation, strong alignment + cohesion
+murmVelUniforms['separationDistance']={value:8.0};
+murmVelUniforms['alignmentDistance']={value:30.0};
+murmVelUniforms['cohesionDistance']={value:40.0};
 murmVelUniforms['freedomFactor']={value:0.75};
 murmVelUniforms['predator']={value:new THREE.Vector3()};
 murmVelVar.material.defines.BOUNDS = MURM_BOUNDS.toFixed(2);
@@ -971,50 +950,33 @@ murmPosVar.wrapS=THREE.RepeatWrapping; murmPosVar.wrapT=THREE.RepeatWrapping;
 const mErr = murmGpuCompute.init();
 if(mErr) console.error('Murmuration init error:', mErr);
 
-// Bird triangle mesh
-const mTPB=3, mTris=mTPB*MURM_BIRDS, mPts=mTris*3;
-const mGeo=new THREE.BufferGeometry();
-const mV=new THREE.BufferAttribute(new Float32Array(mPts*3),3);
-const mC=new THREE.BufferAttribute(new Float32Array(mPts*3),3);
-const mR=new THREE.BufferAttribute(new Float32Array(mPts*2),2);
-const mBV=new THREE.BufferAttribute(new Float32Array(mPts),1);
-mGeo.setAttribute('position',mV); mGeo.setAttribute('birdColor',mC);
-mGeo.setAttribute('reference',mR); mGeo.setAttribute('birdVertex',mBV);
-let vi=0;
-function vp(){for(let i=0;i<arguments.length;i++)mV.array[vi++]=arguments[i];}
-for(let f=0;f<MURM_BIRDS;f++){
-  vp(0,0,-20,0,4,-20,0,0,30);
-  vp(0,0,-15,-20,0,0,0,0,15);
-  vp(0,0,15,20,0,0,0,0,-15);
+// Points-based flock — each bird is a tiny dark speck
+const mGeo = new THREE.BufferGeometry();
+const mPositions = new Float32Array(MURM_BIRDS * 3); // dummy positions, overridden by shader
+const mRefs = new Float32Array(MURM_BIRDS * 2);
+for (let i = 0; i < MURM_BIRDS; i++) {
+  mPositions[i*3] = 0; mPositions[i*3+1] = 0; mPositions[i*3+2] = 0;
+  mRefs[i*2] = (i % MURM_WIDTH) / MURM_WIDTH;
+  mRefs[i*2+1] = Math.floor(i / MURM_WIDTH) / MURM_WIDTH;
 }
-for(let v=0;v<mTris*3;v++){
-  const bi=~~(~~(v/3)/mTPB);
-  const sh=0.04+(bi/MURM_BIRDS)*0.08;
-  mC.array[v*3]=sh; mC.array[v*3+1]=sh*0.7; mC.array[v*3+2]=sh*0.5;
-  mR.array[v*2]=(bi%MURM_WIDTH)/MURM_WIDTH;
-  mR.array[v*2+1]=~~(bi/MURM_WIDTH)/MURM_WIDTH;
-  mBV.array[v]=v%9;
-}
-mGeo.scale(0.08, 0.08, 0.08); // small — distant flock scale
+mGeo.setAttribute('position', new THREE.BufferAttribute(mPositions, 3));
+mGeo.setAttribute('reference', new THREE.BufferAttribute(mRefs, 2));
 
 murmBirdUniforms = {
-  'color':{value:new THREE.Color(0x111111)},
-  'texturePosition':{value:null},'textureVelocity':{value:null},
-  'time':{value:0},'delta':{value:0}
+  'texturePosition':{value:null},
+  'uSize':{value:3.0}
 };
-const mMat=new THREE.ShaderMaterial({
-  uniforms:murmBirdUniforms,
-  vertexShader:document.getElementById('murmBirdVS').textContent,
-  fragmentShader:document.getElementById('murmBirdFS').textContent,
-  side:THREE.DoubleSide, fog:false
+const mMat = new THREE.ShaderMaterial({
+  uniforms: murmBirdUniforms,
+  vertexShader: document.getElementById('murmBirdVS').textContent,
+  fragmentShader: document.getElementById('murmBirdFS').textContent,
+  transparent: true, depthWrite: false, fog: false
 });
-const murmMesh=new THREE.Mesh(mGeo, mMat);
-murmMesh.rotation.y=Math.PI/2;
-murmMesh.position.set(0, 6, 0);
-murmMesh.matrixAutoUpdate=false; murmMesh.updateMatrix();
-murmMesh.frustumCulled=false;
+const murmMesh = new THREE.Points(mGeo, mMat);
+murmMesh.position.set(0, 8, 0);
+murmMesh.frustumCulled = false;
 contentScene.add(murmMesh);
-console.log('SABDA: Murmuration ready —', MURM_BIRDS, 'GPU birds');
+console.log('SABDA: Murmuration ready —', MURM_BIRDS, 'dark specks');
 
 // ═══════════════════════════════════════════════════════
 // ANIMATION LOOP
@@ -1329,16 +1291,13 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   murmPosUniforms['delta'].value = murmDelta;
   murmVelUniforms['time'].value = murmNow;
   murmVelUniforms['delta'].value = murmDelta;
-  murmBirdUniforms['time'].value = murmNow;
-  murmBirdUniforms['delta'].value = murmDelta;
-  // Wandering predator — slow organic path
-  const wt = murmNow * 0.15;
-  const px = Math.sin(wt*1.7)*0.4 + Math.sin(wt*0.7+2.1)*0.2;
-  const py = Math.cos(wt*1.3)*0.3 + Math.sin(wt*0.5+1.3)*0.15;
+  // Wandering predator — slow organic path that drives shape-shifting
+  const wt = murmNow * 0.12;
+  const px = Math.sin(wt*1.7)*0.3 + Math.sin(wt*0.7+2.1)*0.2 + Math.sin(wt*3.1+0.5)*0.1;
+  const py = Math.cos(wt*1.3)*0.25 + Math.sin(wt*0.5+1.3)*0.15;
   murmVelUniforms['predator'].value.set(px, py, 0);
   murmGpuCompute.compute();
   murmBirdUniforms['texturePosition'].value = murmGpuCompute.getCurrentRenderTarget(murmPosVar).texture;
-  murmBirdUniforms['textureVelocity'].value = murmGpuCompute.getCurrentRenderTarget(murmVelVar).texture;
 
   cubeCamera.update(renderer, contentScene);
 
