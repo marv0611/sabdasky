@@ -727,7 +727,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   hemi.intensity = 0.32+b*0.08;
 
   // ── SKY WARMTH ──
-  const skyPhase = (time/1800)*Math.PI*2;
+  const skyPhase = ((time + 300)/1800)*Math.PI*2;  // +300s offset = start in blue Belfast phase
   const warmthRaw = (Math.sin(skyPhase)+1)/2;
   const warmth = Math.pow(warmthRaw, 2.5);  // strong bias toward Belfast (blue) ~80/20
   skySphereMat.uniforms.mixVal.value = 1.0 - warmth;  // warmth=1 → sky A (evening), warmth=0 → sky B (belfast)
