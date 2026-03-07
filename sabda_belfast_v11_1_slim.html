@@ -451,7 +451,7 @@ saturnMainGroup.position.set(
   Math.sin(satMainElev) * satMainDist,
   Math.sin(satMainAngle) * Math.cos(satMainElev) * satMainDist
 );
-saturnMainGroup.scale.setScalar(0.023);  // Model ~1200 units after root; 0.023 → body ~28 units (matches fantasy planet)
+saturnMainGroup.scale.setScalar(10);  // Visible Saturn with rings
 saturnMainGroup.rotation.x = -0.3;     // Tilt rings toward viewer
 saturnMainGroup.rotation.z = 0.12;
 
@@ -470,7 +470,7 @@ smgCtx.fillStyle = smg1; smgCtx.fillRect(0, 0, 512, 512);
 const satMGlowTx = new THREE.CanvasTexture(satMGlowCvs);
 const satMGlowMat = new THREE.SpriteMaterial({ map: satMGlowTx, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
 const satMGlowSprite = new THREE.Sprite(satMGlowMat);
-satMGlowSprite.scale.setScalar(260);  // 260 * 0.023 ≈ 6 world units
+satMGlowSprite.scale.setScalar(0.6);  // 0.6 * 10 = 6 world units
 saturnMainGroup.add(satMGlowSprite);
 contentScene.add(saturnMainGroup);
 

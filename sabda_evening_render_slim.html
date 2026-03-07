@@ -555,7 +555,7 @@ planetGroup.add(glowSprite); contentScene.add(planetGroup);
 const saturnMainGroup = new THREE.Group();
 const satMainAngle=0.85, satMainDist=85, satMainElev=15*Math.PI/180;
 saturnMainGroup.position.set(Math.cos(satMainAngle)*Math.cos(satMainElev)*satMainDist, Math.sin(satMainElev)*satMainDist, Math.sin(satMainAngle)*Math.cos(satMainElev)*satMainDist);
-saturnMainGroup.scale.setScalar(0.023); saturnMainGroup.rotation.x=-0.3; saturnMainGroup.rotation.z=0.12;
+saturnMainGroup.scale.setScalar(10); saturnMainGroup.rotation.x=-0.3; saturnMainGroup.rotation.z=0.12;
 const satMGlowCvs = document.createElement('canvas'); satMGlowCvs.width=512; satMGlowCvs.height=512;
 const smgCtx = satMGlowCvs.getContext('2d');
 const smg1 = smgCtx.createRadialGradient(256,256,0,256,256,256);
@@ -564,7 +564,7 @@ smg1.addColorStop(0.15,'rgba(210,170,110,0.08)'); smg1.addColorStop(0.3,'rgba(19
 smg1.addColorStop(0.5,'rgba(170,130,80,0.0)'); smg1.addColorStop(1.0,'rgba(140,100,60,0.0)');
 smgCtx.fillStyle=smg1; smgCtx.fillRect(0,0,512,512);
 const satMGlowSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map:new THREE.CanvasTexture(satMGlowCvs), transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, fog:false }));
-satMGlowSprite.scale.setScalar(260); saturnMainGroup.add(satMGlowSprite); contentScene.add(saturnMainGroup);
+satMGlowSprite.scale.setScalar(0.6); saturnMainGroup.add(satMGlowSprite); contentScene.add(saturnMainGroup);
 
 // ── GLB LOADER ──
 function b64ToUrl(id, mime) {
