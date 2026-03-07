@@ -1056,66 +1056,54 @@ function animate() {
     bd.action.timeScale = bd.currentTimeScale;
     bd.mixer.update(dt);
 
+
+    // ── STRAIGHT-LINE BIRD FLIGHT ──
     bd.turnChangeTimer -= dt;
-    if (bd.turnChangeTimer <= 0) {
-      const r = Math.random();
-      if (r < 0.75) bd.desiredTurnRate = (Math.random()-0.5)*0.005;
-      else if (r < 0.95) bd.desiredTurnRate = (Math.random()-0.5)*0.012;
-      else bd.desiredTurnRate = (Math.random()-0.5)*0.020;
-      bd.turnChangeTimer = 18 + Math.random() * 25;
+    if(bd.turnChangeTimer<=0){
+      bd.desiredTurnRate = Math.random() < 0.90 ? 0 : (Math.random()-0.5)*0.0015;
+      bd.turnChangeTimer=25+Math.random()*35;
     }
-
-    const px = bd.ctr.position.x, pz = bd.ctr.position.z;
-    const dist = Math.sqrt(px * px + pz * pz);
-    let btb = 0;
-    if (dist > bd.homeDist + 5) {
-      const tc = Math.atan2(-pz, -px);
-      let hd = tc - bd.heading;
-      while (hd > Math.PI) hd -= Math.PI * 2; while (hd < -Math.PI) hd += Math.PI * 2;
-      btb = hd * 0.004 * (1 + Math.min(1, (dist - bd.homeDist - 5) * 0.03) * 1.5);
-    }
-    if (dist < 10) {
-      const aa = Math.atan2(pz, px);
-      let ad = aa - bd.heading;
-      while (ad > Math.PI) ad -= Math.PI * 2; while (ad < -Math.PI) ad += Math.PI * 2;
-      btb = ad * 0.005;
-    }
-
-    bd.turnRate += (bd.desiredTurnRate + btb - bd.turnRate) * 0.15 * dt;
-    bd.turnRate = Math.max(-0.012, Math.min(0.012, bd.turnRate));
+    bd.turnRate+=(bd.desiredTurnRate-bd.turnRate)*0.03*dt;
+    bd.turnRate=Math.max(-0.003,Math.min(0.003,bd.turnRate));
     bd.heading += bd.turnRate * dt;
     bd.ctr.position.x += Math.sin(bd.heading) * bd.cruiseSpeed;
     bd.ctr.position.z += Math.cos(bd.heading) * bd.cruiseSpeed;
 
-    const alt = bd.homeY + (bd.isGliding ? -0.6 : 0.4);
-    bd.vy += (alt - bd.ctr.position.y) * 0.03 * dt; bd.vy *= 0.96;
-    bd.ctr.position.y += bd.vy;
-    // Only clamp when in normal flight range — allow fly-in from below
-    if (bd.ctr.position.y > 2.0) {
-      if (bd.ctr.position.y < 2.5) { bd.vy += (2.5 - bd.ctr.position.y) * 0.04; }
-      if (bd.ctr.position.y > 7.0) { bd.ctr.position.y = 7.0; bd.vy = Math.min(bd.vy, 0); }
-    }
+    const px = bd.ctr.position.x, pz = bd.ctr.position.z;
+    const dist = Math.sqrt(px * px + pz * pz);
 
     if (dist > 45) {
-      const a = Math.atan2(pz, px) + Math.PI;
-      bd.ctr.position.x = Math.cos(a) * bd.homeDist;
-      bd.ctr.position.z = Math.sin(a) * bd.homeDist;
-      bd.ctr.position.y = -6;  // below visible area
-      bd.vy = 0.06;
-      bd.heading = a;
+      const exitAngle = Math.atan2(px, pz);
+      const entryAngle = exitAngle + Math.PI + (Math.random()-0.5)*0.8;
+      const entryDist = 40 + Math.random() * 4;
+      bd.ctr.position.x = Math.sin(entryAngle) * entryDist;
+      bd.ctr.position.z = Math.cos(entryAngle) * entryDist;
+      bd.ctr.position.y = bd.homeY + (Math.random()-0.5)*1.5;
+      const toCenterAngle = Math.atan2(-bd.ctr.position.x, -bd.ctr.position.z);
+      bd.heading = toCenterAngle + (Math.random()-0.5)*0.6;
+      bd.turnRate = 0; bd.desiredTurnRate = 0;
+      bd.turnChangeTimer = 15 + Math.random()*20;
+      bd.vy = 0;
     }
 
-    // v3: Gentler banking — multiplier 5 (was 8)
-    bd.bankAngle += (-bd.turnRate * 5 - bd.bankAngle) * 1.5 * dt;
+    const alt = bd.homeY + (bd.isGliding ? -0.4 : 0.3);
+    bd.vy += (alt - bd.ctr.position.y) * 0.02 * dt; bd.vy *= 0.97;
+    bd.ctr.position.y += bd.vy;
+    if(bd.ctr.position.y<2.5){bd.vy+=(2.5-bd.ctr.position.y)*0.04*dt;}
+    if(bd.ctr.position.y>7.0){bd.ctr.position.y=7.0;bd.vy=Math.min(bd.vy,0);}
+    bd.vy = Math.max(-0.08, Math.min(0.08, bd.vy));
+
+    bd.bankAngle += (-bd.turnRate * 4 - bd.bankAngle) * 1.2 * dt;
     bd.ctr.rotation.z = bd.bankAngle;
-    bd.pitchAngle += (-bd.vy * 2.5 - bd.pitchAngle) * 1.5 * dt;
+    bd.pitchAngle += (-bd.vy * 2.0 - bd.pitchAngle) * 1.2 * dt;
     bd.ctr.rotation.x = bd.pitchAngle;
     bd.ctr.rotation.y = bd.heading;
-    // Distance-compensated scale — flattened curve for consistent apparent size
     const rawDistScale = 23.0 / Math.max(15, dist);
     const distScale = 0.7 + 0.3 * rawDistScale;
     bd.ctr.scale.setScalar(distScale);
   }
+
+
 
   // ═══════════════════════════════════════
   // RENDER
