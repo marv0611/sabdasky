@@ -780,8 +780,8 @@ saturnLoader1.load(saturnUrl1, gltf => {
 const FLOCK_SIZE = 1500;
 const FLOCK_COUNT = 2;
 const MNC = 7;
-const M_MIN_SPEED = 0.06;
-const M_MAX_SPEED = 0.12;
+const M_MIN_SPEED = 0.05;
+const M_MAX_SPEED = 0.14;
 const M_SEPARATION_R2 = 0.02;  // 0.14^2 — birds can nearly overlap for extreme density
 const M_ALIGNMENT_R2 = 9.0;    // 3.0^2 — tighter neighbor interaction
 
@@ -927,8 +927,9 @@ function updateMurmuration(simTime, speedMult) {
 
     // ── EVENTS — direction changes + density pulsing ──
     if(!f.cohesionMult) f.cohesionMult = 1.0;
-    // Between events, cohesion drifts back toward tight (1.5)
-    f.cohesionMult = Math.min(2.0, f.cohesionMult + 0.003 * sm);
+    // Between events, cohesion SLOWLY drifts back toward normal (1.2)
+    // Slow drift = birds take TIME to return = layered organic return
+    f.cohesionMult += (1.2 - f.cohesionMult) * 0.002 * sm;
     
     f.pTimer += sm;
     if(f.pTimer >= f.pNext || needsRedirect){
@@ -945,12 +946,18 @@ function updateMurmuration(simTime, speedMult) {
       
       // Vary cohesion: some events CRUSH tight, some RELEASE
       const eventType = Math.random();
-      if(eventType < 0.35) {
-        f.cohesionMult = 2.5 + Math.random()*1.5; // CRUSH — very tight packing
-      } else if(eventType < 0.6) {
-        f.cohesionMult = 0.3 + Math.random()*0.4; // RELEASE — spread out
+      if(eventType < 0.30) {
+        f.cohesionMult = 3.0 + Math.random()*2.0; // CRUSH — extreme compaction
+      } else if(eventType < 0.55) {
+        f.cohesionMult = 0.1 + Math.random()*0.2; // RELEASE — birds scatter wide
+        // Give birds a speed burst outward during release — they SPREAD
+        for(let si=0;si<N;si++){
+          const spreadStr = (0.003 + Math.random()*0.004) * f.responsiveness[si];
+          f.vx[si] += f.px[si] * spreadStr; // push outward from center
+          f.vz[si] += f.pz[si] * spreadStr;
+        }
       } else {
-        f.cohesionMult = 1.0 + Math.random()*0.5; // normal
+        f.cohesionMult = 0.8 + Math.random()*0.6; // normal variation
       }
       
       // Nudge 20-40% of birds toward new direction
@@ -1026,9 +1033,9 @@ function updateMurmuration(simTime, speedMult) {
         let cohDiff = cohHdg - myHdg;
         if(cohDiff > 3.14159) cohDiff -= 6.28318;
         if(cohDiff < -3.14159) cohDiff += 6.28318;
-        // Cohesion STRONGER for edge birds (fd > 1) — sucks them into core
-        const edgeBoost = fd > 1.0 ? 1.0 + (fd-1.0)*0.8 : 1.0;
-        const cohTurn = cohDiff * 0.030 * resp * Math.min(cod, 3) * (f.cohesionMult||1.0) * edgeBoost;
+        // Edge birds get slightly stronger cohesion — but not overwhelming
+        const edgeBoost = fd > 2.0 ? 1.0 + (fd-2.0)*0.3 : 1.0;
+        const cohTurn = cohDiff * 0.020 * resp * Math.min(cod, 3) * (f.cohesionMult||1.0) * edgeBoost;
         const ccs=Math.cos(cohTurn), csn=Math.sin(cohTurn);
         const cv1=f.vx[i]*ccs+f.vz[i]*csn, cv2=-f.vx[i]*csn+f.vz[i]*ccs;
         f.vx[i]=cv1; f.vz[i]=cv2;
@@ -1065,17 +1072,23 @@ function updateMurmuration(simTime, speedMult) {
       // ── GRAVITY WELL — edge birds get sucked into the dense core ──
       // After re-centering, origin = flock centroid. So pull toward origin
       // IS pull toward the mass center. Can't create orbits because
-      // re-centering resets centroid to origin every frame.
-      // 
-      // Core birds (fd < 0.5): ZERO force — they're already packed
-      // Mid birds (0.5 < fd < 2): gentle pull — keeps mass cohesive
-      // Edge birds (fd > 2): STRONG pull — sucks stragglers back in
-      // Like gravity: force grows with distance from mass center.
-      if(fd > 0.5) {
-        // Quadratic pull — gets MUCH stronger for edge birds
-        const gravStr = (fd - 0.5) * (fd - 0.5) * 0.008 * resp;
+      // ── GENTLE GRAVITY — creates LAYERS of density, not uniform blob ──
+      // Dead zone up to 1.5 units — birds roam freely near the core.
+      // Beyond that, gentle LINEAR pull (not quadratic — no snap-back).
+      // Per-bird variation: each bird has its own "return threshold" based on
+      // personality. Fast-responsive birds start returning at 1.5 units,
+      // lazy birds don't feel pull until 3+ units. This means front/back
+      // birds return at DIFFERENT TIMES = organic layered return.
+      const returnThreshold = 1.0 + (2.0 - resp) * 1.5; // resp 0.6→2.5, resp 1.4→1.9
+      if(fd > returnThreshold) {
+        const gravStr = (fd - returnThreshold) * 0.003 * f.speedMult[i];
         ax += (-f.px[i]/fd) * gravStr;
         az += (-f.pz[i]/fd) * gravStr;
+      }
+      // Hard leash — only at very far distances
+      if(fd > 6) {
+        ax += (-f.px[i]/fd) * (fd-6) * 0.05;
+        az += (-f.pz[i]/fd) * (fd-6) * 0.05;
       }
       
       // ── LANGEVIN NOISE — smooth per-bird ──
