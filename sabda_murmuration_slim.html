@@ -901,9 +901,15 @@ function updateMurmuration(simTime, speedMult) {
     }
     
     const speed = f.driftSpeed * sm;
-    f.anchorX += Math.sin(f.moveAngle) * speed;
-    f.anchorZ += Math.cos(f.moveAngle) * speed;
+    const dx_anchor = Math.sin(f.moveAngle) * speed;
+    const dz_anchor = Math.cos(f.moveAngle) * speed;
+    f.anchorX += dx_anchor;
+    f.anchorZ += dz_anchor;
     f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.002 * sm;
+    // Store anchor velocity as unit vector for weathercock injection
+    const anchorSpd = Math.sqrt(dx_anchor*dx_anchor + dz_anchor*dz_anchor) + 0.001;
+    f.anchorVX = dx_anchor / anchorSpd;
+    f.anchorVZ = dz_anchor / anchorSpd;
     
     // Zone containment — redirect toward zone center if straying
     const heading = Math.atan2(f.anchorX, f.anchorZ);
@@ -1005,60 +1011,91 @@ function updateMurmuration(simTime, speedMult) {
       }
       let nc=0; for(let k=0;k<MNC;k++)if(_mNbIdx[k]>=0)nc++;
       
-      // ═══ RADICAL SIMPLIFICATION ═══
-      // NO alignment (that's what caused circles — all birds same direction = orbit)
-      // NO formations (static targets = boring)
-      // ONLY: each bird chases the anchor at its own speed/responsiveness
-      // SHAPE comes from physics: sharp anchor turns = birds trail/whip/stretch
+      // ═══ HEISENBERG MODEL (Bialek et al. 2011) ═══
+      // Alignment with 7 topological neighbors is THE fundamental force.
+      // Shapes emerge from information propagation delay through the 
+      // alignment network, NOT from programmed formations or position attractors.
+      // d~si/dt = J * Σ(~sj) + noise  (Langevin dynamics, Eq. 3)
       
       let ax=0,ay=0,az=0;
       const resp = f.responsiveness[i];
       
-      // Soft separation — just prevent clumping into single point
       if(nc>0){
+        // ── ALIGNMENT (Heisenberg coupling J·Σ ~sj) ──
+        // Each bird steers toward the AVERAGE VELOCITY DIRECTION of its 7 nearest neighbors.
+        // This is the force that creates coherent flocking and propagates directional
+        // information across the entire flock with scale-free correlations.
+        let avx=0,avy=0,avz=0;
         for(let k=0;k<nc;k++){
-          if(_mNbD2[k] < 0.04 && _mNbD2[k] > 0.0001){ // within 0.2 units
+          const j=_mNbIdx[k];
+          // Normalize neighbor velocity to unit vector — we align DIRECTION not speed
+          const ns = Math.sqrt(f.vx[j]*f.vx[j]+f.vy[j]*f.vy[j]+f.vz[j]*f.vz[j])+0.001;
+          avx += f.vx[j]/ns;
+          avy += f.vy[j]/ns;
+          avz += f.vz[j]/ns;
+        }
+        avx /= nc; avy /= nc; avz /= nc;
+        // My velocity direction
+        const ms = Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i])+0.001;
+        const mvx=f.vx[i]/ms, mvy=f.vy[i]/ms, mvz=f.vz[i]/ms;
+        // Alignment force = J * (neighbor_avg_direction - my_direction)
+        const J = 0.015 * resp; // coupling strength (Bialek's J)
+        ax += (avx - mvx) * J;
+        ay += (avy - mvy) * J * 0.3; // weaker vertical alignment
+        az += (avz - mvz) * J;
+        
+        // ── SOFT SEPARATION — prevents collapse to point ──
+        for(let k=0;k<nc;k++){
+          if(_mNbD2[k] < 0.06 && _mNbD2[k] > 0.0001){ // within ~0.25 units
             const j=_mNbIdx[k];
             const d=Math.sqrt(_mNbD2[k]);
-            const str = (1 - d/0.2) * 0.005;
+            const str = (1 - d/0.25) * 0.003;
             ax += (f.px[i]-f.px[j])/d * str;
             az += (f.pz[i]-f.pz[j])/d * str;
           }
         }
       }
       
-      // CHASE THE ANCHOR — this is the ONLY major force
-      // Each bird has unique responsiveness = some snap to new position, some lag behind
-      // The lag IS the shape. When anchor turns, lagging birds form the trail.
-      const tox = -f.px[i], toz = -f.pz[i]; // toward local origin = anchor
-      const toy = -f.py[i];
-      const fd = Math.sqrt(tox*tox + toz*toz) + 0.01;
-      // Pull strength: proportional to distance, scaled by bird personality
-      // Close birds: gentle. Far birds: strong. Creates natural density gradient.
-      const pull = f.currentPull * resp * Math.min(fd, 5);
-      ax += (tox/fd) * pull;
-      az += (toz/fd) * pull;
-      ay += toy * 0.02;
-      
-      // Hard leash
-      if(fd > 5){
-        ax += (tox/fd) * (fd-5) * 0.12;
-        az += (toz/fd) * (fd-5) * 0.12;
+      // ── ANCHOR DIRECTION INJECTION (Kumar et al. "weathercock effect") ──
+      // The anchor's VELOCITY propagates through the flock via alignment, 
+      // not its POSITION. Birds near anchor get nudged in the anchor's travel direction.
+      // This is like wind affecting a weathercock — flow reorients nearby particles.
+      const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
+      if(fd < 3.0) { // only birds near the anchor (within ~3 units)
+        const proximity = 1.0 - fd/3.0; // strongest at center
+        const dirStr = 0.004 * proximity * resp;
+        ax += f.anchorVX * dirStr;
+        az += f.anchorVZ * dirStr;
       }
       
-      // Per-bird wander — smooth unique curves, NOT random
+      // ── VERY WEAK position tether — just prevents infinite drift ──
+      // NOT a shaping force. Only kicks in beyond 4 units.
+      if(fd > 4){
+        const leash = (fd-4) * 0.003; // very gentle
+        ax += (-f.px[i]/fd) * leash;
+        az += (-f.pz[i]/fd) * leash;
+      }
+      // Hard leash — emergency only
+      if(fd > 6){
+        ax += (-f.px[i]/fd) * (fd-6) * 0.08;
+        az += (-f.pz[i]/fd) * (fd-6) * 0.08;
+      }
+      
+      // ── LANGEVIN NOISE — smooth per-bird (Bialek Eq. 3: ηi(t)) ──
+      // Continuous, unique per bird. NOT Math.random() per frame.
       const birdSeed = i * 0.137 + fi * 7.3;
-      ax += Math.sin(simTime*0.25 + birdSeed) * 0.0006 * (2.0 - resp);
-      az += Math.cos(simTime*0.2 + birdSeed*1.3) * 0.0006 * (2.0 - resp);
+      ax += Math.sin(simTime*0.2 + birdSeed) * 0.0004 * (2.0 - resp);
+      az += Math.cos(simTime*0.17 + birdSeed*1.3) * 0.0004 * (2.0 - resp);
       
-      // Flatten 
-      ay -= f.vy[i]*0.45;
-      ay -= f.py[i]*0.03;
+      // Flatten into disc
+      ay -= f.vy[i]*0.40;
+      ay -= f.py[i]*0.025;
       
-      // Apply forces + HEAVY damping — silky smooth flight
-      f.vx[i] = f.vx[i]*0.96 + ax; 
-      f.vy[i] = f.vy[i]*0.94 + ay;
-      f.vz[i] = f.vz[i]*0.96 + az;
+      // ── VELOCITY UPDATE with damping (Kumar: Γv term) ──
+      // Heavy damping = smooth flight. Velocity relaxes toward the force direction.
+      f.vx[i] = f.vx[i]*0.97 + ax; 
+      f.vy[i] = f.vy[i]*0.95 + ay;
+      f.vz[i] = f.vz[i]*0.97 + az;
       
       // ══ TECHNIQUE #3: Variable speed during turns (StarDisplay/Hildenbrandt) ══
       // Subtle: turning birds slow slightly, straight birds drift faster
