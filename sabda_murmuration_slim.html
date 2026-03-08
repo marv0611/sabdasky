@@ -804,8 +804,8 @@ const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.Doubl
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 4.0, driftSpeed: 0.06, eventInterval: [10,22], zone: 'top' },
-  { startAngle: 0.79, y: 4.5, driftSpeed: 0.05, eventInterval: [14,28], zone: 'bottom' },
+  { startAngle: 3.93, y: 4.0, driftSpeed: 0.10, eventInterval: [10,22], zone: 'top' },
+  { startAngle: 0.79, y: 4.5, driftSpeed: 0.08, eventInterval: [14,28], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -899,7 +899,7 @@ function updateMurmuration(simTime, speedMult) {
     let angleDiff = f.targetAngle - f.moveAngle;
     if(angleDiff > 3.14) angleDiff -= 6.28;
     if(angleDiff < -3.14) angleDiff += 6.28;
-    f.moveAngle += angleDiff * 0.015 * sm; // slow turn rate = wide smooth arcs
+    f.moveAngle += angleDiff * 0.025 * sm; // moderate turn rate
     
     const speed = f.driftSpeed * sm;
     const dx_anchor = Math.sin(f.moveAngle) * speed;
@@ -1011,91 +1011,97 @@ function updateMurmuration(simTime, speedMult) {
       }
       let nc=0; for(let k=0;k<MNC;k++)if(_mNbIdx[k]>=0)nc++;
       
-      // ═══ HEISENBERG MODEL (Bialek et al. 2011) ═══
-      // Alignment with 7 topological neighbors is THE fundamental force.
-      // Shapes emerge from information propagation delay through the 
-      // alignment network, NOT from programmed formations or position attractors.
-      // d~si/dt = J * Σ(~sj) + noise  (Langevin dynamics, Eq. 3)
+      // ═══ REYNOLDS BOIDS + TOPOLOGICAL NEIGHBORS (Bialek n_c=7) ═══
+      // THREE forces that create natural flocking:
+      // 1. COHESION — pull toward centroid of 7 nearest (creates density)
+      // 2. ALIGNMENT — steer toward avg heading of 7 nearest (creates flow)
+      // 3. SEPARATION — avoid nearest (prevents collapse)
+      // Mantzaris 2025: energy = 1/N_neighbors. More neighbors = lower energy.
+      // Cohesion CREATES neighbors → lowers energy → system cools into flock.
       
       let ax=0,ay=0,az=0;
       const resp = f.responsiveness[i];
       
       if(nc>0){
-        // ── ALIGNMENT as ANGULAR STEERING ──
-        // Instead of pushing velocity linearly toward neighbor direction,
-        // we ROTATE the velocity vector gradually toward it.
-        // This creates banking arcs — like a bird tilting into a turn.
+        // ── 1. COHESION — pull toward centroid of 7 nearest neighbors ──
+        // NOT a global center (→circles). LOCAL centroid (→organic clustering).
+        let cpx=0,cpz=0;
+        for(let k=0;k<nc;k++){
+          const j=_mNbIdx[k];
+          cpx += f.px[j]; cpz += f.pz[j];
+        }
+        cpx /= nc; cpz /= nc;
+        const cox=cpx-f.px[i], coz=cpz-f.pz[i];
+        const cod=Math.sqrt(cox*cox+coz*coz)+0.01;
+        // Cohesion as angular steering — steer TOWARD neighbor centroid
+        const cohHdg = Math.atan2(cox, coz);
+        const myHdg = Math.atan2(f.vx[i], f.vz[i]);
+        let cohDiff = cohHdg - myHdg;
+        if(cohDiff > 3.14159) cohDiff -= 6.28318;
+        if(cohDiff < -3.14159) cohDiff += 6.28318;
+        const cohTurn = cohDiff * 0.012 * resp * Math.min(cod, 2); // stronger when further from group
+        const ccs=Math.cos(cohTurn), csn=Math.sin(cohTurn);
+        const cv1=f.vx[i]*ccs+f.vz[i]*csn, cv2=-f.vx[i]*csn+f.vz[i]*ccs;
+        f.vx[i]=cv1; f.vz[i]=cv2;
+        
+        // ── 2. ALIGNMENT — steer toward avg heading of 7 nearest ──
         let avx=0,avz=0;
         for(let k=0;k<nc;k++){
           const j=_mNbIdx[k];
-          const ns = Math.sqrt(f.vx[j]*f.vx[j]+f.vz[j]*f.vz[j])+0.001;
-          avx += f.vx[j]/ns;
-          avz += f.vz[j]/ns;
+          const ns=Math.sqrt(f.vx[j]*f.vx[j]+f.vz[j]*f.vz[j])+0.001;
+          avx+=f.vx[j]/ns; avz+=f.vz[j]/ns;
         }
-        avx /= nc; avz /= nc;
-        // My heading and neighbor average heading
-        const myHdg = Math.atan2(f.vx[i], f.vz[i]);
-        const nbHdg = Math.atan2(avx, avz);
-        let hdgDiff = nbHdg - myHdg;
-        if(hdgDiff > 3.14159) hdgDiff -= 6.28318;
-        if(hdgDiff < -3.14159) hdgDiff += 6.28318;
-        // Apply small fraction of angle difference per frame = smooth turn
-        const turnRate = 0.02 * resp; // max ~1.1° per frame = silky smooth arcs
-        const turn = hdgDiff * turnRate;
-        // Rotate velocity vector by 'turn' radians
-        const cs = Math.cos(turn), sn = Math.sin(turn);
-        const nvx = f.vx[i]*cs + f.vz[i]*sn;
-        const nvz = -f.vx[i]*sn + f.vz[i]*cs;
-        f.vx[i] = nvx;
-        f.vz[i] = nvz;
+        avx/=nc; avz/=nc;
+        const nbHdg=Math.atan2(avx,avz);
+        const myHdg2=Math.atan2(f.vx[i],f.vz[i]);
+        let alDiff=nbHdg-myHdg2;
+        if(alDiff>3.14159)alDiff-=6.28318;
+        if(alDiff<-3.14159)alDiff+=6.28318;
+        const alTurn=alDiff*0.025*resp;
+        const acs=Math.cos(alTurn),asn=Math.sin(alTurn);
+        const av1=f.vx[i]*acs+f.vz[i]*asn, av2=-f.vx[i]*asn+f.vz[i]*acs;
+        f.vx[i]=av1; f.vz[i]=av2;
         
-        // ── SOFT SEPARATION ──
+        // ── 3. SEPARATION — push away from very close neighbors ──
         for(let k=0;k<nc;k++){
-          if(_mNbD2[k] < 0.06 && _mNbD2[k] > 0.0001){
-            const j=_mNbIdx[k];
-            const d=Math.sqrt(_mNbD2[k]);
-            const str = (1 - d/0.25) * 0.002;
-            ax += (f.px[i]-f.px[j])/d * str;
-            az += (f.pz[i]-f.pz[j])/d * str;
+          if(_mNbD2[k]<0.08&&_mNbD2[k]>0.0001){
+            const j=_mNbIdx[k];const d=Math.sqrt(_mNbD2[k]);
+            const str=(1-d/0.28)*0.003;
+            ax+=(f.px[i]-f.px[j])/d*str;
+            az+=(f.pz[i]-f.pz[j])/d*str;
           }
         }
       }
       
-      // ── ANCHOR DIRECTION INJECTION as ANGULAR STEERING ──
-      // Birds near anchor gently steer toward anchor's travel direction.
-      const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
-      if(fd < 3.5) {
-        const proximity = 1.0 - fd/3.5;
-        const anchorHdg = Math.atan2(f.anchorVX, f.anchorVZ);
-        const myHdg2 = Math.atan2(f.vx[i], f.vz[i]);
-        let hd2 = anchorHdg - myHdg2;
-        if(hd2 > 3.14159) hd2 -= 6.28318;
-        if(hd2 < -3.14159) hd2 += 6.28318;
-        const anchorTurn = hd2 * 0.008 * proximity * resp;
-        const cs2 = Math.cos(anchorTurn), sn2 = Math.sin(anchorTurn);
-        const av2 = f.vx[i]*cs2 + f.vz[i]*sn2;
-        const bv2 = -f.vx[i]*sn2 + f.vz[i]*cs2;
-        f.vx[i] = av2; f.vz[i] = bv2;
+      // ── ANCHOR COHESION — steer toward local origin (=anchor) ──
+      // This MOVES the flock with the anchor across the sky.
+      // Also angular steering = smooth arcs, never radial snap.
+      const fd=Math.sqrt(f.px[i]*f.px[i]+f.pz[i]*f.pz[i])+0.01;
+      const anchorHdg=Math.atan2(-f.px[i],-f.pz[i]); // toward origin
+      const myH3=Math.atan2(f.vx[i],f.vz[i]);
+      let anDiff=anchorHdg-myH3;
+      if(anDiff>3.14159)anDiff-=6.28318;
+      if(anDiff<-3.14159)anDiff+=6.28318;
+      // Strength grows with distance — close birds barely feel it, far birds curve back
+      const anchorStr=Math.max(0,(fd-1.0)*0.006)*resp;
+      const anTurn=anDiff*anchorStr;
+      if(Math.abs(anTurn)>0.0001){
+        const ncs=Math.cos(anTurn),nsn=Math.sin(anTurn);
+        const tvx=f.vx[i],tvz=f.vz[i];
+        f.vx[i]=tvx*ncs+tvz*nsn;
+        f.vz[i]=-tvx*nsn+tvz*ncs;
       }
       
-      // ── VERY WEAK position tether — just prevents infinite drift ──
-      // NOT a shaping force. Only kicks in beyond 4 units.
-      if(fd > 4){
-        const leash = (fd-4) * 0.003; // very gentle
-        ax += (-f.px[i]/fd) * leash;
-        az += (-f.pz[i]/fd) * leash;
-      }
-      // Hard leash — emergency only
-      if(fd > 6){
-        ax += (-f.px[i]/fd) * (fd-6) * 0.08;
-        az += (-f.pz[i]/fd) * (fd-6) * 0.08;
+      // Hard leash at 5 — emergency
+      if(fd>5){
+        ax+=(-f.px[i]/fd)*(fd-5)*0.06;
+        az+=(-f.pz[i]/fd)*(fd-5)*0.06;
       }
       
-      // ── LANGEVIN NOISE — smooth per-bird (Bialek Eq. 3: ηi(t)) ──
-      // Continuous, unique per bird. NOT Math.random() per frame.
-      const birdSeed = i * 0.137 + fi * 7.3;
-      ax += Math.sin(simTime*0.2 + birdSeed) * 0.0004 * (2.0 - resp);
-      az += Math.cos(simTime*0.17 + birdSeed*1.3) * 0.0004 * (2.0 - resp);
+      // ── LANGEVIN NOISE — smooth per-bird ──
+      const birdSeed=i*0.137+fi*7.3;
+      ax+=Math.sin(simTime*0.2+birdSeed)*0.0003*(2.0-resp);
+      az+=Math.cos(simTime*0.17+birdSeed*1.3)*0.0003*(2.0-resp);
       
       // Flatten into disc
       ay -= f.vy[i]*0.40;
