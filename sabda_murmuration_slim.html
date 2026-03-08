@@ -903,7 +903,7 @@ function updateMurmuration(simTime, speedMult) {
       grid.get(k).push(i);
     }
     
-    // ══ WIND EVENTS — travel, compact, stretch, repeat ══
+    // ══ WIND EVENTS — each sets a DIFFERENT return pull strength ══
     if(!f.waves) f.waves = [];
     f.pTimer += sm;
     if(f.pTimer >= f.pNext){
@@ -913,30 +913,37 @@ function updateMurmuration(simTime, speedMult) {
       if(r < 0.25) {
         // SHARP WIND SHIFT — flock changes travel direction
         f.windTargetAngle += (Math.random()-0.5) * 2.2;
+        // Medium pull — drifts back at natural pace
+        f.currentPull = 0.0008 + Math.random()*0.0006;
       }
       else if(r < 0.40) {
-        // GUST — push in wind direction, mass stretches then compacts
-        const gustStr = 0.008 + Math.random()*0.006;
+        // GUST — push in wind direction, stretches mass
+        const gustStr = 0.008 + Math.random()*0.008;
         for(let i=0;i<N;i++){
           f.vx[i] += Math.sin(f.windAngle) * gustStr;
           f.vz[i] += Math.cos(f.windAngle) * gustStr;
         }
+        // Slow lazy return — mass drifts back gently
+        f.currentPull = 0.0005 + Math.random()*0.0004;
       }
       else if(r < 0.65) {
-        // COMPRESSION — STRONG inward crush, maximum density moment
+        // COMPRESSION — inward crush, varied intensity
         let _fcx=0,_fcy=0,_fcz=0;
         for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
         _fcx/=N;_fcy/=N;_fcz/=N;
+        const crushStr = 0.020 + Math.random()*0.025; // varies 0.020-0.045
         for(let i=0;i<N;i++){
           const dx=_fcx-f.px[i], dy=_fcy-f.py[i], dz=_fcz-f.pz[i];
           const d=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
-          f.vx[i] += dx/d * 0.030;
-          f.vy[i] += dy/d * 0.010;
-          f.vz[i] += dz/d * 0.030;
+          f.vx[i] += dx/d * crushStr;
+          f.vy[i] += dy/d * crushStr * 0.3;
+          f.vz[i] += dz/d * crushStr;
         }
+        // VERY strong pull during compression — snap tight fast
+        f.currentPull = 0.0015 + Math.random()*0.0010;
       }
-      else if(r < 0.80) {
-        // RIBBON — stretch in travel direction (gentle)
+      else if(r < 0.82) {
+        // RIBBON — stretch in travel direction
         let _fcx=0,_fcz=0;
         for(let i=0;i<N;i++){_fcx+=f.px[i];_fcz+=f.pz[i];}
         _fcx/=N;_fcz/=N;
@@ -945,6 +952,8 @@ function updateMurmuration(simTime, speedMult) {
           const proj=(f.px[i]-_fcx)*sx+(f.pz[i]-_fcz)*sz;
           f.vx[i]+=sx*proj*0.006; f.vz[i]+=sz*proj*0.006;
         }
+        // Gentle pull — ribbon shape lingers before compacting
+        f.currentPull = 0.0006 + Math.random()*0.0003;
       }
       else {
         // PROPAGATING WAVE
@@ -960,6 +969,8 @@ function updateMurmuration(simTime, speedMult) {
         f.waves.push({ox:f.px[best],oy:f.py[best],oz:f.pz[best],
           turn:(Math.random()-0.5)*2.0,radius:3+Math.random()*4,
           speed:0.2+Math.random()*0.2,frame:0});
+        // Medium pull — wave reshapes but mass stays together
+        f.currentPull = 0.0010 + Math.random()*0.0006;
       }
     }
     // Advance propagating waves
@@ -1050,25 +1061,22 @@ function updateMurmuration(simTime, speedMult) {
         ay += (avy*aw - f.vy[i]) * 0.10 * alignScale;
         az += (avz*aw - f.vz[i]) * 0.10 * alignScale;
       }
-      // Center pull — strong, keeps mass compact
-      const breathT = simTime;
-      const breath1 = Math.sin(breathT * 0.20 + f.breathPhase);
-      const breath2 = Math.sin(breathT * 0.13 + f.breathPhase * 1.7);
-      const rawBreath = breath1 * 0.6 + breath2 * 0.4;
-      
-      const basePull = 0.00090;
-      const pullStrength = rawBreath > 0 
-        ? basePull * (1.0 + rawBreath * 1.2)   // compress: tight dark mass
-        : basePull * Math.max(0.5, 1.0 + rawBreath * 0.5);  // expand: still 50% — always a mass
+      // Center pull — VARIABLE. Changes at each event. Never same return speed twice.
+      // f.currentPull is set by events — sometimes strong (snap back), sometimes gentle (lazy drift)
+      if(!f.currentPull) f.currentPull = 0.0012;
+      const myPull = f.currentPull;
+      // Per-bird variation — outer birds pulled harder (prevents stragglers)
+      // Inner birds pulled softer (allows dense core to breathe)
       const tox=-f.px[i],toy=-f.py[i],toz=-f.pz[i];
       const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
       if(fd>0.1){
-        const pull = fd < 4 ? pullStrength*fd : pullStrength*4 + (fd-4)*(fd-4)*0.004;
+        const distFactor = 0.6 + (fd / 5.0) * 0.8; // outer=1.4x, inner=0.6x
+        const pull = fd < 3.5 ? myPull*fd*distFactor : myPull*3.5*distFactor + (fd-3.5)*(fd-3.5)*0.006;
         ax+=(tox/fd)*pull;ay+=(toy/fd)*pull*0.2;az+=(toz/fd)*pull;
       }
-      // HARD LEASH — no bird gets more than 7 units from center. Period.
-      if(fd > 7){
-        const leash = (fd - 7) * 0.05;
+      // HARD LEASH — tighter, 5 units max
+      if(fd > 5){
+        const leash = (fd - 5) * 0.08;
         ax += (tox/fd) * leash;
         az += (toz/fd) * leash;
       }
@@ -1116,9 +1124,9 @@ function updateMurmuration(simTime, speedMult) {
     }
     const extentX=maxExtX-minExtX, extentZ=maxExtZ-minExtZ;
     const maxExtent = Math.max(extentX, extentZ);
-    const TENSION_THRESHOLD = 8;
+    const TENSION_THRESHOLD = 6;
     if(maxExtent > TENSION_THRESHOLD){
-      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.002;
+      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.003;
       const outerR = maxExtent * 0.4; // outer ring
       for(let i=0;i<N;i++){
         const dx=f.px[i]-fcx, dz=f.pz[i]-fcz;
