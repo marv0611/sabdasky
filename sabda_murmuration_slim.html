@@ -780,8 +780,8 @@ saturnLoader1.load(saturnUrl1, gltf => {
 const FLOCK_SIZE = 1500;
 const FLOCK_COUNT = 2;
 const MNC = 7;
-const M_MIN_SPEED = 0.06;
-const M_MAX_SPEED = 0.20;
+const M_MIN_SPEED = 0.05;
+const M_MAX_SPEED = 0.16;
 const M_SEP_DIST = 0.25;       // Exclusion zone with cosine falloff
 const M_SEP_R2 = M_SEP_DIST*M_SEP_DIST;
 const M_WAVE_SPEED = 0.4;      // Wave front expansion: units per frame
@@ -807,8 +807,8 @@ const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.Doubl
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 5.5, driftSpeed: 0.10, eventInterval: [10,22], zone: 'top' },
-  { startAngle: 0.79, y: 6.0, driftSpeed: 0.08, eventInterval: [14,28], zone: 'bottom' },
+  { startAngle: 3.93, y: 7.0, driftSpeed: 0.10, eventInterval: [10,22], zone: 'top' },
+  { startAngle: 0.79, y: 7.5, driftSpeed: 0.08, eventInterval: [14,28], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -831,8 +831,8 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     // Wind-drift system — flock travels with a slowly-turning wind
     windAngle: setup.startAngle,
     windTargetAngle: setup.startAngle,
-    anchorX: Math.sin(setup.startAngle) * 18,
-    anchorZ: Math.cos(setup.startAngle) * 18,
+    anchorX: Math.sin(setup.startAngle) * 10,
+    anchorZ: Math.cos(setup.startAngle) * 10,
     anchorY: setup.y,
     driftSpeed: setup.driftSpeed,
     zone: setup.zone,
@@ -870,7 +870,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     f.tx[i] = Math.cos(ta)*tr;
     f.tz[i] = Math.sin(ta)*tr;
     const m = new THREE.Mesh(birdShape, birdMat);
-    m.scale.setScalar(1.2);
+    m.scale.setScalar(0.8);
     m.frustumCulled = false;
     contentScene.add(m);
     f.meshes.push(m);
@@ -907,20 +907,20 @@ function updateMurmuration(simTime, speedMult) {
     // They sweep from back to front and out again.
     // ═══════════════════════════════════════════════════════
     f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.001 * sm;
-    f.anchorY = Math.max(5, Math.min(8, f.anchorY));
+    f.anchorY = Math.max(6, Math.min(10, f.anchorY));
     
     const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
     
     let needsRedirect = false, redirectAngle = 0;
-    // Too far — bring them back closer
-    if(anchorDist > 28) {
+    // Too far — bring back to front
+    if(anchorDist > 16) {
       needsRedirect = true;
-      redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.0;
+      redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.2;
     }
-    // Too close to camera
-    if(anchorDist < 10) {
+    // Too close to camera — push out slightly
+    if(anchorDist < 6) {
       needsRedirect = true;
-      redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.0;
+      redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.2;
     }
     
     // ═══════════════════════════════════════════════════════
