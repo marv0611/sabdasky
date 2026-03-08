@@ -875,53 +875,57 @@ function updateMurmuration(simTime, speedMult) {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // ── WAYPOINT TRAVEL — flock flies toward random destinations ──
-    // No arcs, no orbits. Straight lines to random points = unpredictable paths.
-    if(!f.waypointX) {
-      // Init first waypoint
+    // ── ERRATIC ANCHOR — sharp random direction changes like a butterfly ──
+    if(!f.moveAngle) f.moveAngle = Math.random()*6.28;
+    if(!f.moveTimer) f.moveTimer = 0;
+    if(!f.moveDuration) f.moveDuration = 1 + Math.random()*3; // 1-4 seconds per direction
+    
+    f.moveTimer += sm / 30; // convert frames to approx seconds
+    if(f.moveTimer >= f.moveDuration) {
+      f.moveTimer = 0;
+      f.moveDuration = 0.5 + Math.random()*3; // next leg: 0.5-3.5 seconds
+      // SHARP turn — new direction can be ANYTHING within zone
       const zc = f.zone === 'top' ? 3.93 : 0.79;
-      const a = zc + (Math.random()-0.5)*1.8;
-      const r = 7 + Math.random()*7;
-      f.waypointX = Math.sin(a)*r;
-      f.waypointZ = Math.cos(a)*r;
-      f.waypointY = 3 + Math.random()*3;
+      // Sometimes toward zone center, sometimes tangent, sometimes away then back
+      const turnType = Math.random();
+      if(turnType < 0.3) {
+        // Toward center area
+        f.moveAngle = zc + (Math.random()-0.5)*1.0;
+      } else if(turnType < 0.6) {
+        // Sharp random turn — any direction
+        f.moveAngle += 1.5 + Math.random()*3.0; // 85°-270° turn
+      } else {
+        // Reverse or near-reverse
+        f.moveAngle += 2.5 + Math.random()*1.5; // 143°-230° turn
+      }
     }
-    // Move anchor toward waypoint
-    const dx = f.waypointX - f.anchorX;
-    const dz = f.waypointZ - f.anchorZ;
-    const dy = f.waypointY - f.anchorY;
-    const dist = Math.sqrt(dx*dx + dz*dz) + 0.01;
+    
     const speed = f.driftSpeed * sm;
-    f.anchorX += (dx/dist) * speed;
-    f.anchorZ += (dz/dist) * speed;
-    f.anchorY += dy * 0.01 * sm;
+    f.anchorX += Math.sin(f.moveAngle) * speed;
+    f.anchorZ += Math.cos(f.moveAngle) * speed;
+    f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.002 * sm;
     
-    // When close to waypoint, pick new random destination in zone
-    if(dist < 1.5) {
-      const zc = f.zone === 'top' ? 3.93 : 0.79;
-      // Random angle within zone ±80°, random radius 7-14
-      const a = zc + (Math.random()-0.5)*2.8;
-      const r = 7 + Math.random()*7;
-      f.waypointX = Math.sin(a)*r;
-      f.waypointZ = Math.cos(a)*r;
-      f.waypointY = 3 + Math.random()*3;
-    }
-    
-    // ZONE SAFETY — if somehow outside zone, waypoint snaps back
+    // Zone containment — redirect toward zone center if straying
     const heading = Math.atan2(f.anchorX, f.anchorZ);
     const zoneCenter = f.zone === 'top' ? 3.93 : 0.79;
     let zoneDiff = heading - zoneCenter;
     if(zoneDiff > 3.14) zoneDiff -= 6.28;
     if(zoneDiff < -3.14) zoneDiff += 6.28;
-    if(Math.abs(zoneDiff) > 1.8) {
-      const a = zoneCenter + (Math.random()-0.5)*1.0;
-      f.waypointX = Math.sin(a)*10;
-      f.waypointZ = Math.cos(a)*10;
+    if(Math.abs(zoneDiff) > 1.5) {
+      f.moveAngle = zoneCenter + (Math.random()-0.5)*0.8;
+      f.moveDuration = 2 + Math.random()*2; // give it time to get back
+      f.moveTimer = 0;
     }
-    // Radius safety
+    // Radius containment
     const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
-    if(anchorDist > 15) { const s=14/anchorDist; f.anchorX*=s; f.anchorZ*=s; }
-    if(anchorDist < 6) { const s=7/anchorDist; f.anchorX*=s; f.anchorZ*=s; }
+    if(anchorDist > 14) {
+      f.moveAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.0;
+      f.moveTimer = 0;
+    }
+    if(anchorDist < 6) {
+      f.moveAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.0;
+      f.moveTimer = 0;
+    }
     
     f.anchorY = Math.max(3, Math.min(6, f.anchorY));
     const orbX = f.anchorX, orbY = f.anchorY, orbZ = f.anchorZ;
@@ -946,188 +950,33 @@ function updateMurmuration(simTime, speedMult) {
       f.pTimer = 0;
       f.pNext = f.eventMin + Math.random() * (f.eventMax - f.eventMin);
       
-      const zc = f.zone === 'top' ? 3.93 : 0.79;
-      // New waypoint on each event — flock changes direction with each formation
-      const wpA = zc + (Math.random()-0.5)*2.8;
-      const wpR = 7 + Math.random()*7;
-      f.waypointX = Math.sin(wpA)*wpR;
-      f.waypointZ = Math.cos(wpA)*wpR;
-      f.waypointY = 3 + Math.random()*3;
-      
-      // ═══ FORMATION SYSTEM — 20 unique shapes ═══
-      // Each bird gets its own target. The COLLECTION of targets forms a shape.
-      // Alternate: gather (tight) → spread (wide) → gather → spread
-      if(!f.formationPhase) f.formationPhase = 'spread';
-      const phase = f.formationPhase === 'gather' ? 'spread' : 'gather';
-      f.formationPhase = phase;
-      
-      const pick = (Math.random()*10)|0;
-      const N = FLOCK_SIZE;
-      
-      if(phase === 'gather') {
-        // ── 10 GATHER formations — tight, dense, various shapes ──
-        const scale = 0.3 + Math.random()*0.4; // 0.3-0.7 radius
-        const angle = Math.random()*6.28; // random orientation
-        const offX = (Math.random()-0.5)*1.0; // offset from center
-        const offZ = (Math.random()-0.5)*1.0;
-        const ca=Math.cos(angle), sa=Math.sin(angle);
-        
-        if(pick===0) {
-          // Tight ball — random positions in small sphere
-          for(let i=0;i<N;i++){
-            const a=Math.random()*6.28, r=Math.pow(Math.random(),0.5)*scale;
-            f.tx[i]=Math.cos(a)*r+offX; f.tz[i]=Math.sin(a)*r+offZ;
-          }
-        } else if(pick===1) {
-          // Line — along random axis
-          for(let i=0;i<N;i++){
-            const t2=(i/N-0.5)*scale*4 + (Math.random()-0.5)*0.15;
-            f.tx[i]=ca*t2+offX; f.tz[i]=sa*t2+offZ;
-          }
-        } else if(pick===2) {
-          // Arc/crescent
-          for(let i=0;i<N;i++){
-            const a2=angle + (i/N-0.5)*2.5 + (Math.random()-0.5)*0.2;
-            const r=scale*(0.8+Math.random()*0.4);
-            f.tx[i]=Math.cos(a2)*r+offX; f.tz[i]=Math.sin(a2)*r+offZ;
-          }
-        } else if(pick===3) {
-          // Offset dense cluster
-          const ox=(Math.random()-0.5)*2, oz=(Math.random()-0.5)*2;
-          for(let i=0;i<N;i++){
-            const a=Math.random()*6.28, r=Math.pow(Math.random(),0.7)*scale*0.6;
-            f.tx[i]=Math.cos(a)*r+ox; f.tz[i]=Math.sin(a)*r+oz;
-          }
-        } else if(pick===4) {
-          // Spiral — tight logarithmic
-          for(let i=0;i<N;i++){
-            const t2=i/N*8+Math.random()*0.3;
-            const r=t2*scale*0.12;
-            f.tx[i]=Math.cos(t2)*r+offX; f.tz[i]=Math.sin(t2)*r+offZ;
-          }
-        } else if(pick===5) {
-          // Two close clumps
-          for(let i=0;i<N;i++){
-            const side = i < N/2 ? -1 : 1;
-            const a=Math.random()*6.28, r=Math.pow(Math.random(),0.5)*scale*0.5;
-            f.tx[i]=Math.cos(a)*r+ca*side*scale+offX;
-            f.tz[i]=Math.sin(a)*r+sa*side*scale+offZ;
-          }
-        } else if(pick===6) {
-          // Diagonal band — thick stripe
-          for(let i=0;i<N;i++){
-            const along=(i/N-0.5)*scale*3+(Math.random()-0.5)*0.1;
-            const across=(Math.random()-0.5)*scale*0.5;
-            f.tx[i]=ca*along-sa*across+offX; f.tz[i]=sa*along+ca*across+offZ;
-          }
-        } else if(pick===7) {
-          // S-curve
-          for(let i=0;i<N;i++){
-            const t2=(i/N-0.5)*scale*5;
-            const wave=Math.sin(t2*2)*scale*0.5+(Math.random()-0.5)*0.1;
-            f.tx[i]=ca*t2-sa*wave+offX; f.tz[i]=sa*t2+ca*wave+offZ;
-          }
-        } else if(pick===8) {
-          // Ring — hollow circle
-          for(let i=0;i<N;i++){
-            const a=i/N*6.28+(Math.random()-0.5)*0.3;
-            const r=scale*(0.9+Math.random()*0.2);
-            f.tx[i]=Math.cos(a)*r+offX; f.tz[i]=Math.sin(a)*r+offZ;
-          }
-        } else {
-          // Teardrop — dense at one end, thin tail
-          for(let i=0;i<N;i++){
-            const t2=Math.pow(i/N,0.5)*scale*3;
-            const width=scale*0.4*(1-i/N)+0.05;
-            const across=(Math.random()-0.5)*width;
-            f.tx[i]=ca*t2-sa*across+offX; f.tz[i]=sa*t2+ca*across+offZ;
-          }
-        }
-        f.currentPull = 0.0035 + Math.random()*0.0025; // strong pull for gather
-        
+      // On each event: sharp anchor direction change + pull change
+      // This is ALL the shape variety needs. When anchor turns sharply,
+      // fast birds snap to new direction, slow birds trail behind = organic shapes.
+      const turnType = Math.random();
+      if(turnType < 0.4) {
+        // CRUSH — very strong pull, tight dense mass
+        f.currentPull = 0.005 + Math.random()*0.003;
+        f.moveAngle += 1.0 + Math.random()*2.5; // turn while crushing
+        f.moveDuration = 1 + Math.random()*2;
+        f.moveTimer = 0;
+      } else if(turnType < 0.7) {
+        // RELEASE — weak pull, mass expands as birds spread at different speeds
+        f.currentPull = 0.0008 + Math.random()*0.0008;
+        f.moveAngle += 2.0 + Math.random()*2.0; // sharp turn during release = whip
+        f.moveDuration = 0.5 + Math.random()*1.5;
+        f.moveTimer = 0;
       } else {
-        // ── 10 SPREAD formations — wide, dramatic, organic ──
-        const scale = 2.0 + Math.random()*2.0; // 2-4 radius
-        const angle = Math.random()*6.28;
-        const ca=Math.cos(angle), sa=Math.sin(angle);
-        
-        if(pick===0) {
-          // Wide scatter — random positions
-          for(let i=0;i<N;i++){
-            const a=Math.random()*6.28, r=Math.pow(Math.random(),0.3)*scale;
-            f.tx[i]=Math.cos(a)*r; f.tz[i]=Math.sin(a)*r;
-          }
-        } else if(pick===1) {
-          // Long ribbon — stretched line
-          for(let i=0;i<N;i++){
-            const t2=(i/N-0.5)*scale*3+(Math.random()-0.5)*0.2;
-            const across=(Math.random()-0.5)*0.3;
-            f.tx[i]=ca*t2-sa*across; f.tz[i]=sa*t2+ca*across;
-          }
-        } else if(pick===2) {
-          // Two groups far apart
-          for(let i=0;i<N;i++){
-            const side=i<N/2?-1:1;
-            const a=Math.random()*6.28, r=Math.pow(Math.random(),0.5)*scale*0.35;
-            f.tx[i]=Math.cos(a)*r+ca*side*scale; f.tz[i]=Math.sin(a)*r+sa*side*scale;
-          }
-        } else if(pick===3) {
-          // Wide arc
-          for(let i=0;i<N;i++){
-            const a2=angle+(i/N-0.5)*3.5+(Math.random()-0.5)*0.3;
-            const r=scale*(0.7+Math.random()*0.6);
-            f.tx[i]=Math.cos(a2)*r; f.tz[i]=Math.sin(a2)*r;
-          }
-        } else if(pick===4) {
-          // Radial burst from offset point
-          const ox=(Math.random()-0.5)*2, oz=(Math.random()-0.5)*2;
-          for(let i=0;i<N;i++){
-            const a=Math.random()*6.28, r=0.5+Math.random()*scale;
-            f.tx[i]=Math.cos(a)*r+ox; f.tz[i]=Math.sin(a)*r+oz;
-          }
-        } else if(pick===5) {
-          // Shear — top half goes one way, bottom the other
-          for(let i=0;i<N;i++){
-            const side=i<N/2?-1:1;
-            const drift=side*scale*0.7+(Math.random()-0.5)*scale*0.5;
-            const spread=(Math.random()-0.5)*scale*0.4;
-            f.tx[i]=ca*drift-sa*spread; f.tz[i]=sa*drift+ca*spread;
-          }
-        } else if(pick===6) {
-          // Long stream — thin trail
-          for(let i=0;i<N;i++){
-            const t2=(i/N)*scale*4-scale*2+(Math.random()-0.5)*0.15;
-            const across=(Math.random()-0.5)*0.2;
-            f.tx[i]=ca*t2-sa*across; f.tz[i]=sa*t2+ca*across;
-          }
-        } else if(pick===7) {
-          // Bloom — petal shapes
-          const petals=3+((Math.random()*3)|0);
-          for(let i=0;i<N;i++){
-            const a=i/N*6.28*petals+(Math.random()-0.5)*0.5;
-            const r=(0.5+Math.abs(Math.sin(a*0.5))*scale)*(0.7+Math.random()*0.3);
-            f.tx[i]=Math.cos(a)*r; f.tz[i]=Math.sin(a)*r;
-          }
-        } else if(pick===8) {
-          // Cross / X shape
-          for(let i=0;i<N;i++){
-            const arm=i%2===0?0:1;
-            const t2=(Math.random()-0.5)*scale*2.5;
-            const across=(Math.random()-0.5)*0.25;
-            if(arm===0){f.tx[i]=ca*t2-sa*across;f.tz[i]=sa*t2+ca*across;}
-            else{f.tx[i]=-sa*t2-ca*across;f.tz[i]=ca*t2-sa*across;}
-          }
-        } else {
-          // Whip — curved line with one end far out
-          for(let i=0;i<N;i++){
-            const t2=Math.pow(i/N,1.5)*scale*3;
-            const curve=Math.sin(i/N*3)*scale*0.6+(Math.random()-0.5)*0.15;
-            f.tx[i]=ca*t2-sa*curve; f.tz[i]=sa*t2+ca*curve;
-          }
-        }
-        f.currentPull = 0.0010 + Math.random()*0.0010; // gentle for spread
+        // REVERSAL — flip direction, creates dramatic fold-over
+        f.currentPull = 0.002 + Math.random()*0.002;
+        f.moveAngle += 2.8 + Math.random()*0.8; // near-180° turn
+        f.moveDuration = 1 + Math.random()*2;
+        f.moveTimer = 0;
       }
     }
+    // Between events, pull slowly tightens — dense is default
+    f.currentPull = Math.min(0.005, f.currentPull + 0.00003 * sm);
+    
     // Flock center (for tension and mesh offset)
     let fcx=0,fcy=0,fcz=0;
     for(let i=0;i<N;i++){fcx+=f.px[i];fcy+=f.py[i];fcz+=f.pz[i];}
@@ -1156,58 +1005,55 @@ function updateMurmuration(simTime, speedMult) {
       }
       let nc=0; for(let k=0;k<MNC;k++)if(_mNbIdx[k]>=0)nc++;
       
+      // ═══ RADICAL SIMPLIFICATION ═══
+      // NO alignment (that's what caused circles — all birds same direction = orbit)
+      // NO formations (static targets = boring)
+      // ONLY: each bird chases the anchor at its own speed/responsiveness
+      // SHAPE comes from physics: sharp anchor turns = birds trail/whip/stretch
+      
       let ax=0,ay=0,az=0;
       const resp = f.responsiveness[i];
+      
+      // Soft separation — just prevent clumping into single point
       if(nc>0){
-        const delayLeft = f.delayFrames[i];
-        const alignScale = delayLeft > 0 ? 0.4 : 1.0;
-        if(delayLeft > 0) f.delayFrames[i] = Math.max(0, delayLeft - sm);
-        
-        // ALIGNMENT — strong, makes birds flow together as a mass
-        let avx=0,avy=0,avz=0;
         for(let k=0;k<nc;k++){
-          const j=_mNbIdx[k];
-          avx += f.vx[j]; avy += f.vy[j]; avz += f.vz[j];
-        }
-        const aw = 1.0/nc;
-        ax += (avx*aw - f.vx[i]) * 0.12 * alignScale * resp;
-        ay += (avy*aw - f.vy[i]) * 0.12 * alignScale * resp;
-        az += (avz*aw - f.vz[i]) * 0.12 * alignScale * resp;
-        
-        // MINIMAL separation — only prevents literal overlap, allows extreme density
-        for(let k=0;k<nc;k++){
-          if(_mNbD2[k] < 0.01 && _mNbD2[k] > 0.0001){ // only within 0.1 units!
+          if(_mNbD2[k] < 0.04 && _mNbD2[k] > 0.0001){ // within 0.2 units
             const j=_mNbIdx[k];
             const d=Math.sqrt(_mNbD2[k]);
-            ax += (f.px[i]-f.px[j])/d * 0.008;
-            az += (f.pz[i]-f.pz[j])/d * 0.008;
+            const str = (1 - d/0.2) * 0.005;
+            ax += (f.px[i]-f.px[j])/d * str;
+            az += (f.pz[i]-f.pz[j])/d * str;
           }
         }
       }
-      // PER-BIRD TARGET PULL — each bird pulls toward its own unique target position
-      // The COLLECTION of targets forms a shape (line, arc, cluster, spiral, etc.)
-      // Different every time = never the same circular collapse.
-      const tox=f.tx[i]-f.px[i], toz=f.tz[i]-f.pz[i];
-      const toy=-f.py[i]; // always flatten to y=0
-      const fd=Math.sqrt(tox*tox+toz*toz)+0.01;
-      const pullStr = f.currentPull * resp;
-      ax += (tox/fd) * pullStr * Math.min(fd, 4);  // capped proportional
-      az += (toz/fd) * pullStr * Math.min(fd, 4);
-      ay += toy * pullStr * 0.15;
-      // NO soft anchor — that creates circular patterns. Formations only.
-      // HARD LEASH at 6 units — emergency only, formations keep birds within 4
-      const dOrig = Math.sqrt(f.px[i]*f.px[i]+f.pz[i]*f.pz[i]);
-      if(dOrig > 6){
-        ax += (-f.px[i]/dOrig) * (dOrig-6) * 0.10;
-        az += (-f.pz[i]/dOrig) * (dOrig-6) * 0.10;
+      
+      // CHASE THE ANCHOR — this is the ONLY major force
+      // Each bird has unique responsiveness = some snap to new position, some lag behind
+      // The lag IS the shape. When anchor turns, lagging birds form the trail.
+      const tox = -f.px[i], toz = -f.pz[i]; // toward local origin = anchor
+      const toy = -f.py[i];
+      const fd = Math.sqrt(tox*tox + toz*toz) + 0.01;
+      // Pull strength: proportional to distance, scaled by bird personality
+      // Close birds: gentle. Far birds: strong. Creates natural density gradient.
+      const pull = f.currentPull * resp * Math.min(fd, 5);
+      ax += (tox/fd) * pull;
+      az += (toz/fd) * pull;
+      ay += toy * 0.02;
+      
+      // Hard leash
+      if(fd > 5){
+        ax += (tox/fd) * (fd-5) * 0.12;
+        az += (toz/fd) * (fd-5) * 0.12;
       }
-      // Smooth per-bird drift — no randomness, continuous curves
+      
+      // Per-bird wander — smooth unique curves, NOT random
       const birdSeed = i * 0.137 + fi * 7.3;
-      ax += Math.sin(simTime*0.3 + birdSeed) * 0.0003;
-      az += Math.cos(simTime*0.25 + birdSeed*1.3) * 0.0003;
-      // Flatten into disc
-      ay -= f.vy[i]*0.50;
-      ay -= f.py[i]*0.035;
+      ax += Math.sin(simTime*0.25 + birdSeed) * 0.0006 * (2.0 - resp);
+      az += Math.cos(simTime*0.2 + birdSeed*1.3) * 0.0006 * (2.0 - resp);
+      
+      // Flatten 
+      ay -= f.vy[i]*0.45;
+      ay -= f.py[i]*0.03;
       
       // Apply forces + HEAVY damping — silky smooth flight
       f.vx[i] = f.vx[i]*0.96 + ax; 
