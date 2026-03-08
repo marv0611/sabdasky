@@ -771,25 +771,25 @@ saturnLoader1.load(saturnUrl1, gltf => {
 // ═══════════════════════════════════════════════════════
 // MURMURATION v15 — Direct acceleration, zero-allocation, optimized
 // ═══════════════════════════════════════════════════════
-const FLOCK_SIZE = 500;
+const FLOCK_SIZE = 600;
 const FLOCK_COUNT = 2;
 const MNC = 7;
-const M_MIN_SPEED = 0.07;
-const M_MAX_SPEED = 0.18;
+const M_MIN_SPEED = 0.12;
+const M_MAX_SPEED = 0.30;
 
 const birdShape = new THREE.BufferGeometry();
 birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-  0,0,-0.4, 0,0.08,-0.4, 0,0,0.6,
-  0,0,-0.2, -0.5,0,0, 0,0,0.2,
-  0,0,0.2, 0.5,0,0, 0,0,-0.2
+  0,0,-0.5, 0,0.10,-0.5, 0,0,0.7,
+  0,0,-0.25, -0.7,0,0, 0,0,0.25,
+  0,0,0.25, 0.7,0,0, 0,0,-0.25
 ]), 3));
 birdShape.computeVertexNormals();
 const birdMat = new THREE.MeshBasicMaterial({ color: 0x0c0908, side: THREE.DoubleSide });
 
 // 2 flocks — front-facing, close enough to see, at bird height
 const flockCenters = [
-  new THREE.Vector3(22, 6, -18),    // front-right
-  new THREE.Vector3(-20, 7, -22),   // front-left
+  new THREE.Vector3(20, 7, -15),    // front-right, slightly closer
+  new THREE.Vector3(-22, 8, -18),   // front-left, slightly higher
 ];
 
 const allFlocks = [];
@@ -805,11 +805,11 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
   };
   const d0 = Math.random() * Math.PI * 2;
   for (let i = 0; i < FLOCK_SIZE; i++) {
-    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*25;
+    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*30;
     f.px[i] = Math.cos(a)*r;
-    f.py[i] = (Math.random()-0.5)*5;
+    f.py[i] = (Math.random()-0.5)*4;
     f.pz[i] = Math.sin(a)*r;
-    const va = d0+(Math.random()-0.5)*0.3, sp = 0.09+Math.random()*0.05;
+    const va = d0+(Math.random()-0.5)*0.3, sp = 0.15+Math.random()*0.08;
     f.vx[i] = Math.cos(va)*sp; f.vy[i] = 0; f.vz[i] = Math.sin(va)*sp;
     const m = new THREE.Mesh(birdShape, birdMat);
     m.frustumCulled = false;
@@ -821,9 +821,9 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
 console.log('SABDA: Murmuration v15 —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, '=', FLOCK_COUNT*FLOCK_SIZE, 'birds');
 
 // Shared pre-allocated buffers
-const _mNearby = new Int32Array(256);
+const _mNearby = new Int32Array(512);
 const _mNbIdx = new Int32Array(MNC), _mNbD2 = new Float32Array(MNC);
-const MGS = 10;
+const MGS = 12;
 
 function updateMurmuration() {
   const t = performance.now()*0.0003;
@@ -840,31 +840,56 @@ function updateMurmuration() {
       grid.get(k).push(i);
     }
     
-    // Edge perturbation — dramatic for breathing effect
+    // Edge perturbation — DRAMATIC shape changes
     f.pTimer++;
     if(f.pTimer >= f.pNext){
-      f.pTimer=0; f.pNext=18+Math.random()*35;  // faster cycle
-      // Find edge bird
+      f.pTimer=0;
+      // Vary interval: mostly fast, occasionally very fast burst
+      const isBurst = Math.random() < 0.3; // 30% chance of burst
+      const isDual = Math.random() < 0.2;  // 20% chance of dual-edge split
+      f.pNext = isBurst ? (6+Math.random()*10) : (12+Math.random()*25);
+      // Find edge bird(s)
       let fcx=0,fcy=0,fcz=0;
       for(let i=0;i<N;i++){fcx+=f.px[i];fcy+=f.py[i];fcz+=f.pz[i];}
       fcx/=N;fcy/=N;fcz/=N;
-      let best=0,bestD=0;
-      for(let s=0;s<50;s++){  // more candidates
-        const i=(Math.random()*N)|0;
-        const dx=f.px[i]-fcx,dz=f.pz[i]-fcz;
-        if(dx*dx+dz*dz>bestD){bestD=dx*dx+dz*dz;best=i;}
-      }
-      const turn=(Math.random()-0.5)*3.2, pr=6+Math.random()*10;  // bigger turn & patch
-      for(let i=0;i<N;i++){
-        const dx=f.px[i]-f.px[best],dy=f.py[i]-f.py[best],dz=f.pz[i]-f.pz[best];
-        const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-        if(d<pr){
-          const ff2=1-(d/pr);
-          const ca=Math.atan2(f.vz[i],f.vx[i]);
-          const na=ca+turn*ff2*ff2;
-          const sp=Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]);
-          f.vx[i]=Math.cos(na)*sp; f.vz[i]=Math.sin(na)*sp;
+      
+      // Helper: apply perturbation from a given bird
+      const applyPatch = (pi, turnAngle, patchR) => {
+        for(let i=0;i<N;i++){
+          const dx=f.px[i]-f.px[pi],dy=f.py[i]-f.py[pi],dz=f.pz[i]-f.pz[pi];
+          const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+          if(d<patchR){
+            const ff2=1-(d/patchR);
+            const ca=Math.atan2(f.vz[i],f.vx[i]);
+            const na=ca+turnAngle*ff2*ff2;
+            const sp=Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]);
+            f.vx[i]=Math.cos(na)*sp; f.vz[i]=Math.sin(na)*sp;
+            if(isBurst) f.vy[i]+=(Math.random()-0.5)*0.02*ff2;
+          }
         }
+      };
+      
+      // Find primary edge bird
+      let best=0,bestD=0;
+      for(let s=0;s<60;s++){
+        const i=(Math.random()*N)|0;
+        const dx=f.px[i]-fcx,dy=f.py[i]-fcy,dz=f.pz[i]-fcz;
+        if(dx*dx+dy*dy+dz*dz>bestD){bestD=dx*dx+dy*dy+dz*dz;best=i;}
+      }
+      const turn=(Math.random()-0.5)*4.2;
+      const pr = isBurst ? (11+Math.random()*14) : (7+Math.random()*11);
+      applyPatch(best, turn, pr);
+      
+      // Dual-edge: find opposite edge bird and turn the other way → fork/split
+      if(isDual){
+        const oppX = 2*fcx - f.px[best], oppZ = 2*fcz - f.pz[best];
+        let opp=0, oppD=1e9;
+        for(let s=0;s<60;s++){
+          const i=(Math.random()*N)|0;
+          const dx=f.px[i]-oppX,dz=f.pz[i]-oppZ;
+          if(dx*dx+dz*dz<oppD){oppD=dx*dx+dz*dz;opp=i;}
+        }
+        applyPatch(opp, -turn*0.8, pr*0.8);
       }
     }
     
@@ -873,13 +898,36 @@ function updateMurmuration() {
     for(let i=0;i<N;i++){fcx+=f.px[i];fcy+=f.py[i];fcz+=f.pz[i];}
     fcx/=N;fcy/=N;fcz/=N;
     
+    // Compactness check — if flock is too tight, trigger expansion burst
+    // Measure as RMS distance from center
+    if(!f.expandTimer) f.expandTimer = 0;
+    f.expandTimer++;
+    if(f.expandTimer > 60){ // check every 60 frames (~2s)
+      f.expandTimer = 0;
+      let rmsD = 0;
+      for(let i=0;i<N;i++){
+        const dx=f.px[i]-fcx,dz=f.pz[i]-fcz;
+        rmsD+=dx*dx+dz*dz;
+      }
+      rmsD = Math.sqrt(rmsD/N);
+      if(rmsD < 10){ // too compact — fire outward burst from center
+        for(let i=0;i<N;i++){
+          const dx=f.px[i]-fcx,dz=f.pz[i]-fcz;
+          const d=Math.sqrt(dx*dx+dz*dz)+0.01;
+          const push = 0.02 * (1 - Math.min(d/15, 1)); // stronger near center
+          f.vx[i]+=(dx/d)*push;
+          f.vz[i]+=(dz/d)*push;
+        }
+      }
+    }
+    
     for(let i=0;i<N;i++){
       // Find 7 nearest — zero alloc
       let nearCount=0;
       const gx=(f.px[i]/MGS)|0,gy=(f.py[i]/MGS)|0,gz=(f.pz[i]/MGS)|0;
       for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
         const cell=grid.get((gx+a)+','+(gy+b)+','+(gz+c));
-        if(cell)for(let n=0;n<cell.length;n++){if(nearCount<256)_mNearby[nearCount++]=cell[n];}
+        if(cell)for(let n=0;n<cell.length;n++){if(nearCount<512)_mNearby[nearCount++]=cell[n];}
       }
       for(let k=0;k<MNC;k++){_mNbIdx[k]=-1;_mNbD2[k]=1e9;}
       const mx=f.px[i],my=f.py[i],mz=f.pz[i];
@@ -900,7 +948,7 @@ function updateMurmuration() {
         let avx=0,avy=0,avz=0;
         for(let k=0;k<nc;k++){const j=_mNbIdx[k];avx+=f.vx[j];avy+=f.vy[j];avz+=f.vz[j];}
         avx/=nc;avy/=nc;avz/=nc;
-        ax+=(avx-f.vx[i])*0.07; ay+=(avy-f.vy[i])*0.07; az+=(avz-f.vz[i])*0.07;
+        ax+=(avx-f.vx[i])*0.05; ay+=(avy-f.vy[i])*0.05; az+=(avz-f.vz[i])*0.05;
         for(let k=0;k<nc;k++){
           if(_mNbD2[k]<0.64&&_mNbD2[k]>0.0001){
             const j=_mNbIdx[k],d=Math.sqrt(_mNbD2[k]),s=(0.8-d)/0.8;
@@ -909,21 +957,30 @@ function updateMurmuration() {
         }
       }
       // Center pull — ANCHOR to (0,0,0) local = flock center in world
-      // Breathing rhythm: oscillate pull strength for compress/stretch cycle
+      // DRAMATIC breathing: near-zero pull during expand, strong during compress
       const breathT = performance.now()*0.001;
-      const breathCycle = Math.sin(breathT * 0.4 + f.breathPhase); // ~16s full cycle
-      const basePull = 0.00015;  // much weaker than before — allows 20+ unit spread
-      const pullStrength = basePull * (1.0 + breathCycle * 0.5); // oscillates 0.5x to 1.5x
+      const rawBreath = Math.sin(breathT * 0.30 + f.breathPhase); // ~21s full cycle
+      // rawBreath > 0 = compress (strong pull), rawBreath < 0 = expand (nearly free)
+      const basePull = 0.00008;
+      const pullStrength = rawBreath > 0 
+        ? basePull * (1.0 + rawBreath * 2.5)   // compress: up to 3.5× base
+        : basePull * Math.max(0.05, 1.0 + rawBreath * 0.95);  // expand: down to 5% of base
       const tox=-f.px[i],toy=-f.py[i],toz=-f.pz[i];
       const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
-      if(fd>0.1){const pull=pullStrength*fd;ax+=(tox/fd)*pull;ay+=(toy/fd)*pull*0.2;az+=(toz/fd)*pull;}
-      // Wind — slow organic currents
-      ax+=Math.sin(t*0.7+f.py[i]*0.1)*0.004;
-      az+=Math.cos(t*0.5+f.px[i]*0.05)*0.004;
-      // Noise
-      ax+=(Math.random()-0.5)*0.008; az+=(Math.random()-0.5)*0.008;
+      if(fd>0.1){
+        // Distance-dependent: quadratic beyond 28 units to prevent runaway
+        const pull = fd < 28 ? pullStrength*fd : pullStrength*28 + (fd-28)*(fd-28)*0.0002;
+        ax+=(tox/fd)*pull;ay+=(toy/fd)*pull*0.15;az+=(toz/fd)*pull;
+      }
+      // Wind — slow organic currents (stronger for visible drift)
+      const wPhase = t + fi * 2.0; // offset per flock so they drift differently
+      ax+=Math.sin(wPhase*0.7+f.py[i]*0.1)*0.005;
+      az+=Math.cos(wPhase*0.5+f.px[i]*0.05)*0.005;
+      ay+=Math.sin(wPhase*0.3)*0.001;
+      // Noise — slightly stronger for density variation
+      ax+=(Math.random()-0.5)*0.010; az+=(Math.random()-0.5)*0.010;
       // Flatten — keep flock disc-shaped like real murmurations
-      ay-=f.vy[i]*0.18; ay-=f.py[i]*0.01;
+      ay-=f.vy[i]*0.20; ay-=f.py[i]*0.012;
       
       f.vx[i]+=ax; f.vy[i]+=ay; f.vz[i]+=az;
       const spd=Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i]);
