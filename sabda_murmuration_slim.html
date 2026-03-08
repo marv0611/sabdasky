@@ -782,9 +782,9 @@ const FLOCK_COUNT = 2;
 const MNC = 7;
 const M_MIN_SPEED = 0.05;
 const M_MAX_SPEED = 0.15;
-const M_SEP_DIST = 0.35;       // Ballerini: exclusion zone ≈ wingspan. Smooth cosine falloff below this.
+const M_SEP_DIST = 0.25;       // Exclusion zone with cosine falloff
 const M_SEP_R2 = M_SEP_DIST*M_SEP_DIST;
-const M_WAVE_SPEED = 0.6;      // Wave front expansion: units per frame (Hoetzlein Flock2)
+const M_WAVE_SPEED = 0.4;      // Wave front expansion: units per frame
 const M_WAVE_MAX_R = 12;       // Wave dies at this radius
 const MAX_WAVES = 4;           // Concurrent waves per flock
 
@@ -942,7 +942,7 @@ function updateMurmuration(simTime, speedMult) {
           if(diff > 3.14159) diff -= 6.28318;
           if(diff < -3.14159) diff += 6.28318;
           // DIRECT velocity rotation — not a force addition (lesson 116)
-          const turnAmt = diff * wavePower * 0.6 * f.responsiveness[i];
+          const turnAmt = diff * wavePower * 0.25 * f.responsiveness[i];
           const cs = Math.cos(turnAmt), sn = Math.sin(turnAmt);
           const ov = f.vx[i], oz = f.vz[i];
           f.vx[i] = ov*cs + oz*sn;
@@ -952,7 +952,7 @@ function updateMurmuration(simTime, speedMult) {
           // Response delay: bird RESISTS alignment for 10-25 frames (lesson 123)
           // During delay, bird flies its new direction while neighbors haven't responded
           // This temporal gap IS the visible wave front
-          f.delayFrames[i] = 10 + ((Math.random() * 15)|0);
+          f.delayFrames[i] = 4 + ((Math.random() * 6)|0);
         }
       }
     }
@@ -997,7 +997,7 @@ function updateMurmuration(simTime, speedMult) {
       
       if(eventType < 0.30) {
         // ── SWEEP WAVE — single edge, wide propagation → ribbon/funnel ──
-        _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.8 + Math.random()*0.4, M_WAVE_MAX_R);
+        _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.5 + Math.random()*0.3, M_WAVE_MAX_R);
         // Slight cohesion boost during sweep to prevent total scatter
         f.cohesionMult = 1.3 + Math.random()*0.5;
         
@@ -1010,14 +1010,14 @@ function updateMurmuration(simTime, speedMult) {
         f.cohesionMult = 0.7 + Math.random()*0.3;
         
       } else if(eventType < 0.65) {
-        // ── COMPRESSION — boost cohesion, no wave → dense ball moment ──
-        f.cohesionMult = 2.5 + Math.random()*2.0;
+        // ── COMPRESSION — moderate cohesion boost → dense ball moment ──
+        f.cohesionMult = 1.8 + Math.random()*1.0;
         
       } else if(eventType < 0.80) {
-        // ── EXPANSION — drop cohesion, speed burst outward → cloud/scatter ──
-        f.cohesionMult = 0.15 + Math.random()*0.15;
+        // ── EXPANSION — moderate cohesion drop + gentle outward nudge ──
+        f.cohesionMult = 0.3 + Math.random()*0.2;
         for(let si=0;si<N;si++){
-          const spreadStr = (0.002 + Math.random()*0.003) * f.responsiveness[si];
+          const spreadStr = (0.001 + Math.random()*0.002) * f.responsiveness[si];
           f.vx[si] += f.px[si] * spreadStr;
           f.vz[si] += f.pz[si] * spreadStr;
         }
@@ -1104,10 +1104,9 @@ function updateMurmuration(simTime, speedMult) {
         ay += (cpy - f.py[i]) * 0.008 * (f.cohesionMult||1.0);
         
         // ── 2. ALIGNMENT — steer toward avg heading of 7 nearest (Reynolds Rule 2) ──
-        // SUPPRESSED during wave response delay (lesson 123)
-        // This suppression IS the mechanism that creates visible wave fronts:
-        // turning bird flies new direction while neighbors still fly old direction.
-        if(!isDelayed) {
+        // REDUCED (not suppressed) during wave response delay (lesson 123)
+        // Partial alignment keeps birds smooth while still allowing wave front visibility
+        {
           let avx=0,avz=0;
           for(let k=0;k<nc;k++){
             const j=_mNbIdx[k];
@@ -1120,7 +1119,10 @@ function updateMurmuration(simTime, speedMult) {
           let alDiff=nbHdg-myHdg2;
           if(alDiff>3.14159)alDiff-=6.28318;
           if(alDiff<-3.14159)alDiff+=6.28318;
-          const alTurn=alDiff*0.030*resp;
+          // During wave delay: 30% alignment (still smooth but resists herd).
+          // Normal: full alignment strength.
+          const alMult = isDelayed ? 0.3 : 1.0;
+          const alTurn=alDiff*0.035*resp*alMult;
           const acs=Math.cos(alTurn),asn=Math.sin(alTurn);
           const av1=f.vx[i]*acs+f.vz[i]*asn, av2=-f.vx[i]*asn+f.vz[i]*acs;
           f.vx[i]=av1; f.vz[i]=av2;
@@ -1146,15 +1148,23 @@ function updateMurmuration(simTime, speedMult) {
           const alongVel = Math.abs(ndx*myDirX + ndz*myDirZ); // 0=lateral, 1=along velocity
           // Stronger separation along velocity (1.5×), weaker lateral (0.7×)
           const anisoMult = 0.7 + alongVel * 0.8;
-          const str = sepForce * 0.004 * anisoMult;
+          const str = sepForce * 0.002 * anisoMult;
           ax += ndx * str;
           az += ndz * str;
         }
       }
       
-      // ── NO GRAVITY WELL — density varies freely (Ballerini: higher at border) ──
-      // Only extreme tether at very far distances prevents permanent escape
+      // ── GENTLE CENTRAL DENSITY — soft ambient pull creates denser middle ──
+      // Dead zone up to 2 units — birds roam freely near core.
+      // Beyond that, very gentle linear pull. NOT a gravity well (no snap-back).
+      // This gives the mass a denser center while still allowing free density variation.
       const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
+      if(fd > 2.0) {
+        const centralStr = (fd - 2.0) * 0.0008;
+        ax += (-f.px[i]/fd) * centralStr;
+        az += (-f.pz[i]/fd) * centralStr;
+      }
+      // Hard tether at extreme distance
       if(fd > 8) {
         const leashStr = (fd - 8) * 0.008;
         ax += (-f.px[i]/fd) * leashStr;
@@ -1163,17 +1173,17 @@ function updateMurmuration(simTime, speedMult) {
       
       // ── LANGEVIN NOISE — smooth per-bird ──
       const birdSeed = i*0.137 + fi*7.3;
-      ax += Math.sin(simTime*0.2+birdSeed) * 0.0002 * (2.0-resp);
-      az += Math.cos(simTime*0.17+birdSeed*1.3) * 0.0002 * (2.0-resp);
+      ax += Math.sin(simTime*0.2+birdSeed) * 0.00008 * (2.0-resp);
+      az += Math.cos(simTime*0.17+birdSeed*1.3) * 0.00008 * (2.0-resp);
       
       // ── FLATTEN into disc (Ballerini: aspect ratio 1:2.8:5.6) ──
       ay -= f.vy[i] * 0.45;        // strong Y damping
       ay -= f.py[i] * 0.030;       // pull toward Y=0 plane
       
       // ── VELOCITY UPDATE — direct acceleration (lesson 112) ──
-      f.vx[i] = f.vx[i]*0.988 + ax;
+      f.vx[i] = f.vx[i]*0.978 + ax;
       f.vy[i] = f.vy[i]*0.96 + ay;
-      f.vz[i] = f.vz[i]*0.988 + az;
+      f.vz[i] = f.vz[i]*0.978 + az;
       
       // ── Variable speed during turns (StarDisplay/Hildenbrandt, lesson 125) ──
       const curHdg = Math.atan2(f.vz[i], f.vx[i]);
@@ -1244,7 +1254,12 @@ function updateMurmuration(simTime, speedMult) {
       m.position.x = f.px[i]+cx;
       m.position.y = f.py[i]+cy;
       m.position.z = f.pz[i]+cz;
-      m.rotation.y = Math.atan2(f.vx[i], f.vz[i]);
+      // Smooth visual heading — lerp toward physics heading, never snap
+      let targetRot = Math.atan2(f.vx[i], f.vz[i]);
+      let rotDiff = targetRot - m.rotation.y;
+      if(rotDiff > 3.14159) rotDiff -= 6.28318;
+      if(rotDiff < -3.14159) rotDiff += 6.28318;
+      m.rotation.y += rotDiff * 0.15; // smooth 15% per frame
     }
   }
 }
