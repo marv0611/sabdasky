@@ -1,44 +1,39 @@
 <!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>Murmuration v9</title>
+<title>Murmuration v10</title>
 <style>body{margin:0;overflow:hidden;background:#000}canvas{display:block}</style>
 </head><body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════
-// STARLING MURMURATION v9
-// Elastic blob: flock center pull is UNBREAKABLE.
-// Birds steer by turning (constant speed).
-// Shape changes from delayed wave propagation.
+// STARLING MURMURATION v10
+// Back to basics. Simple smooth forces. No turn limiting.
+// Fluid motion from momentum smoothing only.
 // ═══════════════════════════════════════════════════════
 
 const N = 1000;
 const K = 7;
-const SPEED = 0.2;         // constant cruising speed for all birds
-const MAX_TURN = 0.025;    // max radians of direction change per frame — SLOW turns
-const FLAT_FACTOR = 0.06;  // how strongly birds are pushed back to y=flockCenter
+const TARGET_SPEED = 0.3;
 
-// State
 const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
-// Direction as unit vector * SPEED
 const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
 
-// Init — packed flat disc, all same direction
-const dir0 = Math.random() * Math.PI * 2;
+// Init — dense flat disc, all same direction
+const d0 = Math.random() * Math.PI * 2;
 for (let i = 0; i < N; i++) {
   const a = Math.random() * Math.PI * 2;
   const r = Math.sqrt(Math.random()) * 10;
   px[i] = Math.cos(a) * r;
   py[i] = (Math.random() - 0.5) * 3;
   pz[i] = Math.sin(a) * r;
-  vx[i] = Math.cos(dir0) * SPEED;
-  vy[i] = 0;
-  vz[i] = Math.sin(dir0) * SPEED;
+  vx[i] = Math.cos(d0) * TARGET_SPEED + (Math.random()-0.5)*0.02;
+  vy[i] = (Math.random()-0.5) * 0.005;
+  vz[i] = Math.sin(d0) * TARGET_SPEED + (Math.random()-0.5)*0.02;
 }
 
 // Spatial grid
-const GS = 5;
+const GS = 6;
 const grid = new Map();
 function buildGrid() {
   grid.clear();
@@ -48,68 +43,58 @@ function buildGrid() {
     grid.get(k).push(i);
   }
 }
-function getNearby(x, y, z) {
-  const r = [];
-  const gx=(x/GS)|0, gy=(y/GS)|0, gz=(z/GS)|0;
-  for (let dx=-1;dx<=1;dx++) for (let dy=-1;dy<=1;dy++) for (let dz=-1;dz<=1;dz++) {
-    const c = grid.get((gx+dx)+','+(gy+dy)+','+(gz+dz));
-    if (c) for (const i of c) r.push(i);
+function getNearby(x,y,z) {
+  const r=[];
+  const gx=(x/GS)|0,gy=(y/GS)|0,gz=(z/GS)|0;
+  for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
+    const cell=grid.get((gx+a)+','+(gy+b)+','+(gz+c));
+    if(cell)for(const i of cell)r.push(i);
   }
   return r;
 }
 
-// Find 7 nearest neighbors
 function findK(i) {
-  const near = getNearby(px[i], py[i], pz[i]);
-  const cands = [];
-  for (const j of near) {
-    if (j === i) continue;
-    const dx=px[i]-px[j], dy=py[i]-py[j], dz=pz[i]-pz[j];
-    cands.push({ j, d2: dx*dx+dy*dy+dz*dz });
+  const near=getNearby(px[i],py[i],pz[i]);
+  const c=[];
+  for(const j of near){
+    if(j===i)continue;
+    const dx=px[i]-px[j],dy=py[i]-py[j],dz=pz[i]-pz[j];
+    c.push({j,d2:dx*dx+dy*dy+dz*dz});
   }
-  cands.sort((a,b) => a.d2 - b.d2);
-  return cands.slice(0, K);
+  c.sort((a,b)=>a.d2-b.d2);
+  return c.slice(0,K);
 }
 
-// Desired direction accumulator per bird
-const dx_want = new Float32Array(N);
-const dy_want = new Float32Array(N);
-const dz_want = new Float32Array(N);
-
-// Wave system
+// Edge perturbation
 let waveTimer = 0;
-let nextWave = 150;
+let nextWave = 120 + Math.random()*180;
 
-function initiateWave() {
-  // Find flock center
+function perturbEdge() {
   let cx=0,cy=0,cz=0;
   for(let i=0;i<N;i++){cx+=px[i];cy+=py[i];cz+=pz[i];}
   cx/=N;cy/=N;cz/=N;
   
-  // Pick edge bird
-  let best=-1, bestD=0;
+  // Find edge bird
+  let best=0,bestD=0;
   for(let s=0;s<30;s++){
     const i=(Math.random()*N)|0;
-    const dx=px[i]-cx, dy=py[i]-cy, dz=pz[i]-cz;
-    const d=dx*dx+dy*dy+dz*dz;
+    const dx=px[i]-cx,dz=pz[i]-cz;
+    const d=dx*dx+dz*dz;
     if(d>bestD){bestD=d;best=i;}
   }
-  if(best<0) return;
   
-  // Turn this bird and ~30 nearby birds (the leading edge)
-  const turnAngle = (Math.random()-0.5) * 0.8;
-  const curAngle = Math.atan2(vz[best], vx[best]);
-  const newAngle = curAngle + turnAngle;
-  
+  // Turn a patch of ~40 birds at the edge
+  const turnAngle = (Math.random()-0.5)*0.6;
   for(let i=0;i<N;i++){
-    const dx=px[i]-px[best], dy=py[i]-py[best], dz=pz[i]-pz[best];
+    const dx=px[i]-px[best],dy=py[i]-py[best],dz=pz[i]-pz[best];
     const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-    if(d < 5) {
-      const falloff = 1 - d/5;
-      const ca = Math.atan2(vz[i], vx[i]);
-      const ta = ca + turnAngle * falloff;
-      vx[i] = Math.cos(ta) * SPEED;
-      vz[i] = Math.sin(ta) * SPEED;
+    if(d<4){
+      const f=1-d/4;
+      const ca=Math.atan2(vz[i],vx[i]);
+      const na=ca+turnAngle*f;
+      const sp=Math.sqrt(vx[i]*vx[i]+vz[i]*vz[i]);
+      vx[i]=Math.cos(na)*sp;
+      vz[i]=Math.sin(na)*sp;
     }
   }
 }
@@ -117,132 +102,84 @@ function initiateWave() {
 function update() {
   buildGrid();
   
-  // Wave timer
   waveTimer++;
-  if (waveTimer >= nextWave) {
-    initiateWave();
-    waveTimer = 0;
-    nextWave = 100 + Math.random() * 200;
+  if(waveTimer>=nextWave){
+    perturbEdge();
+    waveTimer=0;
+    nextWave=80+Math.random()*200;
   }
   
   // Flock center
   let fcx=0,fcy=0,fcz=0;
   for(let i=0;i<N;i++){fcx+=px[i];fcy+=py[i];fcz+=pz[i];}
   fcx/=N;fcy/=N;fcz/=N;
-  
-  // Compute desired direction for each bird
+
   for (let i = 0; i < N; i++) {
-    // Start with current direction
-    dx_want[i] = vx[i];
-    dy_want[i] = vy[i];
-    dz_want[i] = vz[i];
-    
+    let accX=0, accY=0, accZ=0;
     const nbs = findK(i);
-    if (nbs.length === 0) {
-      // No neighbors — pull HARD toward flock center
-      const tx=fcx-px[i], ty=fcy-py[i], tz=fcz-pz[i];
-      const d=Math.sqrt(tx*tx+ty*ty+tz*tz);
-      if(d>0.1){dx_want[i]=tx/d*SPEED;dy_want[i]=ty/d*SPEED;dz_want[i]=tz/d*SPEED;}
-      continue;
-    }
     
-    // ── 1. ALIGNMENT (dominant) — steer toward avg neighbor direction ──
-    let avgVx=0,avgVy=0,avgVz=0;
-    for(const nb of nbs){avgVx+=vx[nb.j];avgVy+=vy[nb.j];avgVz+=vz[nb.j];}
-    avgVx/=nbs.length;avgVy/=nbs.length;avgVz/=nbs.length;
-    
-    // Normalize
-    let al=Math.sqrt(avgVx*avgVx+avgVy*avgVy+avgVz*avgVz);
-    if(al>0.001){avgVx/=al;avgVy/=al;avgVz/=al;}
-    
-    // ── 2. COHESION — toward neighbor center ──
-    let cohX=0,cohY=0,cohZ=0;
-    for(const nb of nbs){cohX+=px[nb.j];cohY+=py[nb.j];cohZ+=pz[nb.j];}
-    cohX/=nbs.length;cohY/=nbs.length;cohZ/=nbs.length;
-    let tcx=cohX-px[i],tcy=cohY-py[i],tcz=cohZ-pz[i];
-    let cl=Math.sqrt(tcx*tcx+tcy*tcy+tcz*tcz);
-    if(cl>0.001){tcx/=cl;tcy/=cl;tcz/=cl;}
-    
-    // ── 3. SEPARATION — away from too-close neighbors ──
-    let sepX=0,sepY=0,sepZ=0;
-    for(const nb of nbs){
-      if(nb.d2 < 0.8*0.8 && nb.d2>0.001){
-        const d=Math.sqrt(nb.d2);
-        sepX+=(px[i]-px[nb.j])/d;
-        sepY+=(py[i]-py[nb.j])/d;
-        sepZ+=(pz[i]-pz[nb.j])/d;
+    if (nbs.length > 0) {
+      // ── SEPARATION ──
+      for(const nb of nbs){
+        if(nb.d2 < 0.6*0.6 && nb.d2>0.001){
+          const d=Math.sqrt(nb.d2);
+          const f=0.04*(0.6-d)/0.6;
+          accX+=(px[i]-px[nb.j])/d*f;
+          accY+=(py[i]-py[nb.j])/d*f;
+          accZ+=(pz[i]-pz[nb.j])/d*f;
+        }
       }
-    }
-    let sl=Math.sqrt(sepX*sepX+sepY*sepY+sepZ*sepZ);
-    if(sl>0.001){sepX/=sl;sepY/=sl;sepZ/=sl;}
-    
-    // ── 4. FLOCK CENTER PULL — exponential with distance, UNBREAKABLE ──
-    const toFx=fcx-px[i], toFy=fcy-py[i], toFz=fcz-pz[i];
-    const flockDist=Math.sqrt(toFx*toFx+toFy*toFy+toFz*toFz);
-    let fcNx=0,fcNy=0,fcNz=0;
-    if(flockDist>0.1){fcNx=toFx/flockDist;fcNy=toFy/flockDist;fcNz=toFz/flockDist;}
-    
-    // Exponential pull — gentle at center, OVERWHELMING at edge
-    // At dist 5: pull = 0.02 (tiny). At dist 15: pull = 0.5. At dist 25: pull = 4.0 (dominates everything)
-    const pullStrength = 0.002 * Math.exp(flockDist * 0.12);
-    const cappedPull = Math.min(pullStrength, 5.0); // cap so it doesn't go to infinity
-    
-    // ── BLEND desired direction ──
-    const wAlign = 0.5;     // alignment is strongest — wave propagation
-    const wCoh = 0.15;      // local cohesion
-    const wSep = 0.08;      // gentle separation
-    const wCenter = cappedPull; // exponential center pull
-    
-    const totalW = wAlign + wCoh + wSep + wCenter;
-    
-    dx_want[i] = (avgVx*wAlign + tcx*wCoh + sepX*wSep + fcNx*wCenter) / totalW;
-    dy_want[i] = (avgVy*wAlign + tcy*wCoh + sepY*wSep + fcNy*wCenter) / totalW;
-    dz_want[i] = (avgVz*wAlign + tcz*wCoh + sepZ*wSep + fcNz*wCenter) / totalW;
-    
-    // Flatten Y — murmurations are flat
-    dy_want[i] *= (1 - FLAT_FACTOR);
-    // Also pull Y toward flock center Y
-    dy_want[i] += (fcy - py[i]) * 0.01;
-  }
-  
-  // ── APPLY: steer toward desired direction with limited turn rate ──
-  for (let i = 0; i < N; i++) {
-    // Normalize desired direction
-    let wl = Math.sqrt(dx_want[i]*dx_want[i]+dy_want[i]*dy_want[i]+dz_want[i]*dz_want[i]);
-    if(wl < 0.001) continue;
-    const wantX=dx_want[i]/wl, wantY=dy_want[i]/wl, wantZ=dz_want[i]/wl;
-    
-    // Current direction
-    let cl = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
-    if(cl < 0.001) cl = 0.001;
-    const curX=vx[i]/cl, curY=vy[i]/cl, curZ=vz[i]/cl;
-    
-    // Blend toward desired direction with turn limit
-    let newX = curX + (wantX - curX) * MAX_TURN * 2;
-    let newY = curY + (wantY - curY) * MAX_TURN * 2;
-    let newZ = curZ + (wantZ - curZ) * MAX_TURN * 2;
-    
-    // BUT if far from flock center, increase turn rate (can't escape)
-    const toFx=fcx-px[i], toFy=fcy-py[i], toFz=fcz-pz[i];
-    const fd=Math.sqrt(toFx*toFx+toFy*toFy+toFz*toFz);
-    if (fd > 15) {
-      const urgency = Math.min((fd - 15) * 0.05, 0.5);
-      newX += (toFx/fd) * urgency;
-      newY += (toFy/fd) * urgency;
-      newZ += (toFz/fd) * urgency;
+      
+      // ── ALIGNMENT — match neighbor velocity (wave propagation) ──
+      let avx=0,avy=0,avz=0;
+      for(const nb of nbs){avx+=vx[nb.j];avy+=vy[nb.j];avz+=vz[nb.j];}
+      avx/=nbs.length;avy/=nbs.length;avz/=nbs.length;
+      accX+=(avx-vx[i])*0.06;
+      accY+=(avy-vy[i])*0.06;
+      accZ+=(avz-vz[i])*0.06;
+      
+      // ── COHESION — toward 7-neighbor center ──
+      let cx=0,cy=0,cz=0;
+      for(const nb of nbs){cx+=px[nb.j];cy+=py[nb.j];cz+=pz[nb.j];}
+      cx/=nbs.length;cy/=nbs.length;cz/=nbs.length;
+      accX+=(cx-px[i])*0.004;
+      accY+=(cy-py[i])*0.004;
+      accZ+=(cz-pz[i])*0.004;
     }
     
-    // Renormalize to constant speed
-    let nl = Math.sqrt(newX*newX+newY*newY+newZ*newZ);
-    if(nl > 0.001) {
-      vx[i] = (newX/nl) * SPEED;
-      vy[i] = (newY/nl) * SPEED;
-      vz[i] = (newZ/nl) * SPEED;
+    // ── CENTER PULL — proportional, smooth, always on ──
+    const tox=fcx-px[i], toy=fcy-py[i], toz=fcz-pz[i];
+    const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
+    if(fd>0.1){
+      // Gentle at center, strong at edge — quadratic
+      const pull = 0.0003 * fd;
+      accX+=tox/fd*pull;
+      accY+=toy/fd*pull;
+      accZ+=toz/fd*pull;
     }
     
-    px[i] += vx[i];
-    py[i] += vy[i];
-    pz[i] += vz[i];
+    // ── VERTICAL FLATTENING ──
+    accY -= vy[i]*0.08;
+    accY -= (py[i]-fcy)*0.003;
+    
+    // ── APPLY — smooth blend ──
+    vx[i] += accX;
+    vy[i] += accY;
+    vz[i] += accZ;
+    
+    // ── SOFT SPEED REGULATION — gently push toward target speed ──
+    const spd = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
+    if(spd > 0.01){
+      const adj = 1 + (TARGET_SPEED/spd - 1) * 0.05; // 5% correction per frame
+      vx[i]*=adj;
+      vy[i]*=adj;
+      vz[i]*=adj;
+    }
+    
+    // ── MOVE ──
+    px[i]+=vx[i];
+    py[i]+=vy[i];
+    pz[i]+=vz[i];
   }
 }
 
@@ -255,8 +192,8 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const skyCanvas = document.createElement('canvas');
 skyCanvas.width = 1; skyCanvas.height = 512;
-const ctx = skyCanvas.getContext('2d');
-const grad = ctx.createLinearGradient(0, 0, 0, 512);
+const sctx = skyCanvas.getContext('2d');
+const grad = sctx.createLinearGradient(0, 0, 0, 512);
 grad.addColorStop(0.0, '#2a1540');
 grad.addColorStop(0.25, '#5a2068');
 grad.addColorStop(0.45, '#b06080');
@@ -264,8 +201,8 @@ grad.addColorStop(0.6, '#d4726a');
 grad.addColorStop(0.75, '#f0a06c');
 grad.addColorStop(0.9, '#e8c89e');
 grad.addColorStop(1.0, '#c9a882');
-ctx.fillStyle = grad;
-ctx.fillRect(0, 0, 1, 512);
+sctx.fillStyle = grad;
+sctx.fillRect(0, 0, 1, 512);
 scene.background = new THREE.CanvasTexture(skyCanvas);
 
 const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -273,54 +210,51 @@ const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHei
 // Bird silhouette
 const bGeo = new THREE.BufferGeometry();
 bGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-  0,0,-0.15,  0,0.03,-0.15,  0,0,0.25,
-  0,0,-0.1,   -0.22,0,0,     0,0,0.1,
-  0,0,0.1,    0.22,0,0,      0,0,-0.1
+  0,0,-0.15, 0,0.03,-0.15, 0,0,0.25,
+  0,0,-0.1, -0.22,0,0, 0,0,0.1,
+  0,0,0.1, 0.22,0,0, 0,0,-0.1
 ]), 3));
 bGeo.computeVertexNormals();
 const bMat = new THREE.MeshBasicMaterial({ color: 0x080604, side: THREE.DoubleSide });
 const meshes = [];
-for (let i = 0; i < N; i++) {
-  const m = new THREE.Mesh(bGeo, bMat);
-  m.frustumCulled = false;
+for(let i=0;i<N;i++){
+  const m=new THREE.Mesh(bGeo,bMat);
+  m.frustumCulled=false;
   scene.add(m);
   meshes.push(m);
 }
 
-// Flock center tracking for smooth camera
-let camCx=0, camCy=0, camCz=0;
+let camCx=0,camCy=0,camCz=0;
 
 function animate() {
   requestAnimationFrame(animate);
   update();
   
-  // Update meshes
-  for (let i = 0; i < N; i++) {
-    meshes[i].position.set(px[i], py[i], pz[i]);
-    const sp = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
-    if (sp > 0.001) meshes[i].lookAt(px[i]+vx[i], py[i]+vy[i], pz[i]+vz[i]);
+  for(let i=0;i<N;i++){
+    meshes[i].position.set(px[i],py[i],pz[i]);
+    const sp=Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
+    if(sp>0.001)meshes[i].lookAt(px[i]+vx[i],py[i]+vy[i],pz[i]+vz[i]);
   }
   
-  // Smooth flock center for camera
   let cx=0,cy=0,cz=0;
   for(let i=0;i<N;i++){cx+=px[i];cy+=py[i];cz+=pz[i];}
   cx/=N;cy/=N;cz/=N;
-  camCx += (cx-camCx)*0.02;
-  camCy += (cy-camCy)*0.02;
-  camCz += (cz-camCz)*0.02;
+  camCx+=(cx-camCx)*0.03;
+  camCy+=(cy-camCy)*0.03;
+  camCz+=(cz-camCz)*0.03;
   
-  const ct = performance.now() * 0.000008;
-  camera.position.set(camCx+Math.sin(ct)*55, camCy+6, camCz+Math.cos(ct)*55);
-  camera.lookAt(camCx, camCy, camCz);
+  const ct=performance.now()*0.000008;
+  camera.position.set(camCx+Math.sin(ct)*55, camCy+5, camCz+Math.cos(ct)*55);
+  camera.lookAt(camCx,camCy,camCz);
   
-  renderer.render(scene, camera);
+  renderer.render(scene,camera);
 }
 animate();
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth/window.innerHeight;
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth,window.innerHeight);
 });
 </script>
 </body></html>
