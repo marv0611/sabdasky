@@ -1083,9 +1083,15 @@ function updateMurmuration() {
     const cx=orbX, cy=orbY, cz=orbZ;
     for(let i=0;i<N;i++){
       const m=f.meshes[i];
-      m.position.x=f.px[i]+cx; m.position.y=f.py[i]+cy; m.position.z=f.pz[i]+cz;
+      const wx=f.px[i]+cx, wy=f.py[i]+cy, wz=f.pz[i]+cz;
+      m.position.x=wx; m.position.y=wy; m.position.z=wz;
       m.rotation.y=Math.atan2(f.vx[i],f.vz[i]);
       m.rotation.x=-Math.asin(f.vy[i]/Math.max(0.01,Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i])));
+      // Distance-based scaling — consistent apparent size across all 4 walls
+      // Same approach as existing scene birds (BIRD_REF_DIST = 23)
+      const distFromCam = Math.sqrt(wx*wx + (wy-EYE_H)*(wy-EYE_H) + wz*wz);
+      const distScale = 22 / Math.max(10, distFromCam);
+      m.scale.setScalar(distScale);
     }
   }
 }
