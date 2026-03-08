@@ -12,9 +12,9 @@
 // Fluid motion from momentum smoothing only.
 // ═══════════════════════════════════════════════════════
 
-const N = 1000;
+const N = 500;
 const K = 7;
-const TARGET_SPEED = 0.3;
+const TARGET_SPEED = 1.5; // units per second (not per frame)
 
 const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
 const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
@@ -27,9 +27,9 @@ for (let i = 0; i < N; i++) {
   px[i] = Math.cos(a) * r;
   py[i] = (Math.random() - 0.5) * 3;
   pz[i] = Math.sin(a) * r;
-  vx[i] = Math.cos(d0) * TARGET_SPEED + (Math.random()-0.5)*0.02;
-  vy[i] = (Math.random()-0.5) * 0.005;
-  vz[i] = Math.sin(d0) * TARGET_SPEED + (Math.random()-0.5)*0.02;
+  vx[i] = Math.cos(d0) * TARGET_SPEED + (Math.random()-0.5)*0.1;
+  vy[i] = (Math.random()-0.5) * 0.02;
+  vz[i] = Math.sin(d0) * TARGET_SPEED + (Math.random()-0.5)*0.1;
 }
 
 // Spatial grid
@@ -67,7 +67,7 @@ function findK(i) {
 
 // Edge perturbation
 let waveTimer = 0;
-let nextWave = 120 + Math.random()*180;
+let nextWave = 3 + Math.random()*4; // seconds
 
 function perturbEdge() {
   let cx=0,cy=0,cz=0;
@@ -84,12 +84,12 @@ function perturbEdge() {
   }
   
   // Turn a patch of ~40 birds at the edge
-  const turnAngle = (Math.random()-0.5)*0.6;
+  const turnAngle = (Math.random()-0.5)*1.0;
   for(let i=0;i<N;i++){
     const dx=px[i]-px[best],dy=py[i]-py[best],dz=pz[i]-pz[best];
     const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-    if(d<4){
-      const f=1-d/4;
+    if(d<5){
+      const f=1-d/5;
       const ca=Math.atan2(vz[i],vx[i]);
       const na=ca+turnAngle*f;
       const sp=Math.sqrt(vx[i]*vx[i]+vz[i]*vz[i]);
@@ -99,14 +99,20 @@ function perturbEdge() {
   }
 }
 
+let lastTime = performance.now();
+
 function update() {
+  const now = performance.now();
+  const dt = Math.min((now - lastTime) / 1000, 0.05); // seconds, capped at 50ms
+  lastTime = now;
+  
   buildGrid();
   
-  waveTimer++;
-  if(waveTimer>=nextWave){
+  waveTimer += dt;
+  if(waveTimer >= nextWave){
     perturbEdge();
-    waveTimer=0;
-    nextWave=80+Math.random()*200;
+    waveTimer = 0;
+    nextWave = 2 + Math.random() * 5;
   }
   
   // Flock center
@@ -121,65 +127,64 @@ function update() {
     if (nbs.length > 0) {
       // ── SEPARATION ──
       for(const nb of nbs){
-        if(nb.d2 < 0.6*0.6 && nb.d2>0.001){
+        if(nb.d2 < 1.2*1.2 && nb.d2>0.001){
           const d=Math.sqrt(nb.d2);
-          const f=0.04*(0.6-d)/0.6;
+          const f = 2.0*(1.2-d)/1.2;
           accX+=(px[i]-px[nb.j])/d*f;
           accY+=(py[i]-py[nb.j])/d*f;
           accZ+=(pz[i]-pz[nb.j])/d*f;
         }
       }
       
-      // ── ALIGNMENT — match neighbor velocity (wave propagation) ──
+      // ── ALIGNMENT ──
       let avx=0,avy=0,avz=0;
       for(const nb of nbs){avx+=vx[nb.j];avy+=vy[nb.j];avz+=vz[nb.j];}
       avx/=nbs.length;avy/=nbs.length;avz/=nbs.length;
-      accX+=(avx-vx[i])*0.06;
-      accY+=(avy-vy[i])*0.06;
-      accZ+=(avz-vz[i])*0.06;
+      accX+=(avx-vx[i])*3.0;
+      accY+=(avy-vy[i])*3.0;
+      accZ+=(avz-vz[i])*3.0;
       
-      // ── COHESION — toward 7-neighbor center ──
+      // ── COHESION ──
       let cx=0,cy=0,cz=0;
       for(const nb of nbs){cx+=px[nb.j];cy+=py[nb.j];cz+=pz[nb.j];}
       cx/=nbs.length;cy/=nbs.length;cz/=nbs.length;
-      accX+=(cx-px[i])*0.004;
-      accY+=(cy-py[i])*0.004;
-      accZ+=(cz-pz[i])*0.004;
+      accX+=(cx-px[i])*0.2;
+      accY+=(cy-py[i])*0.2;
+      accZ+=(cz-pz[i])*0.2;
     }
     
-    // ── CENTER PULL — proportional, smooth, always on ──
+    // ── CENTER PULL — quadratic ──
     const tox=fcx-px[i], toy=fcy-py[i], toz=fcz-pz[i];
     const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
     if(fd>0.1){
-      // Gentle at center, strong at edge — quadratic
-      const pull = 0.0003 * fd;
+      const pull = 0.015 * fd;
       accX+=tox/fd*pull;
       accY+=toy/fd*pull;
       accZ+=toz/fd*pull;
     }
     
     // ── VERTICAL FLATTENING ──
-    accY -= vy[i]*0.08;
-    accY -= (py[i]-fcy)*0.003;
+    accY -= vy[i]*4.0;
+    accY -= (py[i]-fcy)*0.2;
     
-    // ── APPLY — smooth blend ──
-    vx[i] += accX;
-    vy[i] += accY;
-    vz[i] += accZ;
+    // ── APPLY with delta time ──
+    vx[i] += accX * dt;
+    vy[i] += accY * dt;
+    vz[i] += accZ * dt;
     
-    // ── SOFT SPEED REGULATION — gently push toward target speed ──
+    // ── SOFT SPEED REGULATION ──
     const spd = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
     if(spd > 0.01){
-      const adj = 1 + (TARGET_SPEED/spd - 1) * 0.05; // 5% correction per frame
+      const adj = 1 + (TARGET_SPEED/spd - 1) * 0.1;
       vx[i]*=adj;
       vy[i]*=adj;
       vz[i]*=adj;
     }
     
-    // ── MOVE ──
-    px[i]+=vx[i];
-    py[i]+=vy[i];
-    pz[i]+=vz[i];
+    // ── MOVE with delta time ──
+    px[i]+=vx[i]*dt;
+    py[i]+=vy[i]*dt;
+    pz[i]+=vz[i]*dt;
   }
 }
 
@@ -225,10 +230,19 @@ for(let i=0;i<N;i++){
 }
 
 let camCx=0,camCy=0,camCz=0;
+let fpsFrames=0,fpsLast=performance.now();
 
 function animate() {
   requestAnimationFrame(animate);
   update();
+  
+  // FPS counter
+  fpsFrames++;
+  const fpsNow=performance.now();
+  if(fpsNow-fpsLast>1000){
+    document.title='Murmuration — '+fpsFrames+'fps';
+    fpsFrames=0;fpsLast=fpsNow;
+  }
   
   for(let i=0;i<N;i++){
     meshes[i].position.set(px[i],py[i],pz[i]);
