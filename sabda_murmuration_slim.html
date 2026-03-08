@@ -804,8 +804,8 @@ const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.Doubl
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 5.5, driftSpeed: 0.06, eventInterval: [25,50], zone: 'top' },   // 225° → -X,-Z zone
-  { startAngle: 0.79, y: 6.0, driftSpeed: 0.04, eventInterval: [35,65], zone: 'bottom' }, // 45° → +X,+Z zone
+  { startAngle: 3.93, y: 5.5, driftSpeed: 0.06, eventInterval: [12,28], zone: 'top' },
+  { startAngle: 0.79, y: 6.0, driftSpeed: 0.04, eventInterval: [18,35], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -903,35 +903,41 @@ function updateMurmuration(simTime, speedMult) {
       grid.get(k).push(i);
     }
     
-    // ══ WIND EVENTS — each sets a DIFFERENT return pull strength ══
+    // ══ SHAPE EVENTS — dense ball is HOME. Events create brief shape moments. ══
+    // Default pull is VERY strong. Mass always wants to be a tight ball.
+    // Events push birds outward into shapes, but strong pull snaps them back.
     if(!f.waves) f.waves = [];
+    if(!f.currentPull) f.currentPull = 0.0020;
+    // Gravity toward dense: pull slowly increases when no event fires
+    f.currentPull = Math.min(0.0025, f.currentPull + 0.00001 * sm);
+    
     f.pTimer += sm;
     if(f.pTimer >= f.pNext){
       f.pTimer = 0;
       f.pNext = f.eventMin + Math.random() * (f.eventMax - f.eventMin);
+      
+      let _fcx=0,_fcy=0,_fcz=0;
+      for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
+      _fcx/=N;_fcy/=N;_fcz/=N;
+      
       const r = Math.random();
-      if(r < 0.25) {
-        // SHARP WIND SHIFT — flock changes travel direction
-        f.windTargetAngle += (Math.random()-0.5) * 2.2;
-        // Medium pull — drifts back at natural pace
-        f.currentPull = 0.0008 + Math.random()*0.0006;
+      if(r < 0.18) {
+        // WIND SHIFT + slight stretch
+        f.windTargetAngle += (Math.random()-0.5) * 2.0;
+        f.currentPull = 0.0012 + Math.random()*0.0008; // loosens briefly
       }
-      else if(r < 0.40) {
-        // GUST — push in wind direction, stretches mass
-        const gustStr = 0.008 + Math.random()*0.008;
+      else if(r < 0.30) {
+        // GUST — brief directional push
+        const gustStr = 0.006 + Math.random()*0.006;
         for(let i=0;i<N;i++){
           f.vx[i] += Math.sin(f.windAngle) * gustStr;
           f.vz[i] += Math.cos(f.windAngle) * gustStr;
         }
-        // Slow lazy return — mass drifts back gently
-        f.currentPull = 0.0005 + Math.random()*0.0004;
+        f.currentPull = 0.0014 + Math.random()*0.0006;
       }
-      else if(r < 0.65) {
-        // COMPRESSION — inward crush, varied intensity
-        let _fcx=0,_fcy=0,_fcz=0;
-        for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
-        _fcx/=N;_fcy/=N;_fcz/=N;
-        const crushStr = 0.020 + Math.random()*0.025; // varies 0.020-0.045
+      else if(r < 0.50) {
+        // HARD CRUSH — maximum density, tight dark ball
+        const crushStr = 0.025 + Math.random()*0.035;
         for(let i=0;i<N;i++){
           const dx=_fcx-f.px[i], dy=_fcy-f.py[i], dz=_fcz-f.pz[i];
           const d=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
@@ -939,27 +945,57 @@ function updateMurmuration(simTime, speedMult) {
           f.vy[i] += dy/d * crushStr * 0.3;
           f.vz[i] += dz/d * crushStr;
         }
-        // VERY strong pull during compression — snap tight fast
-        f.currentPull = 0.0015 + Math.random()*0.0010;
+        f.currentPull = 0.0025 + Math.random()*0.0015; // extreme pull
       }
-      else if(r < 0.82) {
-        // RIBBON — stretch in travel direction
-        let _fcx=0,_fcz=0;
-        for(let i=0;i<N;i++){_fcx+=f.px[i];_fcz+=f.pz[i];}
-        _fcx/=N;_fcz/=N;
-        const sx=Math.sin(f.windAngle), sz=Math.cos(f.windAngle);
+      else if(r < 0.62) {
+        // RIBBON — brief stretch along random axis
+        const axA = Math.random()*6.28;
+        const sx=Math.cos(axA), sz=Math.sin(axA);
         for(let i=0;i<N;i++){
           const proj=(f.px[i]-_fcx)*sx+(f.pz[i]-_fcz)*sz;
-          f.vx[i]+=sx*proj*0.006; f.vz[i]+=sz*proj*0.006;
+          f.vx[i]+=sx*proj*0.008; f.vz[i]+=sz*proj*0.008;
         }
-        // Gentle pull — ribbon shape lingers before compacting
-        f.currentPull = 0.0006 + Math.random()*0.0003;
+        f.currentPull = 0.0010 + Math.random()*0.0005;
+      }
+      else if(r < 0.72) {
+        // SPLIT — halves push apart then snap back
+        const axA = Math.random()*6.28;
+        const sx=Math.cos(axA), sz=Math.sin(axA);
+        for(let i=0;i<N;i++){
+          const side = ((f.px[i]-_fcx)*sx+(f.pz[i]-_fcz)*sz) > 0 ? 1 : -1;
+          f.vx[i] += sx * side * 0.012;
+          f.vz[i] += sz * side * 0.012;
+        }
+        f.currentPull = 0.0018 + Math.random()*0.0008; // strong snap back
+      }
+      else if(r < 0.82) {
+        // FOUNTAIN — center up, edges out then down
+        for(let i=0;i<N;i++){
+          const lx=f.px[i]-_fcx, lz=f.pz[i]-_fcz;
+          const d=Math.sqrt(lx*lx+lz*lz)+0.01;
+          const coreness = Math.max(0, 1-d/3);
+          f.vy[i] += coreness * 0.012;
+          f.vx[i] += (lx/d) * (1-coreness) * 0.006;
+          f.vz[i] += (lz/d) * (1-coreness) * 0.006;
+        }
+        f.currentPull = 0.0016 + Math.random()*0.0006;
+      }
+      else if(r < 0.92) {
+        // SWIRL — partial rotation, one side turns
+        const swA = Math.random()*6.28;
+        for(let i=0;i<N;i++){
+          const lx=f.px[i]-_fcx, lz=f.pz[i]-_fcz;
+          const d=Math.sqrt(lx*lx+lz*lz)+0.01;
+          const inZone = (lx*Math.cos(swA)+lz*Math.sin(swA)) > 0 ? 1 : 0;
+          if(inZone){
+            f.vx[i] += (-lz/d) * 0.008;
+            f.vz[i] += (lx/d) * 0.008;
+          }
+        }
+        f.currentPull = 0.0014 + Math.random()*0.0006;
       }
       else {
-        // PROPAGATING WAVE
-        let _fcx=0,_fcy=0,_fcz=0;
-        for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
-        _fcx/=N;_fcy/=N;_fcz/=N;
+        // EDGE WAVE
         let best=0,bestD=0;
         for(let s=0;s<40;s++){
           const i=(Math.random()*N)|0;
@@ -967,10 +1003,9 @@ function updateMurmuration(simTime, speedMult) {
           if(dx*dx+dz*dz>bestD){bestD=dx*dx+dz*dz;best=i;}
         }
         f.waves.push({ox:f.px[best],oy:f.py[best],oz:f.pz[best],
-          turn:(Math.random()-0.5)*2.0,radius:3+Math.random()*4,
-          speed:0.2+Math.random()*0.2,frame:0});
-        // Medium pull — wave reshapes but mass stays together
-        f.currentPull = 0.0010 + Math.random()*0.0006;
+          turn:(Math.random()-0.5)*2.5,radius:2.5+Math.random()*3,
+          speed:0.25+Math.random()*0.2,frame:0});
+        f.currentPull = 0.0016 + Math.random()*0.0006;
       }
     }
     // Advance propagating waves
@@ -1061,9 +1096,7 @@ function updateMurmuration(simTime, speedMult) {
         ay += (avy*aw - f.vy[i]) * 0.10 * alignScale;
         az += (avz*aw - f.vz[i]) * 0.10 * alignScale;
       }
-      // Center pull — VARIABLE. Changes at each event. Never same return speed twice.
-      // f.currentPull is set by events — sometimes strong (snap back), sometimes gentle (lazy drift)
-      if(!f.currentPull) f.currentPull = 0.0012;
+      // Center pull — set by events. Default very strong = dense ball is home.
       const myPull = f.currentPull;
       // Per-bird variation — outer birds pulled harder (prevents stragglers)
       // Inner birds pulled softer (allows dense core to breathe)
