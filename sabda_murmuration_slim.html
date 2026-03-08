@@ -1375,10 +1375,10 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   hemi.intensity = 0.32+b*0.08;
 
   // ── SKY WARMTH ──
-  const skyPhase = ((time + 300)/1800)*Math.PI*2;
+  const skyPhase = ((time + 300)/1800)*Math.PI*2;  // +300s offset = start in blue Belfast phase
   const warmthRaw = (Math.sin(skyPhase)+1)/2;
-  const warmth = Math.pow(warmthRaw, 4.0) * 0.20;  // cap at 20% — blue Belfast always dominates, purple is just a gentle warm tint
-  skySphereMat.uniforms.mixVal.value = 1.0 - warmth;
+  const warmth = Math.pow(warmthRaw, 4.0);  // very strong bias toward Belfast (blue) ~90/10
+  skySphereMat.uniforms.mixVal.value = 1.0 - warmth;  // warmth=1 → sky A (evening), warmth=0 → sky B (belfast)
 
   // Cloud bank colour sync — warm pink when evening sky, cool blue-grey when Belfast
   const cloudWarm = new THREE.Color(0.85, 0.40, 0.55); // vivid magenta-rose
