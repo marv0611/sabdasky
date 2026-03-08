@@ -242,7 +242,7 @@ function animate(){
   let cx=0,cy=0,cz=0;
   for(let i=0;i<N;i++){cx+=px[i];cy+=py[i];cz+=pz[i];}
   cx/=N;cy/=N;cz/=N;
-  camCx+=(cx-camCx)*0.02;camCy+=(cy-camCy)*0.02;camCz+=(cz-camCz)*0.02;
+  camCx+=(cx-camCx)*0.15;camCy+=(cy-camCy)*0.15;camCz+=(cz-camCz)*0.15;
   
   const ct=performance.now()*0.000008;
   camera.position.set(camCx+Math.sin(ct)*40,camCy+5,camCz+Math.cos(ct)*40);
