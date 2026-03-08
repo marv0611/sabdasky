@@ -925,23 +925,35 @@ function updateMurmuration(simTime, speedMult) {
     
     f.anchorY = Math.max(3, Math.min(6, f.anchorY));
 
-    // ── EVENTS — inject direction changes into random subset of birds ──
+    // ── EVENTS — direction changes + density pulsing ──
+    if(!f.cohesionMult) f.cohesionMult = 1.0;
+    // Between events, cohesion drifts back toward tight (1.5)
+    f.cohesionMult = Math.min(2.0, f.cohesionMult + 0.003 * sm);
+    
     f.pTimer += sm;
     if(f.pTimer >= f.pNext || needsRedirect){
       f.pTimer = 0;
       f.pNext = f.eventMin + Math.random() * (f.eventMax - f.eventMin);
       
-      // Pick a new travel direction
       const zc = f.zone === 'top' ? 3.93 : 0.79;
       let newDir;
       if(needsRedirect) {
         newDir = redirectAngle;
       } else {
-        // Random new direction — but stay roughly in zone
         newDir = zc + (Math.random()-0.5)*2.5;
       }
       
-      // Nudge 20-40% of birds toward new direction (edge birds + random sample)
+      // Vary cohesion: some events CRUSH tight, some RELEASE
+      const eventType = Math.random();
+      if(eventType < 0.35) {
+        f.cohesionMult = 2.5 + Math.random()*1.5; // CRUSH — very tight packing
+      } else if(eventType < 0.6) {
+        f.cohesionMult = 0.3 + Math.random()*0.4; // RELEASE — spread out
+      } else {
+        f.cohesionMult = 1.0 + Math.random()*0.5; // normal
+      }
+      
+      // Nudge 20-40% of birds toward new direction
       const nudgeFrac = 0.2 + Math.random()*0.2;
       const nudgeCount = (N * nudgeFrac)|0;
       for(let ni=0;ni<nudgeCount;ni++){
@@ -949,7 +961,6 @@ function updateMurmuration(simTime, speedMult) {
         const bHdg = Math.atan2(f.vx[bi], f.vz[bi]);
         let diff = newDir - bHdg;
         if(diff>3.14)diff-=6.28; if(diff<-3.14)diff+=6.28;
-        // Gentle nudge — rotate velocity 5-15% toward new direction
         const nudge = diff * (0.05 + Math.random()*0.10) * f.responsiveness[bi];
         const nc2=Math.cos(nudge), ns2=Math.sin(nudge);
         const tv=f.vx[bi], tz=f.vz[bi];
@@ -1014,7 +1025,7 @@ function updateMurmuration(simTime, speedMult) {
         let cohDiff = cohHdg - myHdg;
         if(cohDiff > 3.14159) cohDiff -= 6.28318;
         if(cohDiff < -3.14159) cohDiff += 6.28318;
-        const cohTurn = cohDiff * 0.012 * resp * Math.min(cod, 2); // stronger when further from group
+        const cohTurn = cohDiff * 0.030 * resp * Math.min(cod, 3) * (f.cohesionMult||1.0);
         const ccs=Math.cos(cohTurn), csn=Math.sin(cohTurn);
         const cv1=f.vx[i]*ccs+f.vz[i]*csn, cv2=-f.vx[i]*csn+f.vz[i]*ccs;
         f.vx[i]=cv1; f.vz[i]=cv2;
@@ -1037,11 +1048,11 @@ function updateMurmuration(simTime, speedMult) {
         const av1=f.vx[i]*acs+f.vz[i]*asn, av2=-f.vx[i]*asn+f.vz[i]*acs;
         f.vx[i]=av1; f.vz[i]=av2;
         
-        // ── 3. SEPARATION — push away from very close neighbors ──
+        // ── 3. SEPARATION — only when nearly overlapping ──
         for(let k=0;k<nc;k++){
-          if(_mNbD2[k]<0.08&&_mNbD2[k]>0.0001){
+          if(_mNbD2[k]<0.02&&_mNbD2[k]>0.0001){ // within 0.14 units only
             const j=_mNbIdx[k];const d=Math.sqrt(_mNbD2[k]);
-            const str=(1-d/0.28)*0.003;
+            const str=(1-d/0.14)*0.002;
             ax+=(f.px[i]-f.px[j])/d*str;
             az+=(f.pz[i]-f.pz[j])/d*str;
           }
@@ -1062,8 +1073,8 @@ function updateMurmuration(simTime, speedMult) {
       
       // ── LANGEVIN NOISE — smooth per-bird ──
       const birdSeed=i*0.137+fi*7.3;
-      ax+=Math.sin(simTime*0.2+birdSeed)*0.0003*(2.0-resp);
-      az+=Math.cos(simTime*0.17+birdSeed*1.3)*0.0003*(2.0-resp);
+      ax+=Math.sin(simTime*0.2+birdSeed)*0.00015*(2.0-resp);
+      az+=Math.cos(simTime*0.17+birdSeed*1.3)*0.00015*(2.0-resp);
       
       // Flatten into disc
       ay -= f.vy[i]*0.40;
