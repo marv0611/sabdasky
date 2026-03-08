@@ -797,10 +797,10 @@ birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
 birdShape.computeVertexNormals();
 const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.DoubleSide });
 
-// 2 flocks — background mass. Visible but always small.
+// 2 flocks — between background and midground. Visible but behind scene birds.
 const flockOrbits = [
-  { radius: 26, y: 5.5, speed: 0.005, offset: 2.44 },
-  { radius: 26, y: 6.5, speed: 0.004, offset: 5.58 },
+  { radius: 18, y: 5, speed: 0.005, offset: 2.44 },
+  { radius: 18, y: 6, speed: 0.004, offset: 5.58 },
 ];
 
 const allFlocks = [];
@@ -821,9 +821,9 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
   };
   const d0 = Math.random() * Math.PI * 2;
   for (let i = 0; i < FLOCK_SIZE; i++) {
-    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*3;
+    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*2;
     f.px[i] = Math.cos(a)*r;
-    f.py[i] = (Math.random()-0.5)*1;
+    f.py[i] = (Math.random()-0.5)*0.6;
     f.pz[i] = Math.sin(a)*r;
     const va = d0+(Math.random()-0.5)*0.3, sp = 0.07+Math.random()*0.04;
     f.vx[i] = Math.cos(va)*sp; f.vy[i] = 0; f.vz[i] = Math.sin(va)*sp;
@@ -852,11 +852,11 @@ function updateMurmuration(simTime, speedMult) {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // ── Orbiting center — stays at radius 25-28, gentle wandering ──
+    // ── Orbiting center — midground distance, organic path ──
     const orb = f.orbit;
     const orbAngle = t * orb.speed * 10 + orb.offset;
-    const wobbleR = orb.radius + Math.sin(orbAngle * 1.3) * 1.5;
-    const orbY = orb.y + Math.sin(orbAngle * 0.7) * 0.5;
+    const wobbleR = orb.radius + Math.sin(orbAngle * 1.3) * 1.0;
+    const orbY = orb.y + Math.sin(orbAngle * 0.7) * 0.4;
     const orbX = Math.sin(orbAngle) * wobbleR;
     const orbZ = Math.cos(orbAngle) * wobbleR;
     
@@ -868,61 +868,109 @@ function updateMurmuration(simTime, speedMult) {
       grid.get(k).push(i);
     }
     
-    // ══ MULTI-WAVE SYSTEM — dramatic density variation through interference ══
-    // Up to 3 active waves simultaneously. Where waves converge = dense dark core.
-    // Where they diverge = wispy transparent edge. This IS the murmuration look.
+    // ══ SHAPE TRANSFORMATIONS — unpredictable, creative, magical ══
+    // Each event picks a completely different transformation type.
+    // The strong center pull always brings the mass back together.
     if(!f.waves) f.waves = [];
+    if(!f.shapeEvent) f.shapeEvent = null;
     
     f.pTimer += sm;
     if(f.pTimer >= f.pNext){
       f.pTimer=0;
-      // Varied rhythm — sometimes rapid reshaping, sometimes calm drift
-      f.pNext = 15 + Math.random()*35;
+      f.pNext = 20 + Math.random()*40;
       
-      // Remove expired waves, keep max 3 active
-      f.waves = f.waves.filter(w => w.frame * w.speed < w.radius * 2.5);
-      if(f.waves.length < 3){
-        let _fcx=0,_fcy=0,_fcz=0;
-        for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
-        _fcx/=N;_fcy/=N;_fcz/=N;
+      let _fcx=0,_fcy=0,_fcz=0;
+      for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
+      _fcx/=N;_fcy/=N;_fcz/=N;
+      
+      // Pick a random transformation — never the same pattern twice in a row
+      const types = ['spiral','ribbon','split','column','funnel','wave','vortex'];
+      let pick = types[(Math.random()*types.length)|0];
+      if(f.lastShape === pick) pick = types[(Math.random()*types.length)|0];
+      f.lastShape = pick;
+      
+      // Random axis for the transformation
+      const axAngle = Math.random()*6.28;
+      const axX = Math.cos(axAngle), axZ = Math.sin(axAngle);
+      
+      for(let i=0;i<N;i++){
+        const lx=f.px[i]-_fcx, ly=f.py[i]-_fcy, lz=f.pz[i]-_fcz;
+        const d = Math.sqrt(lx*lx+ly*ly+lz*lz)+0.01;
+        const str = 0.015 + Math.random()*0.005; // base impulse strength
         
-        // Find edge bird
-        let best=0,bestD=0;
-        for(let s=0;s<50;s++){
-          const i=(Math.random()*N)|0;
-          const dx=f.px[i]-_fcx,dy=f.py[i]-_fcy,dz=f.pz[i]-_fcz;
-          if(dx*dx+dy*dy+dz*dz>bestD){bestD=dx*dx+dy*dy+dz*dz;best=i;}
+        if(pick==='spiral'){
+          // Rotational impulse — whole mass starts spinning, creates tornado
+          const cross_x = -lz, cross_z = lx; // perpendicular to radius
+          const rotStr = str * 0.8;
+          f.vx[i] += cross_x/d * rotStr;
+          f.vz[i] += cross_z/d * rotStr;
+          f.vy[i] += (Math.random()-0.5)*str*0.3;
         }
-        
-        // Varied wave sizes — some sweep across whole flock, some are local
-        const isWide = Math.random() < 0.35;
-        f.waves.push({
-          ox: f.px[best], oy: f.py[best], oz: f.pz[best],
-          turn: (Math.random()-0.5) * (isWide ? 2.5 : 1.4),  // moderate turns within compact mass
-          radius: isWide ? (5 + Math.random()*4) : (2 + Math.random()*3),  // partial mass only
-          speed: 0.2 + Math.random()*0.25,
-          frame: 0,
-        });
+        else if(pick==='ribbon'){
+          // Stretch along random axis — mass elongates into ribbon/band
+          const proj = lx*axX + lz*axZ; // projection onto axis
+          f.vx[i] += axX * proj * str * 0.1;
+          f.vz[i] += axZ * proj * str * 0.1;
+        }
+        else if(pick==='split'){
+          // Two halves pushed apart — mass splits then reforms
+          const side = (lx*axX + lz*axZ) > 0 ? 1 : -1;
+          f.vx[i] += axX * side * str * 0.6;
+          f.vz[i] += axZ * side * str * 0.6;
+        }
+        else if(pick==='column'){
+          // Compress horizontal, stretch vertical — pillar shape
+          f.vx[i] -= lx/d * str * 0.3;
+          f.vz[i] -= lz/d * str * 0.3;
+          f.vy[i] += (ly > 0 ? 1 : -1) * str * 0.5;
+        }
+        else if(pick==='funnel'){
+          // Edge birds sweep one direction, center stays — funnel/tornado shape
+          const edgeness = Math.min(d/4, 1);
+          f.vx[i] += axX * str * edgeness * 1.2;
+          f.vz[i] += axZ * str * edgeness * 1.2;
+          f.vy[i] -= str * (1-edgeness) * 0.3;
+        }
+        else if(pick==='vortex'){
+          // Center speeds up, edges slow — creates dense bright core
+          const coreness = Math.max(0, 1 - d/5);
+          const sp = Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i])+0.01;
+          f.vx[i] *= 1 + coreness * 0.5;
+          f.vz[i] *= 1 + coreness * 0.5;
+          // Edges get rotational push
+          if(d > 3){
+            f.vx[i] += (-lz/d) * str * 0.5;
+            f.vz[i] += (lx/d) * str * 0.5;
+          }
+        }
+        else { // wave — classic edge perturbation
+          // Find edge bird, propagating wave
+          if(i===0){
+            let best=0,bestD2=0;
+            for(let s=0;s<40;s++){const j=(Math.random()*N)|0;const dx2=f.px[j]-_fcx,dz2=f.pz[j]-_fcz;if(dx2*dx2+dz2*dz2>bestD2){bestD2=dx2*dx2+dz2*dz2;best=j;}}
+            f.waves = [{ox:f.px[best],oy:f.py[best],oz:f.pz[best],turn:(Math.random()-0.5)*2.5,radius:4+Math.random()*5,speed:0.25+Math.random()*0.2,frame:0}];
+          }
+        }
+        f.delayFrames[i] = 3 + (Math.random()*8)|0;
       }
     }
     
-    // Advance all active waves — birds turn as each wave passes through
-    for(let w=0; w<f.waves.length; w++){
+    // Advance classic waves (if any active)
+    for(let w=f.waves.length-1; w>=0; w--){
       const wave = f.waves[w];
       wave.frame += sm;
       const wfR = wave.frame * wave.speed;
-      if(wfR < wave.radius * 2.5){
-        for(let i=0;i<N;i++){
-          const dx=f.px[i]-wave.ox, dy=f.py[i]-wave.oy, dz=f.pz[i]-wave.oz;
-          const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-          if(d < wfR && d > wfR - wave.speed*2.5 && d < wave.radius){
-            const falloff = 1-(d/wave.radius);
-            const ca=Math.atan2(f.vz[i],f.vx[i]);
-            const na=ca+wave.turn*falloff*falloff;
-            const sp=Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]);
-            f.vx[i]=Math.cos(na)*sp; f.vz[i]=Math.sin(na)*sp;
-            f.delayFrames[i] = 4 + (Math.random()*10)|0;
-          }
+      if(wfR > wave.radius * 2.5){ f.waves.splice(w,1); continue; }
+      for(let i=0;i<N;i++){
+        const dx=f.px[i]-wave.ox, dy=f.py[i]-wave.oy, dz=f.pz[i]-wave.oz;
+        const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if(d < wfR && d > wfR - wave.speed*2.5 && d < wave.radius){
+          const falloff = 1-(d/wave.radius);
+          const ca=Math.atan2(f.vz[i],f.vx[i]);
+          const na=ca+wave.turn*falloff*falloff;
+          const sp=Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]);
+          f.vx[i]=Math.cos(na)*sp; f.vz[i]=Math.sin(na)*sp;
+          f.delayFrames[i] = 3 + (Math.random()*6)|0;
         }
       }
     }
@@ -1000,19 +1048,19 @@ function updateMurmuration(simTime, speedMult) {
       // Center pull — VERY WEAK. Just prevents the flock from drifting to infinity.
       // Density variation comes from WAVE INTERFERENCE, not center pull uniformity.
       const breathT = simTime; // scene time — accelerates with 30x
-      // Strong base pull — mass ALWAYS stays compact
+      // Strong center pull — shapes stretch out then snap back to dense mass
       const breath1 = Math.sin(breathT * 0.20 + f.breathPhase);
       const breath2 = Math.sin(breathT * 0.13 + f.breathPhase * 1.7);
       const rawBreath = breath1 * 0.6 + breath2 * 0.4;
       
-      const basePull = 0.00050;  // STRONG — keeps the mass together always
+      const basePull = 0.00070;  // very strong — always snaps back to compact
       const pullStrength = rawBreath > 0 
-        ? basePull * (1.0 + rawBreath * 1.0)   // compress: tight dark mass
-        : basePull * Math.max(0.35, 1.0 + rawBreath * 0.65);  // expand: still 35% — NEVER scattered
+        ? basePull * (1.0 + rawBreath * 0.8)   // compress: very tight
+        : basePull * Math.max(0.4, 1.0 + rawBreath * 0.6);  // expand: still 40% — never dissolves
       const tox=-f.px[i],toy=-f.py[i],toz=-f.pz[i];
       const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
       if(fd>0.1){
-        const pull = fd < 6 ? pullStrength*fd : pullStrength*6 + (fd-6)*(fd-6)*0.001;
+        const pull = fd < 5 ? pullStrength*fd : pullStrength*5 + (fd-5)*(fd-5)*0.002;
         ax+=(tox/fd)*pull;ay+=(toy/fd)*pull*0.15;az+=(toz/fd)*pull;
       }
       // Wind — very gentle, doesn't scatter the mass
@@ -1060,9 +1108,9 @@ function updateMurmuration(simTime, speedMult) {
     }
     const extentX=maxExtX-minExtX, extentZ=maxExtZ-minExtZ;
     const maxExtent = Math.max(extentX, extentZ);
-    const TENSION_THRESHOLD = 12;
+    const TENSION_THRESHOLD = 10;
     if(maxExtent > TENSION_THRESHOLD){
-      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.0008;
+      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.001;
       const outerR = maxExtent * 0.4; // outer ring
       for(let i=0;i<N;i++){
         const dx=f.px[i]-fcx, dz=f.pz[i]-fcz;
