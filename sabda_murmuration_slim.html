@@ -785,26 +785,20 @@ const M_MAX_SPEED = 0.14;
 const M_SEPARATION_R2 = 0.02;  // 0.14^2 — birds can nearly overlap for extreme density
 const M_ALIGNMENT_R2 = 9.0;    // 3.0^2 — tighter neighbor interaction
 
-// Bird = compact dark diamond. Reads as a DOT from any viewing angle.
-// Previous elongated mesh appeared as lines/dashes — wrong.
+// Bird = tiny but bird-shaped. Slightly elongated body with small swept wings.
+// NOT a geometric dot (fake), NOT a long triangle (line artifact).
+// Just enough asymmetry to read as a living thing at distance.
 const birdShape = new THREE.BufferGeometry();
-// 6 triangles forming a small 3D diamond (octahedron-like)
-// Looks like a speck from every direction, never a line.
-const bS = 0.06; // half-size
 birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-  // Top 4 faces
-  0,bS*0.5,0,  bS,0,0,  0,0,-bS,
-  0,bS*0.5,0,  0,0,-bS, -bS,0,0,
-  0,bS*0.5,0,  -bS,0,0, 0,0,bS,
-  0,bS*0.5,0,  0,0,bS,  bS,0,0,
-  // Bottom 4 faces
-  0,-bS*0.3,0, 0,0,-bS, bS,0,0,
-  0,-bS*0.3,0, -bS,0,0, 0,0,-bS,
-  0,-bS*0.3,0, 0,0,bS,  -bS,0,0,
-  0,-bS*0.3,0, bS,0,0,  0,0,bS,
+  // Body — compact teardrop
+  0, 0.005, 0.07,   0.015, 0, -0.01,  -0.015, 0, -0.01,  // nose
+  0.015, 0, -0.01,  0, -0.003, -0.05, -0.015, 0, -0.01,   // body to tail
+  // Wings — tiny swept-back, give it a bird feel
+  -0.015, 0, -0.01, -0.05, 0.003, -0.02, 0, 0, -0.03,     // left
+  0.015, 0, -0.01,  0, 0, -0.03,       0.05, 0.003, -0.02, // right
 ]), 3));
 birdShape.computeVertexNormals();
-const birdMat = new THREE.MeshBasicMaterial({ color: 0x040202, side: THREE.DoubleSide });
+const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.DoubleSide });
 
 // Flock 1 → Top strip (Left + Front walls) = -X / -Z quadrant
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
@@ -1143,7 +1137,8 @@ function updateMurmuration(simTime, speedMult) {
       const m=f.meshes[i];
       const wx=f.px[i]+cx, wy=f.py[i]+cy, wz=f.pz[i]+cz;
       m.position.x=wx; m.position.y=wy; m.position.z=wz;
-      // No rotation — diamond shape reads as dot from any angle
+      // Face travel direction — makes birds look alive, not static
+      m.rotation.y = Math.atan2(f.vx[i], f.vz[i]);
       // Fixed tiny scale — no distance compensation. They must always be specks.
     }
   }
