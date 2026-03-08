@@ -848,8 +848,9 @@ const _mNearby = new Int32Array(512);
 const _mNbIdx = new Int32Array(MNC), _mNbD2 = new Float32Array(MNC);
 const MGS = 4;
 
-function updateMurmuration() {
-  const t = performance.now()*0.0003;
+function updateMurmuration(simTime, speedMult) {
+  const sm = speedMult || 1;
+  const t = simTime * 0.3; // scene time scaled for orbit/wind (replaces performance.now()*0.0003)
   
   for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     const f = allFlocks[fi];
@@ -877,7 +878,7 @@ function updateMurmuration() {
     // Where they diverge = wispy transparent edge. This IS the murmuration look.
     if(!f.waves) f.waves = [];
     
-    f.pTimer++;
+    f.pTimer += sm;
     if(f.pTimer >= f.pNext){
       f.pTimer=0;
       // Varied rhythm — sometimes rapid reshaping, sometimes calm drift
@@ -913,7 +914,7 @@ function updateMurmuration() {
     // Advance all active waves — birds turn as each wave passes through
     for(let w=0; w<f.waves.length; w++){
       const wave = f.waves[w];
-      wave.frame++;
+      wave.frame += sm;
       const wfR = wave.frame * wave.speed;
       if(wfR < wave.radius * 2.5){
         for(let i=0;i<N;i++){
@@ -965,7 +966,7 @@ function updateMurmuration() {
         // Recently turned birds have reduced alignment — creates soft wave front
         const delayLeft = f.delayFrames[i];
         const alignScale = delayLeft > 0 ? 0.15 : 1.0; // 15% alignment during delay — sharper wave fronts
-        if(delayLeft > 0) f.delayFrames[i]--;
+        if(delayLeft > 0) f.delayFrames[i] = Math.max(0, delayLeft - sm);
         
         // ══ TECHNIQUE #2: Cosine force blending (Three.js GPGPU) ══
         // Smooth transitions between separation and alignment zones
@@ -1003,7 +1004,7 @@ function updateMurmuration() {
       }
       // Center pull — VERY WEAK. Just prevents the flock from drifting to infinity.
       // Density variation comes from WAVE INTERFERENCE, not center pull uniformity.
-      const breathT = performance.now()*0.001;
+      const breathT = simTime; // scene time — accelerates with 30x
       // Two overlapping sine waves create irregular breathing rhythm
       const breath1 = Math.sin(breathT * 0.20 + f.breathPhase); // ~31s
       const breath2 = Math.sin(breathT * 0.13 + f.breathPhase * 1.7); // ~48s
@@ -1048,7 +1049,7 @@ function updateMurmuration() {
       if(spd>dynMaxSpeed){const s=dynMaxSpeed/spd;f.vx[i]*=s;f.vy[i]*=s;f.vz[i]*=s;}
       else if(spd<dynMinSpeed&&spd>0.001){const s=dynMinSpeed/spd;f.vx[i]*=s;f.vy[i]*=s;f.vz[i]*=s;}
       
-      f.px[i]+=f.vx[i]; f.py[i]+=f.vy[i]; f.pz[i]+=f.vz[i];
+      f.px[i]+=f.vx[i]*sm; f.py[i]+=f.vy[i]*sm; f.pz[i]+=f.vz[i]*sm;
     }
     
     // ══ TECHNIQUE #4: Group tension tether (Alex Scott NZ) ══
@@ -1401,7 +1402,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.setRenderTarget(null);
   // ── MURMURATION ──
-  updateMurmuration();
+  updateMurmuration(time, speedMultiplier || 1);
 
   cubeCamera.update(renderer, contentScene);
 
