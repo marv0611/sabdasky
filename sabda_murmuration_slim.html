@@ -785,23 +785,33 @@ const M_MAX_SPEED = 0.14;
 const M_SEPARATION_R2 = 0.02;  // 0.14^2 — birds can nearly overlap for extreme density
 const M_ALIGNMENT_R2 = 9.0;    // 3.0^2 — tighter neighbor interaction
 
-// Bird = small dark speck. Visible as dot at radius 26. Not individually detailed.
+// Bird = compact dark diamond. Reads as a DOT from any viewing angle.
+// Previous elongated mesh appeared as lines/dashes — wrong.
 const birdShape = new THREE.BufferGeometry();
+// 6 triangles forming a small 3D diamond (octahedron-like)
+// Looks like a speck from every direction, never a line.
+const bS = 0.06; // half-size
 birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-  0,0.006,0.12,  0.018,0,0,  -0.018,0,0,
-  0.018,0,0,  0,-0.004,-0.08,  -0.018,0,0,
-  -0.018,0,0,  -0.09,0.003,-0.015,  0,0,-0.02,
-  0.018,0,0,  0,0,-0.02,  0.09,0.003,-0.015,
-  0,-0.004,-0.08,  -0.01,-0.004,-0.10,  0.01,-0.004,-0.10,
+  // Top 4 faces
+  0,bS*0.5,0,  bS,0,0,  0,0,-bS,
+  0,bS*0.5,0,  0,0,-bS, -bS,0,0,
+  0,bS*0.5,0,  -bS,0,0, 0,0,bS,
+  0,bS*0.5,0,  0,0,bS,  bS,0,0,
+  // Bottom 4 faces
+  0,-bS*0.3,0, 0,0,-bS, bS,0,0,
+  0,-bS*0.3,0, -bS,0,0, 0,0,-bS,
+  0,-bS*0.3,0, 0,0,bS,  -bS,0,0,
+  0,-bS*0.3,0, bS,0,0,  0,0,bS,
 ]), 3));
 birdShape.computeVertexNormals();
-const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.DoubleSide });
+const birdMat = new THREE.MeshBasicMaterial({ color: 0x040202, side: THREE.DoubleSide });
 
-// 2 flocks — different positions, different timing, different behavior.
-// Each flock drifts with a slowly-changing wind direction.
+// Flock 1 → Top strip (Left + Front walls) = -X / -Z quadrant
+// Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
+// Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 2.44, y: 5.5, driftSpeed: 0.07, eventInterval: [25,55] },  // faster events
-  { startAngle: 5.58, y: 6.0, driftSpeed: 0.05, eventInterval: [40,70] },  // slower, calmer
+  { startAngle: 3.93, y: 5.5, driftSpeed: 0.06, eventInterval: [25,50], zone: 'top' },   // 225° → -X,-Z zone
+  { startAngle: 0.79, y: 6.0, driftSpeed: 0.04, eventInterval: [35,65], zone: 'bottom' }, // 45° → +X,+Z zone
 ];
 
 const allFlocks = [];
@@ -821,6 +831,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     anchorZ: Math.cos(setup.startAngle) * 18,
     anchorY: setup.y,
     driftSpeed: setup.driftSpeed,
+    zone: setup.zone,  // 'top' = Left+Front walls, 'bottom' = Right+Back walls
     eventMin: setup.eventInterval[0],
     eventMax: setup.eventInterval[1],
     pTimer: 0,
@@ -869,8 +880,24 @@ function updateMurmuration(simTime, speedMult) {
     f.anchorZ += Math.cos(f.windAngle) * f.driftSpeed * sm;
     f.anchorY += Math.sin(simTime * 0.15 + fi * 3) * 0.003 * sm;
     const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
-    if(anchorDist > 22) { f.windTargetAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.0; }
-    else if(anchorDist < 14) { f.windTargetAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.0; }
+    
+    // Keep in radius ring 14-22
+    if(anchorDist > 22) { f.windTargetAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.8; }
+    else if(anchorDist < 14) { f.windTargetAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.8; }
+    
+    // ZONE ENFORCEMENT — each flock stays on its own 2-wall strip
+    // Top strip = Left+Front walls → zone center at 225° (heading 3.93)
+    // Bottom strip = Right+Back walls → zone center at 45° (heading 0.79)
+    const heading = Math.atan2(f.anchorX, f.anchorZ);
+    const zoneCenter = f.zone === 'top' ? 3.93 : 0.79; // 225° or 45°
+    let zoneDiff = heading - zoneCenter;
+    if(zoneDiff > 3.14) zoneDiff -= 6.28;
+    if(zoneDiff < -3.14) zoneDiff += 6.28;
+    if(Math.abs(zoneDiff) > 1.3) { // more than ~75° from zone center → redirect
+      const backAngle = zoneCenter + (Math.random()-0.5)*1.0;
+      f.windTargetAngle = backAngle;
+    }
+    
     f.anchorY = Math.max(4, Math.min(8, f.anchorY));
     const orbX = f.anchorX, orbY = f.anchorY, orbZ = f.anchorZ;
     
@@ -1116,8 +1143,7 @@ function updateMurmuration(simTime, speedMult) {
       const m=f.meshes[i];
       const wx=f.px[i]+cx, wy=f.py[i]+cy, wz=f.pz[i]+cz;
       m.position.x=wx; m.position.y=wy; m.position.z=wz;
-      m.rotation.y=Math.atan2(f.vx[i],f.vz[i]);
-      m.rotation.x=-Math.asin(f.vy[i]/Math.max(0.01,Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i])));
+      // No rotation — diamond shape reads as dot from any angle
       // Fixed tiny scale — no distance compensation. They must always be specks.
     }
   }
