@@ -807,8 +807,8 @@ const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.Doubl
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 7.5, driftSpeed: 0.10, eventInterval: [10,22], zone: 'top' },
-  { startAngle: 0.79, y: 8.0, driftSpeed: 0.08, eventInterval: [14,28], zone: 'bottom' },
+  { startAngle: 3.93, y: 6.0, driftSpeed: 0.10, eventInterval: [10,22], zone: 'top' },
+  { startAngle: 0.79, y: 6.5, driftSpeed: 0.08, eventInterval: [14,28], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -831,8 +831,8 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     // Wind-drift system — flock travels with a slowly-turning wind
     windAngle: setup.startAngle,
     windTargetAngle: setup.startAngle,
-    anchorX: Math.sin(setup.startAngle) * 35,
-    anchorZ: Math.cos(setup.startAngle) * 35,
+    anchorX: Math.sin(setup.startAngle) * 22,
+    anchorZ: Math.cos(setup.startAngle) * 22,
     anchorY: setup.y,
     driftSpeed: setup.driftSpeed,
     zone: setup.zone,
@@ -870,7 +870,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     f.tx[i] = Math.cos(ta)*tr;
     f.tz[i] = Math.sin(ta)*tr;
     const m = new THREE.Mesh(birdShape, birdMat);
-    m.scale.setScalar(3.0); // compensate for greater distance (35 vs 10 units)
+    m.scale.setScalar(1.5); // slightly larger for distance 22
     m.frustumCulled = false;
     contentScene.add(m);
     f.meshes.push(m);
@@ -905,7 +905,7 @@ function updateMurmuration(simTime, speedMult) {
     // ANCHOR & ZONE (keeps flock on assigned walls)
     // ═══════════════════════════════════════════════════════
     f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.001 * sm;
-    f.anchorY = Math.max(6, Math.min(10, f.anchorY));
+    f.anchorY = Math.max(5, Math.min(8, f.anchorY));
     
     const heading = Math.atan2(f.anchorX, f.anchorZ);
     const zoneCenter = f.zone === 'top' ? 3.93 : 0.79;
@@ -916,8 +916,8 @@ function updateMurmuration(simTime, speedMult) {
     
     let needsRedirect = false, redirectAngle = 0;
     if(Math.abs(zoneDiff) > 1.3) { needsRedirect = true; redirectAngle = zoneCenter + (Math.random()-0.5)*0.6; }
-    if(anchorDist > 42) { needsRedirect = true; redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.5; }
-    if(anchorDist < 28) { needsRedirect = true; redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.5; }
+    if(anchorDist > 28) { needsRedirect = true; redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.3; }
+    if(anchorDist < 18) { needsRedirect = true; redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.3; }
     
     // ═══════════════════════════════════════════════════════
     // WAVE PROPAGATION — expand existing waves (Hoetzlein Flock2)
@@ -1130,7 +1130,7 @@ function updateMurmuration(simTime, speedMult) {
         // Cosine blend at close range to prevent jitter (lesson 124)
         const cohDist = Math.min(cod, 4.0);
         const cohBlend = cohDist < 0.5 ? (0.5 - Math.cos(cohDist/0.5 * 3.14159)*0.5) : 1.0;
-        const cohStr = 0.025 * resp * cohBlend * cohDist * (f.cohesionMult||1.0);
+        const cohStr = 0.018 * resp * cohBlend * cohDist * (f.cohesionMult||1.0);
         const cohTurn = cohDiff * cohStr;
         const ccs=Math.cos(cohTurn), csn=Math.sin(cohTurn);
         const cv1=f.vx[i]*ccs+f.vz[i]*csn, cv2=-f.vx[i]*csn+f.vz[i]*ccs;
@@ -1207,16 +1207,16 @@ function updateMurmuration(simTime, speedMult) {
         az += (-perpPull * cosA - alongPull * sinA);
       }
       
-      // ── CENTRAL DENSITY — keeps flock visible, denser in middle ──
+      // ── CENTRAL DENSITY — keeps flock together but not a black mass ──
       const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
-      if(fd > 1.0) {
-        const centralStr = (fd - 1.0) * 0.005;
+      if(fd > 2.0) {
+        const centralStr = (fd - 2.0) * 0.002;
         ax += (-f.px[i]/fd) * centralStr;
         az += (-f.pz[i]/fd) * centralStr;
       }
       // Hard tether — prevents escape
-      if(fd > 5) {
-        const leashStr = (fd - 5) * 0.03;
+      if(fd > 6) {
+        const leashStr = (fd - 6) * 0.02;
         ax += (-f.px[i]/fd) * leashStr;
         az += (-f.pz[i]/fd) * leashStr;
       }
