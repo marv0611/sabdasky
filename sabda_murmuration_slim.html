@@ -808,10 +808,10 @@ birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
 birdShape.computeVertexNormals();
 const birdMat = new THREE.MeshBasicMaterial({ color: 0x080604, side: THREE.DoubleSide });
 
-// 2 flocks — front-facing, lower in sky, close enough for small birds to read
+// 2 flocks — separated ~180° so they never appear on the same wall
 const flockCenters = [
-  new THREE.Vector3(18, 4.5, -14),    // front-right
-  new THREE.Vector3(-18, 5.0, -16),   // front-left
+  new THREE.Vector3(16, 5.0, -16),    // front-right quadrant
+  new THREE.Vector3(-16, 5.5, 16),    // back-left quadrant (opposite wall)
 ];
 
 const allFlocks = [];
