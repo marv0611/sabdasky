@@ -245,7 +245,7 @@ function animate(){
   camCx+=(cx-camCx)*0.02;camCy+=(cy-camCy)*0.02;camCz+=(cz-camCz)*0.02;
   
   const ct=performance.now()*0.000008;
-  camera.position.set(camCx+Math.sin(ct)*90,camCy+12,camCz+Math.cos(ct)*90);
+  camera.position.set(camCx+Math.sin(ct)*40,camCy+5,camCz+Math.cos(ct)*40);
   camera.lookAt(camCx,camCy,camCz);
   
   renderer.render(scene,camera);
