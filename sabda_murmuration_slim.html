@@ -782,7 +782,7 @@ const FLOCK_COUNT = 2;
 const MNC = 7;
 const M_MIN_SPEED = 0.06;
 const M_MAX_SPEED = 0.14;
-const M_SEPARATION_R2 = 0.09;  // 0.3^2 — very tight collision zone for dense packing
+const M_SEPARATION_R2 = 0.04;  // 0.2^2 — birds nearly touching, ultra dense
 const M_ALIGNMENT_R2 = 9.0;    // 3.0^2 — tighter neighbor interaction
 
 // Bird = small dark speck. Visible as dot at radius 26. Not individually detailed.
@@ -821,9 +821,9 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
   };
   const d0 = Math.random() * Math.PI * 2;
   for (let i = 0; i < FLOCK_SIZE; i++) {
-    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*10;
+    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*3;
     f.px[i] = Math.cos(a)*r;
-    f.py[i] = (Math.random()-0.5)*3;
+    f.py[i] = (Math.random()-0.5)*1;
     f.pz[i] = Math.sin(a)*r;
     const va = d0+(Math.random()-0.5)*0.3, sp = 0.07+Math.random()*0.04;
     f.vx[i] = Math.cos(va)*sp; f.vy[i] = 0; f.vz[i] = Math.sin(va)*sp;
@@ -842,7 +842,7 @@ console.log('SABDA: Murmuration v17 —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, 
 // Shared pre-allocated buffers
 const _mNearby = new Int32Array(512);
 const _mNbIdx = new Int32Array(MNC), _mNbD2 = new Float32Array(MNC);
-const MGS = 4;
+const MGS = 3;
 
 function updateMurmuration(simTime, speedMult) {
   const sm = speedMult || 1;
@@ -895,12 +895,12 @@ function updateMurmuration(simTime, speedMult) {
         }
         
         // Varied wave sizes — some sweep across whole flock, some are local
-        const isWide = Math.random() < 0.4;
+        const isWide = Math.random() < 0.35;
         f.waves.push({
           ox: f.px[best], oy: f.py[best], oz: f.pz[best],
-          turn: (Math.random()-0.5) * (isWide ? 3.5 : 2.0),  // wide = dramatic sweep
-          radius: isWide ? (12 + Math.random()*10) : (5 + Math.random()*7),
-          speed: 0.3 + Math.random()*0.3,
+          turn: (Math.random()-0.5) * (isWide ? 2.5 : 1.4),  // moderate turns within compact mass
+          radius: isWide ? (5 + Math.random()*4) : (2 + Math.random()*3),  // partial mass only
+          speed: 0.2 + Math.random()*0.25,
           frame: 0,
         });
       }
@@ -993,37 +993,37 @@ function updateMurmuration(simTime, speedMult) {
         ax += sepX; ay += sepY; az += sepZ;
         // Apply alignment with response delay scaling
         const aw = nc > 0 ? 1.0/nc : 0;
-        ax += (avx*aw - f.vx[i]) * 0.045 * alignScale;
-        ay += (avy*aw - f.vy[i]) * 0.045 * alignScale;
-        az += (avz*aw - f.vz[i]) * 0.045 * alignScale;
+        ax += (avx*aw - f.vx[i]) * 0.07 * alignScale;
+        ay += (avy*aw - f.vy[i]) * 0.07 * alignScale;
+        az += (avz*aw - f.vz[i]) * 0.07 * alignScale;
       }
       // Center pull — VERY WEAK. Just prevents the flock from drifting to infinity.
       // Density variation comes from WAVE INTERFERENCE, not center pull uniformity.
       const breathT = simTime; // scene time — accelerates with 30x
-      // Two overlapping sine waves create irregular breathing rhythm
-      const breath1 = Math.sin(breathT * 0.20 + f.breathPhase); // ~31s
-      const breath2 = Math.sin(breathT * 0.13 + f.breathPhase * 1.7); // ~48s
-      const rawBreath = breath1 * 0.6 + breath2 * 0.4; // combined irregular rhythm
+      // Strong base pull — mass ALWAYS stays compact
+      const breath1 = Math.sin(breathT * 0.20 + f.breathPhase);
+      const breath2 = Math.sin(breathT * 0.13 + f.breathPhase * 1.7);
+      const rawBreath = breath1 * 0.6 + breath2 * 0.4;
       
-      const basePull = 0.00010;
+      const basePull = 0.00050;  // STRONG — keeps the mass together always
       const pullStrength = rawBreath > 0 
-        ? basePull * (1.0 + rawBreath * 4.0)   // compress: up to 5× — tight dark ball
-        : basePull * Math.max(0.02, 1.0 + rawBreath * 0.98);  // expand: down to 2% — nearly free
+        ? basePull * (1.0 + rawBreath * 1.0)   // compress: tight dark mass
+        : basePull * Math.max(0.35, 1.0 + rawBreath * 0.65);  // expand: still 35% — NEVER scattered
       const tox=-f.px[i],toy=-f.py[i],toz=-f.pz[i];
       const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
       if(fd>0.1){
-        const pull = fd < 15 ? pullStrength*fd : pullStrength*15 + (fd-15)*(fd-15)*0.0003;
+        const pull = fd < 6 ? pullStrength*fd : pullStrength*6 + (fd-6)*(fd-6)*0.001;
         ax+=(tox/fd)*pull;ay+=(toy/fd)*pull*0.15;az+=(toz/fd)*pull;
       }
-      // Wind — organic drift currents
+      // Wind — very gentle, doesn't scatter the mass
       const wPhase = t + fi * 2.0;
-      ax+=Math.sin(wPhase*0.7+f.py[i]*0.1)*0.003;
-      az+=Math.cos(wPhase*0.5+f.px[i]*0.05)*0.003;
-      ay+=Math.sin(wPhase*0.3)*0.0008;
-      // Noise — subtle variation
-      ax+=(Math.random()-0.5)*0.006; az+=(Math.random()-0.5)*0.006;
-      // Flatten — keep flock disc-shaped like real murmurations
-      ay-=f.vy[i]*0.20; ay-=f.py[i]*0.012;
+      ax+=Math.sin(wPhase*0.7+f.py[i]*0.1)*0.001;
+      az+=Math.cos(wPhase*0.5+f.px[i]*0.05)*0.001;
+      ay+=Math.sin(wPhase*0.3)*0.0003;
+      // Noise — minimal
+      ax+=(Math.random()-0.5)*0.003; az+=(Math.random()-0.5)*0.003;
+      // Flatten — strong vertical compression, disc shape
+      ay-=f.vy[i]*0.35; ay-=f.py[i]*0.025;
       
       f.vx[i]+=ax; f.vy[i]+=ay; f.vz[i]+=az;
       
@@ -1060,9 +1060,9 @@ function updateMurmuration(simTime, speedMult) {
     }
     const extentX=maxExtX-minExtX, extentZ=maxExtZ-minExtZ;
     const maxExtent = Math.max(extentX, extentZ);
-    const TENSION_THRESHOLD = 25;
+    const TENSION_THRESHOLD = 12;
     if(maxExtent > TENSION_THRESHOLD){
-      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.0002;
+      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.0008;
       const outerR = maxExtent * 0.4; // outer ring
       for(let i=0;i<N;i++){
         const dx=f.px[i]-fcx, dz=f.pz[i]-fcz;
