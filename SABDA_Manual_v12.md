@@ -1719,6 +1719,8 @@ Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49,
 
 121. **(v12.2 — Murmuration) Bird speed must scale with scene — SABDA birds were 2.5× too slow.** Standalone used speeds 0.2-0.5 producing dramatic stretching. SABDA initially used 0.08-0.20 — birds lacked momentum to stretch against even weak anchor pull. Increased to 0.12-0.30. Faster birds + weaker pull during expansion = actual visible breathing.
 
+122. **(v12.3 — Murmuration) Asymmetric breathing fixes the speed problem — don't need high speed.** With near-zero pull during expansion (5% of base), even 0.08-0.20 speed birds spread freely. The previous speed increase (0.12-0.30) was needed when breathing was symmetric ±50%. After implementing asymmetric breathing (compress=3.5×, expand=5%), speeds reduced back to 0.08-0.20 — still produces dramatic stretching because birds are essentially unanchored during expansion phase.
+
 
 ## 21. Content Calendar
 
@@ -2169,7 +2171,7 @@ No changes to render.js needed — just update the HTML filename it opens.
 
 Starling murmuration flocks integrated into the SABDA 360° scene. Each flock is a group of individual `THREE.Mesh` birds running a boids-style simulation with topological 7-nearest-neighbor interactions. The visual target is the dense, shape-shifting cloud seen in real starling murmurations — not scattered dots.
 
-**Current state:** v16 direct acceleration model with dramatic asymmetric breathing, dual-edge perturbations, 2 flocks × 600 birds, speeds 0.12-0.30, anchored to front-hemisphere sky positions. Standalone test file: `murmuration_standalone.html`. Integrated scene: `sabda_murmuration_slim.html` assembled via `assemble_murmuration.py`.
+**Current state:** v16 direct acceleration model with dramatic asymmetric breathing, dual-edge perturbations, 2 flocks × 600 birds, speeds 0.08-0.20, anchored to front-hemisphere sky positions. Standalone test file: `murmuration_standalone.html`. Integrated scene: `sabda_murmuration_slim.html` assembled via `assemble_murmuration.py`.
 
 ---
 
@@ -2310,7 +2312,7 @@ These are in PIXELS. Copying them to a 3D scene where the world is ~50 units pro
 **Scale for SABDA scene:**
 - Bird mesh: body 0.6 units long, wingspan 1.0 — visible at 20-30 unit distance
 - Flock spread radius: 15-20 units — covers meaningful chunk of sky
-- Speed: 0.06-0.15 per frame (scene birds move at ~0.03-0.06)
+- Speed: 0.08-0.20 per frame (with asymmetric breathing, don't need high speed)
 - Center anchor pull: 0.0004 × distance (weak enough for 20+ unit spreading)
 
 ---
@@ -2375,6 +2377,6 @@ Study these before any murmuration work:
 
 ---
 
-*Manual v12 — March 2026*
+*Manual v12.3 — March 2026*
 *Standard: 10/10 or nothing.*
 *Rule #1: Look before you deliver.*
