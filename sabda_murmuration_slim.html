@@ -656,7 +656,45 @@ planetGroup.position.set(Math.cos(plAngle)*Math.cos(plElev)*plDist, Math.sin(plE
 planetGroup.scale.setScalar(12.0); planetGroup.rotation.z = 0.12; planetGroup.rotation.x = -0.08;
 contentScene.add(planetGroup);
 
-// (Saturn Star removed — was creating UFO-like artifact)
+// ── SABDA LOGO on planet surface — subtle, semi-transparent ──
+{
+  const logoCvs = document.createElement('canvas');
+  logoCvs.width = 1024; logoCvs.height = 512;
+  const ctx = logoCvs.getContext('2d');
+  // Transparent background
+  ctx.clearRect(0, 0, 1024, 512);
+  // SABDA text — elegant, centered
+  ctx.fillStyle = 'rgba(255, 255, 255, 1.0)';
+  ctx.font = '600 80px Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // Letter spacing via individual characters
+  const text = 'S A B D A';
+  ctx.fillText(text, 512, 256);
+  // Subtle line above and below
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.lineWidth = 1;
+  const tw = ctx.measureText(text).width;
+  ctx.beginPath(); ctx.moveTo(512-tw/2-20, 210); ctx.lineTo(512+tw/2+20, 210); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(512-tw/2-20, 302); ctx.lineTo(512+tw/2+20, 302); ctx.stroke();
+  
+  const logoTex = new THREE.CanvasTexture(logoCvs);
+  logoTex.wrapS = THREE.RepeatWrapping;
+  logoTex.wrapT = THREE.ClampToEdgeWrapping;
+  
+  // Sphere slightly larger than planet body — wraps the logo around the surface
+  const logoGeo = new THREE.SphereGeometry(1.08, 64, 32);
+  const logoMat = new THREE.MeshBasicMaterial({
+    map: logoTex,
+    transparent: true,
+    opacity: 0.12,        // very subtle — barely there, elegant
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.FrontSide,
+  });
+  const logoMesh = new THREE.Mesh(logoGeo, logoMat);
+  planetGroup.add(logoMesh);
+}
 
 // ── SATURN (visible ringed planet — scale 0.023 because model is ~1200 internal units) ──
 const saturnMainGroup = new THREE.Group();
