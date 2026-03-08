@@ -1,66 +1,52 @@
 <!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>Murmuration v14</title>
+<title>Murmuration v15</title>
 <style>body{margin:0;overflow:hidden;background:#000}canvas{display:block}</style>
 </head><body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════
-// STARLING MURMURATION v14
-// HIGH INERTIA velocity accumulation. NO Θ normalization.
-// Birds keep their direction. Alignment is a gentle nudge.
-// Different parts fly different ways → stretching, density
-// variation, organic shape-shifting.
+// STARLING MURMURATION v15
+// Direct acceleration → velocity. No inertia blend.
+// No normalization. Crisp, responsive movement.
+// Speed clamped. Forces are small accelerations.
 // ═══════════════════════════════════════════════════════
 
 const N = 800;
 const NC = 7;
+const MIN_SPEED = 0.2;
+const MAX_SPEED = 0.45;
 
-// Speed
-const TARGET_SPEED = 0.35;
-const SPEED_CORRECT = 0.04; // 4% speed correction
+const px=new Float32Array(N),py=new Float32Array(N),pz=new Float32Array(N);
+const vx=new Float32Array(N),vy=new Float32Array(N),vz=new Float32Array(N);
 
-// Inertia: lower = more responsive
-const INERTIA = 0.95;
-const NUDGE = 1 - INERTIA; // 0.05 — 3x more responsive than before
-
-// Nudge weights
-const W_ALIGN = 0.4;
-const W_CENTER = 0.006;
-const W_REPEL = 0.6;
-const REPEL_DIST = 0.7;
-const W_NOISE = 0.15;
-
-const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
-const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
-
-// Start wide, all flying same direction
-const d0 = Math.random() * Math.PI * 2;
-for (let i = 0; i < N; i++) {
-  const a = Math.random() * Math.PI * 2;
-  const r = Math.sqrt(Math.random()) * 25;
-  px[i] = Math.cos(a) * r;
-  py[i] = (Math.random()-0.5) * 5;
-  pz[i] = Math.sin(a) * r;
-  const va = d0 + (Math.random()-0.5) * 0.4;
-  vx[i] = Math.cos(va) * TARGET_SPEED;
-  vy[i] = (Math.random()-0.5) * 0.005;
-  vz[i] = Math.sin(va) * TARGET_SPEED;
+const d0=Math.random()*Math.PI*2;
+for(let i=0;i<N;i++){
+  const a=Math.random()*Math.PI*2;
+  const r=Math.sqrt(Math.random())*20;
+  px[i]=Math.cos(a)*r;
+  py[i]=(Math.random()-0.5)*4;
+  pz[i]=Math.sin(a)*r;
+  const va=d0+(Math.random()-0.5)*0.3;
+  const sp=0.25+Math.random()*0.1;
+  vx[i]=Math.cos(va)*sp;
+  vy[i]=(Math.random()-0.5)*0.005;
+  vz[i]=Math.sin(va)*sp;
 }
 
-// Spatial grid
-const GS = 6;
-const grid = new Map();
-function buildGrid() {
+// Spatial grid — search radius 2 cells
+const GS=5;
+const grid=new Map();
+function buildGrid(){
   grid.clear();
-  for (let i = 0; i < N; i++) {
-    const k = ((px[i]/GS)|0)+','+((py[i]/GS)|0)+','+((pz[i]/GS)|0);
-    if (!grid.has(k)) grid.set(k, []);
+  for(let i=0;i<N;i++){
+    const k=((px[i]/GS)|0)+','+((py[i]/GS)|0)+','+((pz[i]/GS)|0);
+    if(!grid.has(k))grid.set(k,[]);
     grid.get(k).push(i);
   }
 }
-function getNearby(x,y,z) {
+function getNearby(x,y,z){
   const r=[];
   const gx=(x/GS)|0,gy=(y/GS)|0,gz=(z/GS)|0;
   for(let a=-2;a<=2;a++)for(let b=-1;b<=1;b++)for(let c=-2;c<=2;c++){
@@ -69,7 +55,7 @@ function getNearby(x,y,z) {
   }
   return r;
 }
-function findK(i) {
+function findK(i){
   const near=getNearby(px[i],py[i],pz[i]);
   const c=[];
   for(const j of near){
@@ -82,112 +68,102 @@ function findK(i) {
 }
 
 // Edge perturbation
-let pTimer=0, pNext=40;
-function perturbEdge() {
+let pT=0,pN=35;
+function perturb(){
   let fcx=0,fcy=0,fcz=0;
   for(let i=0;i<N;i++){fcx+=px[i];fcy+=py[i];fcz+=pz[i];}
   fcx/=N;fcy/=N;fcz/=N;
-  
   let best=0,bestD=0;
-  for(let s=0;s<40;s++){
+  for(let s=0;s<50;s++){
     const i=(Math.random()*N)|0;
     const dx=px[i]-fcx,dz=pz[i]-fcz;
     if(dx*dx+dz*dz>bestD){bestD=dx*dx+dz*dz;best=i;}
   }
-  
-  // DIRECTLY set velocity of edge patch — bypasses inertia for the initiators
-  const turnAngle = (Math.random()-0.5) * 2.5;
-  const patchR = 3 + Math.random()*5;
-  
+  const turn=(Math.random()-0.5)*2.5;
+  const pr=3+Math.random()*5;
   for(let i=0;i<N;i++){
     const dx=px[i]-px[best],dy=py[i]-py[best],dz=pz[i]-pz[best];
     const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-    if(d<patchR){
-      const f=1-(d/patchR);
+    if(d<pr){
+      const f=1-(d/pr);
       const ca=Math.atan2(vz[i],vx[i]);
-      const na=ca+turnAngle*f*f;
-      // Directly set — no inertia filtering for the perturbed birds
-      vx[i]=Math.cos(na)*TARGET_SPEED;
-      vz[i]=Math.sin(na)*TARGET_SPEED;
+      const na=ca+turn*f*f;
+      const sp=Math.sqrt(vx[i]*vx[i]+vz[i]*vz[i]);
+      vx[i]=Math.cos(na)*sp;
+      vz[i]=Math.sin(na)*sp;
     }
   }
 }
 
-function update() {
+function update(){
   buildGrid();
+  pT++;
+  if(pT>=pN){perturb();pT=0;pN=25+Math.random()*50;}
   
-  pTimer++;
-  if(pTimer>=pNext){
-    perturbEdge();
-    pTimer=0;
-    pNext=25+Math.random()*50;
-  }
-  
-  // Flock center
   let fcx=0,fcy=0,fcz=0;
   for(let i=0;i<N;i++){fcx+=px[i];fcy+=py[i];fcz+=pz[i];}
   fcx/=N;fcy/=N;fcz/=N;
   
-  for (let i = 0; i < N; i++) {
-    // Compute desired nudge direction
-    let nx=0,ny=0,nz=0;
+  for(let i=0;i<N;i++){
+    let ax=0,ay=0,az=0;
     const nbs=findK(i);
     
     if(nbs.length>0){
-      // Alignment — toward average neighbor VELOCITY (not just direction)
+      // ALIGNMENT — steer toward avg neighbor velocity
+      // This is a small acceleration, not a velocity replacement
       let avx=0,avy=0,avz=0;
       for(const nb of nbs){avx+=vx[nb.j];avy+=vy[nb.j];avz+=vz[nb.j];}
       avx/=nbs.length;avy/=nbs.length;avz/=nbs.length;
-      // Nudge = difference between avg neighbor vel and my vel
-      nx += (avx-vx[i]) * W_ALIGN;
-      ny += (avy-vy[i]) * W_ALIGN;
-      nz += (avz-vz[i]) * W_ALIGN;
+      // Acceleration = difference * strength
+      ax+=(avx-vx[i])*0.06;
+      ay+=(avy-vy[i])*0.06;
+      az+=(avz-vz[i])*0.06;
       
-      // Collision avoidance
+      // COLLISION AVOIDANCE
       for(const nb of nbs){
         const d=Math.sqrt(nb.d2);
-        if(d<REPEL_DIST && d>0.01){
-          const s=(REPEL_DIST-d)/REPEL_DIST;
-          nx += (px[i]-px[nb.j])/d * s * W_REPEL;
-          ny += (py[i]-py[nb.j])/d * s * W_REPEL * 0.2;
-          nz += (pz[i]-pz[nb.j])/d * s * W_REPEL;
+        if(d<0.8&&d>0.01){
+          const s=(0.8-d)/0.8;
+          ax+=(px[i]-px[nb.j])/d*s*0.03;
+          ay+=(py[i]-py[nb.j])/d*s*0.01;
+          az+=(pz[i]-pz[nb.j])/d*s*0.03;
         }
       }
     }
     
-    // Center pull
+    // CENTER PULL — very weak, linear with distance
     const tox=fcx-px[i],toy=fcy-py[i],toz=fcz-pz[i];
     const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
     if(fd>0.1){
-      nx += (tox/fd)*fd*W_CENTER;
-      ny += (toy/fd)*fd*W_CENTER*0.2;
-      nz += (toz/fd)*fd*W_CENTER;
+      const pull=0.0004*fd; // at dist 30: accel = 0.012. At dist 50: 0.02
+      ax+=(tox/fd)*pull;
+      ay+=(toy/fd)*pull*0.2;
+      az+=(toz/fd)*pull;
     }
     
-    // Noise
-    const t=Math.random()*Math.PI*2;
-    nx += Math.cos(t)*W_NOISE;
-    nz += Math.sin(t)*W_NOISE;
-    ny += (Math.random()-0.5)*W_NOISE*0.2;
+    // NOISE — tiny random acceleration
+    ax+=(Math.random()-0.5)*0.008;
+    az+=(Math.random()-0.5)*0.008;
+    ay+=(Math.random()-0.5)*0.002;
     
-    // Flatten
-    ny -= vy[i]*2;
-    ny -= (py[i]-fcy)*0.1;
+    // FLATTEN
+    ay-=vy[i]*0.15;
+    ay-=(py[i]-fcy)*0.008;
     
-    // HIGH INERTIA BLEND — bird keeps 98.5% of its velocity
-    vx[i] = vx[i]*INERTIA + (vx[i]+nx)*NUDGE;
-    vy[i] = vy[i]*INERTIA + (vy[i]+ny)*NUDGE;
-    vz[i] = vz[i]*INERTIA + (vz[i]+nz)*NUDGE;
+    // APPLY acceleration directly to velocity
+    vx[i]+=ax;
+    vy[i]+=ay;
+    vz[i]+=az;
     
-    // Soft speed regulation — gently push toward TARGET_SPEED
+    // CLAMP speed
     const spd=Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
-    if(spd>0.01){
-      const adj=1+(TARGET_SPEED/spd-1)*SPEED_CORRECT;
-      vx[i]*=adj;vy[i]*=adj;vz[i]*=adj;
-    }
+    if(spd>MAX_SPEED){const s=MAX_SPEED/spd;vx[i]*=s;vy[i]*=s;vz[i]*=s;}
+    else if(spd<MIN_SPEED&&spd>0.001){const s=MIN_SPEED/spd;vx[i]*=s;vy[i]*=s;vz[i]*=s;}
     
-    // Move
-    px[i]+=vx[i];py[i]+=vy[i];pz[i]+=vz[i];
+    // MOVE
+    px[i]+=vx[i];
+    py[i]+=vy[i];
+    pz[i]+=vz[i];
   }
 }
 
@@ -231,7 +207,7 @@ let fpsF=0,fpsL=performance.now();
 
 function animate(){
   requestAnimationFrame(animate);
-  update();update(); // 2 steps/frame
+  update();
   
   for(let i=0;i<N;i++){
     meshes[i].position.set(px[i],py[i],pz[i]);
