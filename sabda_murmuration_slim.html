@@ -1375,9 +1375,9 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   hemi.intensity = 0.32+b*0.08;
 
   // ── SKY WARMTH ──
-  const skyPhase = ((time + 300)/1800)*Math.PI*2;  // +300s offset = start in blue Belfast phase
+  const skyPhase = ((time + 100)/600)*Math.PI*2;  // 600s cycle = 3 full cycles in 30min, +100s offset
   const warmthRaw = (Math.sin(skyPhase)+1)/2;
-  const warmth = Math.pow(warmthRaw, 4.0);  // very strong bias toward Belfast (blue) ~90/10
+  const warmth = Math.pow(warmthRaw, 4.0);  // bias toward Belfast (blue) between warm peaks
   skySphereMat.uniforms.mixVal.value = 1.0 - warmth;  // warmth=1 → sky A (evening), warmth=0 → sky B (belfast)
 
   // Cloud bank colour sync — warm pink when evening sky, cool blue-grey when Belfast
