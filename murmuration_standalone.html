@@ -78,8 +78,8 @@ function findK(i){
   return count;
 }
 
-// Edge perturbation
-let pT=0,pN=35;
+// Edge perturbation — dramatic breathing
+let pT=0,pN=20;
 function perturb(){
   let fcx=0,fcy=0,fcz=0;
   for(let i=0;i<N;i++){fcx+=px[i];fcy+=py[i];fcz+=pz[i];}
@@ -90,8 +90,8 @@ function perturb(){
     const dx=px[i]-fcx,dz=pz[i]-fcz;
     if(dx*dx+dz*dz>bestD){bestD=dx*dx+dz*dz;best=i;}
   }
-  const turn=(Math.random()-0.5)*2.8;
-  const pr=4+Math.random()*7; // bigger patches for 1200 birds
+  const turn=(Math.random()-0.5)*3.2;
+  const pr=5+Math.random()*10;
   for(let i=0;i<N;i++){
     const dx=px[i]-px[best],dy=py[i]-py[best],dz=pz[i]-pz[best];
     const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
@@ -109,7 +109,7 @@ function perturb(){
 function update(){
   buildGrid();
   pT++;
-  if(pT>=pN){perturb();pT=0;pN=25+Math.random()*50;}
+  if(pT>=pN){perturb();pT=0;pN=18+Math.random()*35;}
   
   let fcx=0,fcy=0,fcz=0;
   for(let i=0;i<N;i++){fcx+=px[i];fcy+=py[i];fcz+=pz[i];}
@@ -142,11 +142,14 @@ function update(){
       }
     }
     
-    // CENTER PULL — very weak, allows wide spread
+    // CENTER PULL — breathing rhythm: compress/stretch cycle
+    const breathCycle = Math.sin(performance.now()*0.0004 + 1.0); // ~16s cycle
+    const basePull = 0.00020;
+    const pullStr = basePull * (1.0 + breathCycle * 0.5);
     const tox=fcx-px[i],toy=fcy-py[i],toz=fcz-pz[i];
     const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
     if(fd>0.1){
-      const pull=0.00025*fd;
+      const pull=pullStr*fd;
       ax+=(tox/fd)*pull;
       ay+=(toy/fd)*pull*0.2;
       az+=(toz/fd)*pull;
