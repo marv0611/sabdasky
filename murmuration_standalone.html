@@ -1,172 +1,257 @@
 <!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>Murmuration v3</title>
+<title>Murmuration v4</title>
 <style>body{margin:0;overflow:hidden;background:#000}canvas{display:block}</style>
 </head><body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════
-// STARLING MURMURATION
-// No external forces. Shape changes emerge from internal
-// perturbation waves propagating through 7-neighbor network.
+// STARLING MURMURATION — ported from Alex-Scott reference
+// Key features: center attraction, momentum accumulator,
+// spontaneous leader changes, speed matching, 7-neighbor
 // ═══════════════════════════════════════════════════════
 
 const N = 600;
 const K = 7;
 
-// State
-const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
-const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
+// ── PARAMS (from "tight" preset + centerAttraction) ──
+const P = {
+  separation: 0.15,
+  alignment: 0.3,
+  cohesion: 0.008,
+  noiseIntensity: 0.3,
+  protectedRange: 15,
+  visualRange: 40,
+  maxSpeed: 4,
+  minSpeed: 1.5,
+  speedMultiplier: 1.0,
+  centerAttraction: 0.3,
+  groupTension: 0.7,
+};
 
-// Init — flock drifting in one direction
-const initDir = Math.random() * Math.PI * 2;
+// ── STATE ──
+const pos = [], vel = [], acc = [], mom = [];
+const personality = [];  // per-bird traits
+const confidence = new Float32Array(N);
+const leadership = new Float32Array(N);
+const lastDirChange = new Float32Array(N);
+
+// Center of the "world" — birds orbit around this
+const CENTER = { x: 0, y: 0, z: 0 };
+const WORLD_SIZE = 300;
+
 for (let i = 0; i < N; i++) {
-  px[i] = (Math.random() - 0.5) * 12;
-  py[i] = (Math.random() - 0.5) * 5;
-  pz[i] = (Math.random() - 0.5) * 12;
-  const spd = 0.15 + Math.random() * 0.05;
-  vx[i] = Math.cos(initDir) * spd + (Math.random() - 0.5) * 0.03;
-  vy[i] = (Math.random() - 0.5) * 0.01;
-  vz[i] = Math.sin(initDir) * spd + (Math.random() - 0.5) * 0.03;
+  // Cluster start — all flying roughly same direction
+  const a = Math.random() * Math.PI * 2;
+  const spd = 2 + Math.random() * 2;
+  pos.push({ x: (Math.random()-0.5)*30, y: (Math.random()-0.5)*15, z: (Math.random()-0.5)*30 });
+  vel.push({ x: Math.cos(a)*spd + (Math.random()-0.5)*0.5, y: (Math.random()-0.5)*0.3, z: Math.sin(a)*spd + (Math.random()-0.5)*0.5 });
+  acc.push({ x:0, y:0, z:0 });
+  mom.push({ x:0, y:0, z:0 });
+  confidence[i] = 0.5 + Math.random() * 0.5;
+  leadership[i] = 0;
+  lastDirChange[i] = 0;
+  personality.push({
+    aggressiveness: 0.3 + Math.random() * 0.7,
+    sociability: 0.4 + Math.random() * 0.6,
+    followTendency: 0.3 + Math.random() * 0.7,
+    independence: Math.random() * 0.4,
+    leaderChance: Math.random() * 0.3,
+    energy: 0.7 + Math.random() * 0.3,
+  });
 }
 
-// Neighbor scratch space
-const _dist = new Float32Array(N);
-const _nbs = new Int32Array(K);
-
+// ── NEIGHBOR FINDING ──
 function findKNearest(i) {
+  const nbs = [];
+  const px = pos[i].x, py = pos[i].y, pz = pos[i].z;
+  const vrSq = P.visualRange * P.visualRange;
+  
   for (let j = 0; j < N; j++) {
-    if (j === i) { _dist[j] = 1e20; continue; }
-    const dx = px[i]-px[j], dy = py[i]-py[j], dz = pz[i]-pz[j];
-    _dist[j] = dx*dx + dy*dy + dz*dz;
-  }
-  for (let k = 0; k < K; k++) {
-    let minV = 1e20, minI = 0;
-    for (let j = 0; j < N; j++) {
-      if (_dist[j] < minV) { minV = _dist[j]; minI = j; }
-    }
-    _nbs[k] = minI;
-    _dist[minI] = 1e20;
-  }
-  return _nbs;
-}
-
-// ── PERTURBATION SYSTEM ──
-// Random birds suddenly change direction.
-// This propagates through the neighbor network = organic shape-shifting.
-let perturbTimer = 0;
-let nextPerturb = 60 + Math.random() * 120;
-
-function triggerPerturbation() {
-  // Pick a random bird as epicenter
-  const center = Math.floor(Math.random() * N);
-  const cx = px[center], cy = py[center], cz = pz[center];
-  const radius = 3 + Math.random() * 5;
-  const radiusSq = radius * radius;
-  
-  // Random impulse direction
-  const angle = Math.random() * Math.PI * 2;
-  const elev = (Math.random() - 0.5) * 0.3;
-  const strength = 0.02 + Math.random() * 0.03;
-  const ix = Math.cos(angle) * Math.cos(elev) * strength;
-  const iy = Math.sin(elev) * strength * 0.3;
-  const iz = Math.sin(angle) * Math.cos(elev) * strength;
-  
-  for (let i = 0; i < N; i++) {
-    const dx = px[i]-cx, dy = py[i]-cy, dz = pz[i]-cz;
+    if (j === i) continue;
+    const dx = px-pos[j].x, dy = py-pos[j].y, dz = pz-pos[j].z;
     const dSq = dx*dx + dy*dy + dz*dz;
-    if (dSq < radiusSq) {
-      const falloff = 1.0 - Math.sqrt(dSq) / radius;
-      vx[i] += ix * falloff;
-      vy[i] += iy * falloff;
-      vz[i] += iz * falloff;
+    if (dSq < vrSq) {
+      nbs.push({ idx: j, dSq });
     }
   }
+  nbs.sort((a,b) => a.dSq - b.dSq);
+  return nbs.slice(0, K);
 }
 
-// ── PARAMETERS ──
-const SEP_DIST = 1.2;
-const SEP_DIST_SQ = SEP_DIST * SEP_DIST;
-const INERTIA = 0.96;
-const MIN_SPEED = 0.10;
-const MAX_SPEED = 0.30;
-const VERT_DAMP = 0.95;
-const W_SEP = 0.08;
-const W_ALIGN = 0.06;
-const W_COH = 0.003;
-const W_NOISE = 0.004;
-const W_BOUNDARY = 0.0005;
-const BOUNDARY_DIST = 50;
+// ── UPDATE ──
+let frameCount = 0;
 
 function update() {
-  // Perturbations
-  perturbTimer++;
-  if (perturbTimer >= nextPerturb) {
-    triggerPerturbation();
-    perturbTimer = 0;
-    nextPerturb = 40 + Math.random() * 100;
+  frameCount++;
+  const time = performance.now();
+  
+  // Compute flock center
+  let fcx=0, fcy=0, fcz=0;
+  for (let i=0;i<N;i++) { fcx+=pos[i].x; fcy+=pos[i].y; fcz+=pos[i].z; }
+  fcx/=N; fcy/=N; fcz/=N;
+  
+  for (let i = 0; i < N; i++) {
+    const p = pos[i], v = vel[i];
+    const pers = personality[i];
+    acc[i].x = 0; acc[i].y = 0; acc[i].z = 0;
+    
+    const nbs = findKNearest(i);
+    
+    // ── SEPARATION ──
+    let sepX=0, sepY=0, sepZ=0;
+    const prSq = P.protectedRange * P.protectedRange * (1.1 - P.groupTension*0.3);
+    for (const nb of nbs) {
+      if (nb.dSq < prSq && nb.dSq > 0) {
+        const j = nb.idx;
+        const dx=p.x-pos[j].x, dy=p.y-pos[j].y, dz=p.z-pos[j].z;
+        const d = Math.sqrt(nb.dSq);
+        const f = 1 / (d * d);
+        sepX += dx*f; sepY += dy*f; sepZ += dz*f;
+      }
+    }
+    const sepStr = P.separation * pers.aggressiveness;
+    acc[i].x += sepX * sepStr;
+    acc[i].y += sepY * sepStr;
+    acc[i].z += sepZ * sepStr;
+    
+    if (nbs.length > 0) {
+      // ── ALIGNMENT — weighted by neighbor confidence ──
+      let aliX=0, aliY=0, aliZ=0, wSum=0;
+      for (const nb of nbs) {
+        const j = nb.idx;
+        const w = 1 + confidence[j] + leadership[j];
+        aliX += vel[j].x*w; aliY += vel[j].y*w; aliZ += vel[j].z*w;
+        wSum += w;
+      }
+      if (wSum > 0) { aliX/=wSum; aliY/=wSum; aliZ/=wSum; }
+      const aliStr = P.alignment * (pers.sociability + pers.followTendency) * (1 - pers.independence*0.5);
+      acc[i].x += (aliX - v.x) * aliStr;
+      acc[i].y += (aliY - v.y) * aliStr;
+      acc[i].z += (aliZ - v.z) * aliStr;
+      
+      // ── COHESION — toward center of 7 neighbors ──
+      let cohX=0, cohY=0, cohZ=0;
+      for (const nb of nbs) {
+        const j = nb.idx;
+        cohX+=pos[j].x; cohY+=pos[j].y; cohZ+=pos[j].z;
+      }
+      cohX/=nbs.length; cohY/=nbs.length; cohZ/=nbs.length;
+      const cohStr = P.cohesion * pers.sociability * P.groupTension;
+      acc[i].x += (cohX - p.x) * cohStr;
+      acc[i].y += (cohY - p.y) * cohStr;
+      acc[i].z += (cohZ - p.z) * cohStr;
+      
+      // ── SPEED MATCHING — adapt to neighbor speed ──
+      let avgNbSpeed = 0;
+      for (const nb of nbs) {
+        const j = nb.idx;
+        avgNbSpeed += Math.sqrt(vel[j].x*vel[j].x + vel[j].y*vel[j].y + vel[j].z*vel[j].z);
+      }
+      avgNbSpeed /= nbs.length;
+      const mySpeed = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+      if (mySpeed > 0.001) {
+        const speedDiff = avgNbSpeed - mySpeed;
+        const nx = v.x/mySpeed, ny = v.y/mySpeed, nz = v.z/mySpeed;
+        acc[i].x += nx * speedDiff * 0.1;
+        acc[i].y += ny * speedDiff * 0.1;
+        acc[i].z += nz * speedDiff * 0.1;
+      }
+    }
+    
+    // ── CENTER ATTRACTION — quadratic pull ──
+    const toCX = fcx - p.x, toCY = fcy - p.y, toCZ = fcz - p.z;
+    const cDist = Math.sqrt(toCX*toCX + toCY*toCY + toCZ*toCZ);
+    const maxDist = WORLD_SIZE * 0.4;
+    const distRatio = Math.min(cDist / maxDist, 1.0);
+    const pullStr = P.centerAttraction * distRatio * distRatio * (0.5 + pers.sociability*0.5);
+    if (cDist > 0) {
+      acc[i].x += (toCX/cDist) * pullStr;
+      acc[i].y += (toCY/cDist) * pullStr;
+      acc[i].z += (toCZ/cDist) * pullStr;
+    }
+    
+    // ── NOISE — curl-like organic variation ──
+    const nt = time * 0.001;
+    const nx = Math.sin(p.x*0.03 + nt*0.7 + i*0.1) * Math.cos(p.z*0.02 + nt*0.5);
+    const ny = Math.sin(p.y*0.04 + nt*0.3 + i*0.2) * 0.3;
+    const nz = Math.cos(p.x*0.02 + nt*0.6 + i*0.15) * Math.sin(p.z*0.03 + nt*0.4);
+    const noiseStr = P.noiseIntensity * (pers.independence + 0.3);
+    acc[i].x += nx * noiseStr;
+    acc[i].y += ny * noiseStr;
+    acc[i].z += nz * noiseStr;
+    
+    // ── SPONTANEOUS DIRECTION CHANGE — leaders suddenly turn ──
+    const timeSinceLast = time - lastDirChange[i];
+    const changeChance = (pers.leaderChance + pers.independence) * 0.0002;
+    if (timeSinceLast > 2000 && Math.random() < changeChance) {
+      lastDirChange[i] = time;
+      confidence[i] = Math.min(1, confidence[i] + 0.2);
+      leadership[i] = Math.min(1, leadership[i] + 0.3);
+      const angle = Math.random() * Math.PI * 2;
+      const elev = (Math.random() - 0.5) * 0.4;
+      const str = 0.5 + Math.random() * 1.0;
+      acc[i].x += Math.cos(angle)*Math.cos(elev) * str;
+      acc[i].y += Math.sin(elev) * str * 0.3;
+      acc[i].z += Math.sin(angle)*Math.cos(elev) * str;
+    }
+    
+    // ── INFORMATION CASCADE — follow confident leaders ──
+    for (const nb of nbs) {
+      const j = nb.idx;
+      if (leadership[j] > 0.7) {
+        const lspd = Math.sqrt(vel[j].x*vel[j].x + vel[j].y*vel[j].y + vel[j].z*vel[j].z);
+        if (lspd > 0.001) {
+          const f = leadership[j] * pers.followTendency * 0.2;
+          acc[i].x += (vel[j].x/lspd) * f;
+          acc[i].y += (vel[j].y/lspd) * f;
+          acc[i].z += (vel[j].z/lspd) * f;
+        }
+      }
+    }
+    
+    // ── VERTICAL DAMPING ──
+    acc[i].y -= vel[i].y * 0.05;
+    
+    // ── BOUNDARY — gentle edge turn ──
+    const margin = 80;
+    const turnF = 0.15;
+    const d2c = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+    if (d2c > WORLD_SIZE * 0.5 - margin) {
+      const over = d2c - (WORLD_SIZE*0.5 - margin);
+      const str = turnF * (over / margin);
+      acc[i].x -= (p.x/d2c) * str;
+      acc[i].y -= (p.y/d2c) * str;
+      acc[i].z -= (p.z/d2c) * str;
+    }
   }
   
-  // Flock center for soft boundary
-  let fcx=0, fcy=0, fcz=0;
-  for (let i=0;i<N;i++) { fcx+=px[i]; fcy+=py[i]; fcz+=pz[i]; }
-  fcx/=N; fcy/=N; fcz/=N;
-
+  // ── APPLY WITH MOMENTUM ──
   for (let i = 0; i < N; i++) {
-    const nbs = findKNearest(i);
-    let sepX=0, sepY=0, sepZ=0;
-    let aliX=0, aliY=0, aliZ=0;
-    let cohX=0, cohY=0, cohZ=0;
+    // Momentum accumulator — smooth turns
+    mom[i].x = mom[i].x * 0.95 + acc[i].x * 0.05;
+    mom[i].y = mom[i].y * 0.95 + acc[i].y * 0.05;
+    mom[i].z = mom[i].z * 0.95 + acc[i].z * 0.05;
     
-    for (let k = 0; k < K; k++) {
-      const j = nbs[k];
-      const dx=px[i]-px[j], dy=py[i]-py[j], dz=pz[i]-pz[j];
-      const dSq = dx*dx + dy*dy + dz*dz;
-      if (dSq < SEP_DIST_SQ && dSq > 0.0001) {
-        const d = Math.sqrt(dSq);
-        const f = (SEP_DIST - d) / SEP_DIST;
-        sepX += (dx/d)*f; sepY += (dy/d)*f; sepZ += (dz/d)*f;
-      }
-      aliX += vx[j]; aliY += vy[j]; aliZ += vz[j];
-      cohX += px[j]; cohY += py[j]; cohZ += pz[j];
-    }
-    aliX/=K; aliY/=K; aliZ/=K;
-    cohX/=K; cohY/=K; cohZ/=K;
+    vel[i].x += acc[i].x + mom[i].x;
+    vel[i].y += acc[i].y + mom[i].y;
+    vel[i].z += acc[i].z + mom[i].z;
     
-    let ax=0, ay=0, az=0;
-    ax += sepX * W_SEP;
-    ay += sepY * W_SEP;
-    az += sepZ * W_SEP;
-    ax += (aliX - vx[i]) * W_ALIGN;
-    ay += (aliY - vy[i]) * W_ALIGN;
-    az += (aliZ - vz[i]) * W_ALIGN;
-    ax += (cohX - px[i]) * W_COH;
-    ay += (cohY - py[i]) * W_COH;
-    az += (cohZ - pz[i]) * W_COH;
-    ax += (Math.random()-0.5) * W_NOISE;
-    ay += (Math.random()-0.5) * W_NOISE * 0.2;
-    az += (Math.random()-0.5) * W_NOISE;
+    // Speed limits
+    const maxSpd = P.maxSpeed * P.speedMultiplier * personality[i].energy;
+    const minSpd = P.minSpeed * P.speedMultiplier;
+    const spd = Math.sqrt(vel[i].x*vel[i].x + vel[i].y*vel[i].y + vel[i].z*vel[i].z);
+    if (spd > maxSpd) { const s=maxSpd/spd; vel[i].x*=s; vel[i].y*=s; vel[i].z*=s; }
+    else if (spd < minSpd && spd > 0.001) { const s=minSpd/spd; vel[i].x*=s; vel[i].y*=s; vel[i].z*=s; }
     
-    // Soft boundary relative to flock center
-    const tfx=fcx-px[i], tfy=fcy-py[i], tfz=fcz-pz[i];
-    const fd = Math.sqrt(tfx*tfx+tfy*tfy+tfz*tfz);
-    if (fd > BOUNDARY_DIST) {
-      const pull = (fd-BOUNDARY_DIST) * W_BOUNDARY;
-      ax += (tfx/fd)*pull; ay += (tfy/fd)*pull; az += (tfz/fd)*pull;
-    }
+    pos[i].x += vel[i].x;
+    pos[i].y += vel[i].y;
+    pos[i].z += vel[i].z;
     
-    ay -= vy[i] * (1-VERT_DAMP);
-    
-    vx[i] = vx[i]*INERTIA + (vx[i]+ax)*(1-INERTIA);
-    vy[i] = vy[i]*INERTIA + (vy[i]+ay)*(1-INERTIA);
-    vz[i] = vz[i]*INERTIA + (vz[i]+az)*(1-INERTIA);
-    
-    const speed = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
-    if (speed > MAX_SPEED) { const s=MAX_SPEED/speed; vx[i]*=s; vy[i]*=s; vz[i]*=s; }
-    else if (speed < MIN_SPEED && speed > 0.001) { const s=MIN_SPEED/speed; vx[i]*=s; vy[i]*=s; vz[i]*=s; }
-    
-    px[i] += vx[i]; py[i] += vy[i]; pz[i] += vz[i];
+    // Decay confidence/leadership
+    confidence[i] *= 0.999;
+    leadership[i] *= 0.995;
   }
 }
 
@@ -182,21 +267,24 @@ skyCanvas.width = 1; skyCanvas.height = 512;
 const skyCtx = skyCanvas.getContext('2d');
 const grad = skyCtx.createLinearGradient(0, 0, 0, 512);
 grad.addColorStop(0.0, '#1a0a2e');
-grad.addColorStop(0.3, '#5a2068');
-grad.addColorStop(0.5, '#b06080');
-grad.addColorStop(0.7, '#e8a070');
-grad.addColorStop(1.0, '#d4a080');
+grad.addColorStop(0.25, '#3d1560');
+grad.addColorStop(0.45, '#8b3a62');
+grad.addColorStop(0.6, '#d4726a');
+grad.addColorStop(0.75, '#f0a06c');
+grad.addColorStop(0.9, '#e8c89e');
+grad.addColorStop(1.0, '#c9a882');
 skyCtx.fillStyle = grad;
 skyCtx.fillRect(0, 0, 1, 512);
 scene.background = new THREE.CanvasTexture(skyCanvas);
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 500);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 1000);
 
+// Bird shape
 const bGeo = new THREE.BufferGeometry();
 bGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-  0,0,-0.25, 0,0.05,-0.25, 0,0,0.4,
-  0,0,-0.15, -0.35,0,0, 0,0,0.15,
-  0,0,0.15, 0.35,0,0, 0,0,-0.15
+  0,0,-0.4, 0,0.08,-0.4, 0,0,0.6,
+  0,0,-0.25, -0.5,0,0, 0,0,0.25,
+  0,0,0.25, 0.5,0,0, 0,0,-0.25
 ]), 3));
 bGeo.computeVertexNormals();
 const bMat = new THREE.MeshBasicMaterial({ color: 0x0c0a08, side: THREE.DoubleSide });
@@ -212,20 +300,25 @@ for (let i = 0; i < N; i++) {
 function animate() {
   requestAnimationFrame(animate);
   update();
+  
   for (let i = 0; i < N; i++) {
-    meshes[i].position.set(px[i], py[i], pz[i]);
-    const sp = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
-    if (sp > 0.001) meshes[i].lookAt(px[i]+vx[i], py[i]+vy[i], pz[i]+vz[i]);
+    meshes[i].position.set(pos[i].x, pos[i].y, pos[i].z);
+    const sp = Math.sqrt(vel[i].x*vel[i].x + vel[i].y*vel[i].y + vel[i].z*vel[i].z);
+    if (sp > 0.01) meshes[i].lookAt(pos[i].x+vel[i].x, pos[i].y+vel[i].y, pos[i].z+vel[i].z);
   }
+  
+  // Camera follows flock
   let cx=0,cy=0,cz=0;
-  for (let i=0;i<N;i++){cx+=px[i];cy+=py[i];cz+=pz[i];}
+  for (let i=0;i<N;i++){cx+=pos[i].x;cy+=pos[i].y;cz+=pos[i].z;}
   cx/=N;cy/=N;cz/=N;
-  const ct = performance.now() * 0.000025;
-  camera.position.set(cx+Math.sin(ct)*70, cy+15, cz+Math.cos(ct)*70);
+  const ct = performance.now() * 0.00002;
+  camera.position.set(cx+Math.sin(ct)*120, cy+30, cz+Math.cos(ct)*120);
   camera.lookAt(cx,cy,cz);
+  
   renderer.render(scene, camera);
 }
 animate();
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
