@@ -1154,19 +1154,16 @@ function updateMurmuration(simTime, speedMult) {
         }
       }
       
-      // ── GENTLE CENTRAL DENSITY — soft ambient pull creates denser middle ──
-      // Dead zone up to 2 units — birds roam freely near core.
-      // Beyond that, very gentle linear pull. NOT a gravity well (no snap-back).
-      // This gives the mass a denser center while still allowing free density variation.
+      // ── CENTRAL DENSITY — keeps flock visible, denser in middle ──
       const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
-      if(fd > 2.0) {
-        const centralStr = (fd - 2.0) * 0.0008;
+      if(fd > 1.0) {
+        const centralStr = (fd - 1.0) * 0.005;
         ax += (-f.px[i]/fd) * centralStr;
         az += (-f.pz[i]/fd) * centralStr;
       }
-      // Hard tether at extreme distance
-      if(fd > 8) {
-        const leashStr = (fd - 8) * 0.008;
+      // Hard tether — prevents escape
+      if(fd > 5) {
+        const leashStr = (fd - 5) * 0.03;
         ax += (-f.px[i]/fd) * leashStr;
         az += (-f.pz[i]/fd) * leashStr;
       }
