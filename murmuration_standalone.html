@@ -14,23 +14,23 @@
 // variation, organic shape-shifting.
 // ═══════════════════════════════════════════════════════
 
-const N = 512;
+const N = 800;
 const NC = 7;
 
 // Speed
-const TARGET_SPEED = 0.25;
-const SPEED_CORRECT = 0.02; // 2% speed correction per step — very gentle
+const TARGET_SPEED = 0.35;
+const SPEED_CORRECT = 0.04; // 4% speed correction
 
-// Inertia: bird keeps this fraction of velocity, rest is nudge
-const INERTIA = 0.985;
-const NUDGE = 1 - INERTIA; // 0.015
+// Inertia: lower = more responsive
+const INERTIA = 0.95;
+const NUDGE = 1 - INERTIA; // 0.05 — 3x more responsive than before
 
-// Nudge weights (these get multiplied by NUDGE, so effective is small)
-const W_ALIGN = 0.5;     // very gentle nudge toward neighbors
-const W_CENTER = 0.008;  // barely there — just enough to prevent infinite spread
-const W_REPEL = 0.8;
+// Nudge weights
+const W_ALIGN = 0.4;
+const W_CENTER = 0.006;
+const W_REPEL = 0.6;
 const REPEL_DIST = 0.7;
-const W_NOISE = 0.2;
+const W_NOISE = 0.15;
 
 const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
 const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
@@ -39,9 +39,9 @@ const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(
 const d0 = Math.random() * Math.PI * 2;
 for (let i = 0; i < N; i++) {
   const a = Math.random() * Math.PI * 2;
-  const r = Math.sqrt(Math.random()) * 20;
+  const r = Math.sqrt(Math.random()) * 25;
   px[i] = Math.cos(a) * r;
-  py[i] = (Math.random()-0.5) * 4;
+  py[i] = (Math.random()-0.5) * 5;
   pz[i] = Math.sin(a) * r;
   const va = d0 + (Math.random()-0.5) * 0.4;
   vx[i] = Math.cos(va) * TARGET_SPEED;
@@ -231,7 +231,7 @@ let fpsF=0,fpsL=performance.now();
 
 function animate(){
   requestAnimationFrame(animate);
-  update();update();update(); // 3 steps/frame for smooth motion
+  update();update(); // 2 steps/frame
   
   for(let i=0;i<N;i++){
     meshes[i].position.set(px[i],py[i],pz[i]);
@@ -245,7 +245,7 @@ function animate(){
   camCx+=(cx-camCx)*0.15;camCy+=(cy-camCy)*0.15;camCz+=(cz-camCz)*0.15;
   
   const ct=performance.now()*0.000008;
-  camera.position.set(camCx+Math.sin(ct)*40,camCy+5,camCz+Math.cos(ct)*40);
+  camera.position.set(camCx+Math.sin(ct)*55,camCy+8,camCz+Math.cos(ct)*55);
   camera.lookAt(camCx,camCy,camCz);
   
   renderer.render(scene,camera);
