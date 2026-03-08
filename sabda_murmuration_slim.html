@@ -769,143 +769,173 @@ saturnLoader1.load(saturnUrl1, gltf => {
 });
 
 // ═══════════════════════════════════════════════════════
-// MURMURATION — PURE CPU BOIDS (no GPU readback issues)
+// MURMURATION v15 — Direct acceleration, zero-allocation, optimized
 // ═══════════════════════════════════════════════════════
-// ═══ 4 MURMURATION FLOCKS — triangle birds spread across 360° ═══
-const FLOCK_SIZE = 150; // birds per flock
+const FLOCK_SIZE = 200;
 const FLOCK_COUNT = 4;
+const MNC = 7; // topological neighbors
+const M_MIN_SPEED = 0.2;
+const M_MAX_SPEED = 0.5;
 
-// Bird triangle shape — body + 2 wings
 const birdShape = new THREE.BufferGeometry();
-const bverts = new Float32Array([
-  0,0,-0.6,  0,0.12,-0.6,  0,0,0.9,   // body
-  0,0,-0.4,  -0.6,0,0,  0,0,0.4,      // left wing
-  0,0,0.4,   0.6,0,0,   0,0,-0.4      // right wing
-]);
-birdShape.setAttribute('position', new THREE.BufferAttribute(bverts, 3));
+birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+  0,0,-0.1, 0,0.02,-0.1, 0,0,0.18,
+  0,0,-0.05, -0.16,0,0, 0,0,0.05,
+  0,0,0.05, 0.16,0,0, 0,0,-0.05
+]), 3));
 birdShape.computeVertexNormals();
 const birdMat = new THREE.MeshBasicMaterial({ color: 0x0c0908, side: THREE.DoubleSide });
 
-// 4 flock centers — spread around the panorama at bird-height distance
 const flockCenters = [
-  new THREE.Vector3(35, 6, -25),   // front-right sky
-  new THREE.Vector3(-30, 7, -35),  // front-left sky
-  new THREE.Vector3(-25, 5, 30),   // back-left sky
-  new THREE.Vector3(30, 8, 35),    // back-right sky
+  new THREE.Vector3(35, 6, -25),
+  new THREE.Vector3(-30, 7, -35),
+  new THREE.Vector3(-25, 5, 30),
+  new THREE.Vector3(30, 8, 35),
 ];
 
-// Each flock has its own predator phase offset for independent motion
-const flockPhaseOffsets = [0, 17.3, 41.7, 63.1];
-
+// Pre-allocated typed arrays per flock
 const allFlocks = [];
 for (let fi = 0; fi < FLOCK_COUNT; fi++) {
-  const flock = { pos: [], vel: [], meshes: [], center: flockCenters[fi], phaseOffset: flockPhaseOffsets[fi] };
+  const f = {
+    px:new Float32Array(FLOCK_SIZE), py:new Float32Array(FLOCK_SIZE), pz:new Float32Array(FLOCK_SIZE),
+    vx:new Float32Array(FLOCK_SIZE), vy:new Float32Array(FLOCK_SIZE), vz:new Float32Array(FLOCK_SIZE),
+    meshes: [],
+    center: flockCenters[fi],
+    pTimer: 0,
+    pNext: 30 + Math.random()*40,
+  };
+  const d0 = Math.random() * Math.PI * 2;
   for (let i = 0; i < FLOCK_SIZE; i++) {
-    flock.pos.push(new THREE.Vector3((Math.random()-0.5)*4, (Math.random()-0.5)*2, (Math.random()-0.5)*4));
-    flock.vel.push(new THREE.Vector3((Math.random()-0.5)*0.08, (Math.random()-0.5)*0.04, (Math.random()-0.5)*0.08));
+    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*8;
+    f.px[i] = Math.cos(a)*r;
+    f.py[i] = (Math.random()-0.5)*3;
+    f.pz[i] = Math.sin(a)*r;
+    const va = d0+(Math.random()-0.5)*0.3, sp = 0.25+Math.random()*0.1;
+    f.vx[i] = Math.cos(va)*sp; f.vy[i] = 0; f.vz[i] = Math.sin(va)*sp;
     const m = new THREE.Mesh(birdShape, birdMat);
     m.frustumCulled = false;
-    m.position.copy(flock.pos[i]).add(flock.center);
     contentScene.add(m);
-    flock.meshes.push(m);
+    f.meshes.push(m);
   }
-  allFlocks.push(flock);
+  allFlocks.push(f);
 }
-console.log('SABDA: Murmuration ready —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, '=', FLOCK_COUNT*FLOCK_SIZE, 'triangle birds');
+console.log('SABDA: Murmuration v15 —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, '=', FLOCK_COUNT*FLOCK_SIZE, 'birds');
+
+// Shared pre-allocated buffers
+const _mNearby = new Int32Array(256);
+const _mNbIdx = new Int32Array(MNC), _mNbD2 = new Float32Array(MNC);
+const MGS = 6;
 
 function updateMurmuration() {
-  const protectedRangeSq = 0.5 * 0.5;
-  const visualRangeSq = 5.0 * 5.0;
-  const avoidFactor = 0.025;
-  const matchingFactor = 0.035;
-  const centeringFactor = 0.0025;
-  const maxSpeed = 0.3;
-  const minSpeed = 0.06;
-  const t = performance.now() / 1000;
-
+  const t = performance.now()*0.0003;
+  
   for (let fi = 0; fi < FLOCK_COUNT; fi++) {
-    const flock = allFlocks[fi];
-    const N = flock.pos.length;
-    const po = flock.phaseOffset;
-
-    // Each flock has its own wandering predator — very irregular
-    const predX = Math.sin((t+po)*0.013)*6 + Math.sin((t+po)*0.0071+1.3)*3 + Math.cos((t+po)*0.023+4.1)*2;
-    const predY = Math.cos((t+po)*0.011)*2 + Math.sin((t+po)*0.0053+2.7)*1;
-    const predZ = Math.sin((t+po)*0.009+0.8)*5 + Math.cos((t+po)*0.019+3.2)*2.5;
-
-    for (let i = 0; i < N; i++) {
-      const p = flock.pos[i];
-      const v = flock.vel[i];
-      let closeDx=0, closeDy=0, closeDz=0;
-      let posAvgX=0, posAvgY=0, posAvgZ=0;
-      let velAvgX=0, velAvgY=0, velAvgZ=0;
-      let neighbors = 0;
-
-      for (let j = 0; j < N; j++) {
-        if (i === j) continue;
-        const o = flock.pos[j];
-        const dx = p.x-o.x, dy = p.y-o.y, dz = p.z-o.z;
-        const dSq = dx*dx + dy*dy + dz*dz;
-        if (dSq < protectedRangeSq) {
-          closeDx += dx; closeDy += dy; closeDz += dz;
-        } else if (dSq < visualRangeSq) {
-          posAvgX += o.x; posAvgY += o.y; posAvgZ += o.z;
-          const ov = flock.vel[j];
-          velAvgX += ov.x; velAvgY += ov.y; velAvgZ += ov.z;
-          neighbors++;
+    const f = allFlocks[fi];
+    const N = FLOCK_SIZE;
+    
+    // Build grid for this flock
+    const grid = new Map();
+    for(let i=0;i<N;i++){
+      const k=((f.px[i]/MGS)|0)+','+((f.py[i]/MGS)|0)+','+((f.pz[i]/MGS)|0);
+      if(!grid.has(k))grid.set(k,[]);
+      grid.get(k).push(i);
+    }
+    
+    // Edge perturbation
+    f.pTimer++;
+    if(f.pTimer >= f.pNext){
+      f.pTimer=0; f.pNext=25+Math.random()*50;
+      // Find edge bird
+      let fcx=0,fcy=0,fcz=0;
+      for(let i=0;i<N;i++){fcx+=f.px[i];fcy+=f.py[i];fcz+=f.pz[i];}
+      fcx/=N;fcy/=N;fcz/=N;
+      let best=0,bestD=0;
+      for(let s=0;s<30;s++){
+        const i=(Math.random()*N)|0;
+        const dx=f.px[i]-fcx,dz=f.pz[i]-fcz;
+        if(dx*dx+dz*dz>bestD){bestD=dx*dx+dz*dz;best=i;}
+      }
+      const turn=(Math.random()-0.5)*2.5, pr=3+Math.random()*5;
+      for(let i=0;i<N;i++){
+        const dx=f.px[i]-f.px[best],dy=f.py[i]-f.py[best],dz=f.pz[i]-f.pz[best];
+        const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if(d<pr){
+          const ff2=1-(d/pr);
+          const ca=Math.atan2(f.vz[i],f.vx[i]);
+          const na=ca+turn*ff2*ff2;
+          const sp=Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]);
+          f.vx[i]=Math.cos(na)*sp; f.vz[i]=Math.sin(na)*sp;
         }
       }
-
-      v.x += closeDx * avoidFactor;
-      v.y += closeDy * avoidFactor;
-      v.z += closeDz * avoidFactor;
-
-      if (neighbors > 0) {
-        posAvgX/=neighbors; posAvgY/=neighbors; posAvgZ/=neighbors;
-        velAvgX/=neighbors; velAvgY/=neighbors; velAvgZ/=neighbors;
-        v.x += (posAvgX - p.x) * centeringFactor;
-        v.y += (posAvgY - p.y) * centeringFactor;
-        v.z += (posAvgZ - p.z) * centeringFactor;
-        v.x += (velAvgX - v.x) * matchingFactor;
-        v.y += (velAvgY - v.y) * matchingFactor;
-        v.z += (velAvgZ - v.z) * matchingFactor;
-      }
-
-      // Soft boundary — nudge back if drifting too far
-      const fd = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
-      if (fd > 15) {
-        const pull = (fd - 15) * 0.001;
-        v.x -= (p.x/fd)*pull; v.y -= (p.y/fd)*pull; v.z -= (p.z/fd)*pull;
-      }
-
-      v.y *= 0.97; // flatten vertical
-
-      // Predator
-      const pdx=p.x-predX, pdy=p.y-predY, pdz=p.z-predZ;
-      const predDist = Math.sqrt(pdx*pdx+pdy*pdy+pdz*pdz);
-      if (predDist < 10.0 && predDist > 0.01) {
-        const f = (1.0 - predDist/10.0) * 0.04;
-        v.x += (pdx/predDist)*f; v.y += (pdy/predDist)*f; v.z += (pdz/predDist)*f;
-      }
-
-      const speed = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
-      if (speed > maxSpeed) { const s=maxSpeed/speed; v.x*=s; v.y*=s; v.z*=s; }
-      else if (speed < minSpeed && speed > 0.001) { const s=minSpeed/speed; v.x*=s; v.y*=s; v.z*=s; }
-
-      p.x += v.x; p.y += v.y; p.z += v.z;
     }
-
-    // Update meshes — position + orient along velocity
-    for (let i = 0; i < N; i++) {
-      const m = flock.meshes[i];
-      const p = flock.pos[i];
-      const v = flock.vel[i];
-      m.position.set(p.x + flock.center.x, p.y + flock.center.y, p.z + flock.center.z);
-      // Point bird along velocity direction
-      const speed = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
-      if (speed > 0.001) {
-        m.lookAt(m.position.x + v.x, m.position.y + v.y, m.position.z + v.z);
+    
+    // Flock center
+    let fcx=0,fcy=0,fcz=0;
+    for(let i=0;i<N;i++){fcx+=f.px[i];fcy+=f.py[i];fcz+=f.pz[i];}
+    fcx/=N;fcy/=N;fcz/=N;
+    
+    for(let i=0;i<N;i++){
+      // Find 7 nearest — zero alloc
+      let nearCount=0;
+      const gx=(f.px[i]/MGS)|0,gy=(f.py[i]/MGS)|0,gz=(f.pz[i]/MGS)|0;
+      for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
+        const cell=grid.get((gx+a)+','+(gy+b)+','+(gz+c));
+        if(cell)for(let n=0;n<cell.length;n++){if(nearCount<256)_mNearby[nearCount++]=cell[n];}
       }
+      for(let k=0;k<MNC;k++){_mNbIdx[k]=-1;_mNbD2[k]=1e9;}
+      const mx=f.px[i],my=f.py[i],mz=f.pz[i];
+      for(let n=0;n<nearCount;n++){
+        const j=_mNearby[n]; if(j===i)continue;
+        const dx=mx-f.px[j],dy=my-f.py[j],dz=mz-f.pz[j];
+        const d2=dx*dx+dy*dy+dz*dz;
+        if(d2<_mNbD2[MNC-1]){
+          let pos=MNC-1;
+          while(pos>0&&d2<_mNbD2[pos-1]){_mNbD2[pos]=_mNbD2[pos-1];_mNbIdx[pos]=_mNbIdx[pos-1];pos--;}
+          _mNbD2[pos]=d2;_mNbIdx[pos]=j;
+        }
+      }
+      let nc=0; for(let k=0;k<MNC;k++)if(_mNbIdx[k]>=0)nc++;
+      
+      let ax=0,ay=0,az=0;
+      if(nc>0){
+        let avx=0,avy=0,avz=0;
+        for(let k=0;k<nc;k++){const j=_mNbIdx[k];avx+=f.vx[j];avy+=f.vy[j];avz+=f.vz[j];}
+        avx/=nc;avy/=nc;avz/=nc;
+        ax+=(avx-f.vx[i])*0.08; ay+=(avy-f.vy[i])*0.08; az+=(avz-f.vz[i])*0.08;
+        for(let k=0;k<nc;k++){
+          if(_mNbD2[k]<0.64&&_mNbD2[k]>0.0001){
+            const j=_mNbIdx[k],d=Math.sqrt(_mNbD2[k]),s=(0.8-d)/0.8;
+            ax+=(f.px[i]-f.px[j])/d*s*0.03; ay+=(f.py[i]-f.py[j])/d*s*0.01; az+=(f.pz[i]-f.pz[j])/d*s*0.03;
+          }
+        }
+      }
+      // Center pull
+      const tox=fcx-f.px[i],toy=fcy-f.py[i],toz=fcz-f.pz[i];
+      const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
+      if(fd>0.1){const pull=0.00025*fd;ax+=(tox/fd)*pull;ay+=(toy/fd)*pull*0.2;az+=(toz/fd)*pull;}
+      // Wind
+      ax+=Math.sin(t*0.7+f.py[i]*0.1)*0.003;
+      az+=Math.cos(t*0.5+f.px[i]*0.05)*0.003;
+      // Noise
+      ax+=(Math.random()-0.5)*0.006; az+=(Math.random()-0.5)*0.006;
+      // Flatten
+      ay-=f.vy[i]*0.15; ay-=(f.py[i]-fcy)*0.008;
+      
+      f.vx[i]+=ax; f.vy[i]+=ay; f.vz[i]+=az;
+      const spd=Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i]);
+      if(spd>M_MAX_SPEED){const s=M_MAX_SPEED/spd;f.vx[i]*=s;f.vy[i]*=s;f.vz[i]*=s;}
+      else if(spd<M_MIN_SPEED&&spd>0.001){const s=M_MIN_SPEED/spd;f.vx[i]*=s;f.vy[i]*=s;f.vz[i]*=s;}
+      
+      f.px[i]+=f.vx[i]; f.py[i]+=f.vy[i]; f.pz[i]+=f.vz[i];
+    }
+    
+    // Update meshes
+    const cx=f.center.x, cy=f.center.y, cz=f.center.z;
+    for(let i=0;i<N;i++){
+      const m=f.meshes[i];
+      m.position.x=f.px[i]+cx; m.position.y=f.py[i]+cy; m.position.z=f.pz[i]+cz;
+      m.rotation.y=Math.atan2(f.vx[i],f.vz[i]);
+      m.rotation.x=-Math.asin(f.vy[i]/Math.max(0.01,Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i])));
     }
   }
 }
