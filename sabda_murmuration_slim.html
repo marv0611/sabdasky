@@ -780,8 +780,8 @@ saturnLoader1.load(saturnUrl1, gltf => {
 const FLOCK_SIZE = 1500;
 const FLOCK_COUNT = 2;
 const MNC = 7;
-const M_MIN_SPEED = 0.06;
-const M_MAX_SPEED = 0.14;
+const M_MIN_SPEED = 0.07;
+const M_MAX_SPEED = 0.13;
 const M_SEPARATION_R2 = 0.02;  // 0.14^2 — birds can nearly overlap for extreme density
 const M_ALIGNMENT_R2 = 9.0;    // 3.0^2 — tighter neighbor interaction
 
@@ -1097,9 +1097,9 @@ function updateMurmuration(simTime, speedMult) {
         }
         ax += sepX; ay += sepY; az += sepZ;
         const aw = 1.0/nc;
-        ax += (avx*aw - f.vx[i]) * 0.10 * alignScale * resp;
-        ay += (avy*aw - f.vy[i]) * 0.10 * alignScale * resp;
-        az += (avz*aw - f.vz[i]) * 0.10 * alignScale * resp;
+        ax += (avx*aw - f.vx[i]) * 0.07 * alignScale * resp;
+        ay += (avy*aw - f.vy[i]) * 0.07 * alignScale * resp;
+        az += (avz*aw - f.vz[i]) * 0.07 * alignScale * resp;
         
         // ══ LOCAL NEIGHBOR COHESION — pull toward neighbor center, NOT global center ══
         // This means the mass compacts into whatever shape it currently has,
@@ -1108,10 +1108,12 @@ function updateMurmuration(simTime, speedMult) {
         apx *= aw; apy *= aw; apz *= aw; // avg neighbor position (local coords)
         const cohX = apx - f.px[i], cohY = apy - f.py[i], cohZ = apz - f.pz[i];
         const cohD = Math.sqrt(cohX*cohX + cohY*cohY + cohZ*cohZ) + 0.01;
-        const cohStr = f.currentPull * resp * 8.0; // scaled up since this is local not global
-        ax += (cohX/cohD) * cohStr * Math.min(cohD, 3);
-        ay += (cohY/cohD) * cohStr * Math.min(cohD, 3) * 0.2;
-        az += (cohZ/cohD) * cohStr * Math.min(cohD, 3);
+        const cohStr = f.currentPull * resp * 5.0;
+        // Smooth application — stronger when far from neighbors, gentle when close
+        const cohApp = Math.min(cohD * 0.5, 2.0); // caps force at distance
+        ax += (cohX/cohD) * cohStr * cohApp;
+        ay += (cohY/cohD) * cohStr * cohApp * 0.15;
+        az += (cohZ/cohD) * cohStr * cohApp;
       }
       // SOFT GLOBAL ANCHOR — very weak, just prevents infinite drift
       const tox=-f.px[i],toy=-f.py[i],toz=-f.pz[i];
@@ -1126,16 +1128,22 @@ function updateMurmuration(simTime, speedMult) {
         ax += (tox/fd) * leash;
         az += (toz/fd) * leash;
       }
-      // Wind — very gentle
+      // Wind — smooth per-bird flow (NOT random noise — that causes jitter)
       const wPhase = t + fi * 2.0;
       ax+=Math.sin(wPhase*0.7+f.py[i]*0.1)*0.0008;
       az+=Math.cos(wPhase*0.5+f.px[i]*0.05)*0.0008;
-      // Noise — minimal
-      ax+=(Math.random()-0.5)*0.002; az+=(Math.random()-0.5)*0.002;
-      // Flatten — strong vertical compression, disc shape
+      // Smooth per-bird variation — each bird has unique but CONTINUOUS drift
+      // Uses bird index as seed, changes slowly over time. No frame-to-frame randomness.
+      const birdSeed = i * 0.137 + fi * 7.3;
+      ax += Math.sin(simTime*0.4 + birdSeed) * 0.0005;
+      az += Math.cos(simTime*0.35 + birdSeed*1.3) * 0.0005;
+      // Flatten
       ay-=f.vy[i]*0.40; ay-=f.py[i]*0.030;
       
+      // Apply acceleration then DAMP velocity — removes jitter/oscillation
       f.vx[i]+=ax; f.vy[i]+=ay; f.vz[i]+=az;
+      // Velocity damping — smooths out rapid direction changes
+      f.vx[i] *= 0.985; f.vy[i] *= 0.98; f.vz[i] *= 0.985;
       
       // ══ TECHNIQUE #3: Variable speed during turns (StarDisplay/Hildenbrandt) ══
       // Subtle: turning birds slow slightly, straight birds drift faster
