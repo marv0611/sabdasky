@@ -807,8 +807,8 @@ const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.Doubl
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 4.0, driftSpeed: 0.10, eventInterval: [10,22], zone: 'top' },
-  { startAngle: 0.79, y: 4.5, driftSpeed: 0.08, eventInterval: [14,28], zone: 'bottom' },
+  { startAngle: 3.93, y: 7.5, driftSpeed: 0.10, eventInterval: [10,22], zone: 'top' },
+  { startAngle: 0.79, y: 8.0, driftSpeed: 0.08, eventInterval: [14,28], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -831,8 +831,8 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     // Wind-drift system — flock travels with a slowly-turning wind
     windAngle: setup.startAngle,
     windTargetAngle: setup.startAngle,
-    anchorX: Math.sin(setup.startAngle) * 10,
-    anchorZ: Math.cos(setup.startAngle) * 10,
+    anchorX: Math.sin(setup.startAngle) * 35,
+    anchorZ: Math.cos(setup.startAngle) * 35,
     anchorY: setup.y,
     driftSpeed: setup.driftSpeed,
     zone: setup.zone,
@@ -841,6 +841,13 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     pTimer: 0,
     pNext: setup.eventInterval[0] + Math.random()*setup.eventInterval[1],
     breathPhase: Math.random() * Math.PI * 2,
+    // Shape variety — changes with each event
+    shapeAxis: Math.random() * Math.PI * 2,  // angle of preferred extension
+    shapeSqueeze: 0.003,                       // compression strength perpendicular to axis
+    shapeElongate: 0.5,                        // how much longer along axis vs perpendicular (1=circle)
+    targetShapeAxis: Math.random() * Math.PI * 2,
+    targetSqueeze: 0.003,
+    targetElongate: 0.5,
   };
   // Init wave slots
   for(let w=0;w<MAX_WAVES;w++) f.waves.push({active:false, ox:0, oz:0, radius:0, angle:0, strength:1, maxR:M_WAVE_MAX_R});
@@ -863,6 +870,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     f.tx[i] = Math.cos(ta)*tr;
     f.tz[i] = Math.sin(ta)*tr;
     const m = new THREE.Mesh(birdShape, birdMat);
+    m.scale.setScalar(3.0); // compensate for greater distance (35 vs 10 units)
     m.frustumCulled = false;
     contentScene.add(m);
     f.meshes.push(m);
@@ -897,7 +905,7 @@ function updateMurmuration(simTime, speedMult) {
     // ANCHOR & ZONE (keeps flock on assigned walls)
     // ═══════════════════════════════════════════════════════
     f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.001 * sm;
-    f.anchorY = Math.max(3, Math.min(6, f.anchorY));
+    f.anchorY = Math.max(6, Math.min(10, f.anchorY));
     
     const heading = Math.atan2(f.anchorX, f.anchorZ);
     const zoneCenter = f.zone === 'top' ? 3.93 : 0.79;
@@ -908,8 +916,8 @@ function updateMurmuration(simTime, speedMult) {
     
     let needsRedirect = false, redirectAngle = 0;
     if(Math.abs(zoneDiff) > 1.3) { needsRedirect = true; redirectAngle = zoneCenter + (Math.random()-0.5)*0.6; }
-    if(anchorDist > 14) { needsRedirect = true; redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.5; }
-    if(anchorDist < 6) { needsRedirect = true; redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.5; }
+    if(anchorDist > 42) { needsRedirect = true; redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.5; }
+    if(anchorDist < 28) { needsRedirect = true; redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.5; }
     
     // ═══════════════════════════════════════════════════════
     // WAVE PROPAGATION — expand existing waves (Hoetzlein Flock2)
@@ -969,6 +977,14 @@ function updateMurmuration(simTime, speedMult) {
     // Cohesion drifts toward baseline between events
     f.cohesionMult += (1.0 - f.cohesionMult) * 0.003 * sm;
     
+    // Shape smoothly transitions toward target
+    let axisDiff = f.targetShapeAxis - f.shapeAxis;
+    if(axisDiff > 1.57) axisDiff -= 3.14159;
+    if(axisDiff < -1.57) axisDiff += 3.14159;
+    f.shapeAxis += axisDiff * 0.008 * sm;
+    f.shapeSqueeze += (f.targetSqueeze - f.shapeSqueeze) * 0.01 * sm;
+    f.shapeElongate += (f.targetElongate - f.shapeElongate) * 0.01 * sm;
+    
     f.pTimer += sm;
     if(f.pTimer >= f.pNext || needsRedirect) {
       f.pTimer = 0;
@@ -998,8 +1014,11 @@ function updateMurmuration(simTime, speedMult) {
       if(eventType < 0.30) {
         // ── SWEEP WAVE — single edge, wide propagation → ribbon/funnel ──
         _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.5 + Math.random()*0.3, M_WAVE_MAX_R);
-        // Slight cohesion boost during sweep to prevent total scatter
         f.cohesionMult = 1.3 + Math.random()*0.5;
+        // Shape: elongated ribbon along wave direction
+        f.targetShapeAxis = waveAngle;
+        f.targetSqueeze = 0.004 + Math.random()*0.003;
+        f.targetElongate = 0.3 + Math.random()*0.2; // very elongated
         
       } else if(eventType < 0.50) {
         // ── SPLIT — dual opposite edges, opposing angles → fork shape ──
@@ -1008,10 +1027,18 @@ function updateMurmuration(simTime, speedMult) {
         const oppAngle = waveAngle + 3.14159 + (Math.random()-0.5)*0.8;
         _launchWave(f, -f.px[edgeI], -f.pz[edgeI], oppAngle, 0.7, M_WAVE_MAX_R * 0.8);
         f.cohesionMult = 0.7 + Math.random()*0.3;
+        // Shape: wide disc (both axes extend)
+        f.targetShapeAxis = waveAngle + Math.random() * 3.14;
+        f.targetSqueeze = 0.001 + Math.random()*0.001;
+        f.targetElongate = 0.8 + Math.random()*0.2; // nearly circular
         
       } else if(eventType < 0.65) {
         // ── COMPRESSION — moderate cohesion boost → dense ball moment ──
         f.cohesionMult = 1.8 + Math.random()*1.0;
+        // Shape: tight ball — high squeeze, equal axes
+        f.targetShapeAxis = Math.random() * 3.14;
+        f.targetSqueeze = 0.006 + Math.random()*0.004;
+        f.targetElongate = 0.85 + Math.random()*0.15; // nearly spherical
         
       } else if(eventType < 0.80) {
         // ── EXPANSION — moderate cohesion drop + gentle outward nudge ──
@@ -1021,6 +1048,10 @@ function updateMurmuration(simTime, speedMult) {
           f.vx[si] += f.px[si] * spreadStr;
           f.vz[si] += f.pz[si] * spreadStr;
         }
+        // Shape: diffuse cloud — low squeeze, random axis
+        f.targetShapeAxis = Math.random() * 3.14;
+        f.targetSqueeze = 0.001;
+        f.targetElongate = 0.6 + Math.random()*0.4;
         
       } else {
         // ── UNDULATION — 2-3 small rapid waves from same direction → rolling ripple ──
@@ -1035,6 +1066,10 @@ function updateMurmuration(simTime, speedMult) {
           _launchWave(f, ox, oz, subAngle, 0.5 + Math.random()*0.3, M_WAVE_MAX_R * 0.6);
         }
         f.cohesionMult = 1.0;
+        // Shape: narrow ribbon perpendicular to wave direction
+        f.targetShapeAxis = baseAngle + 1.57;
+        f.targetSqueeze = 0.005 + Math.random()*0.003;
+        f.targetElongate = 0.25 + Math.random()*0.15; // very narrow
       }
     }
     
@@ -1152,6 +1187,24 @@ function updateMurmuration(simTime, speedMult) {
           ax += ndx * str;
           az += ndz * str;
         }
+      }
+      
+      // ── SHAPE VARIETY — anisotropic compression creates varied forms ──
+      // Project bird position onto shape axis and perpendicular.
+      // Pull harder on the perpendicular = flock elongates along axis.
+      // shapeElongate controls aspect ratio: 0.2=very long, 1.0=circular
+      {
+        const sa = f.shapeAxis;
+        const cosA = Math.cos(sa), sinA = Math.sin(sa);
+        // Project bird position onto axis (along) and perpendicular
+        const along = f.px[i] * cosA + f.pz[i] * sinA;     // distance along preferred axis
+        const perp  = -f.px[i] * sinA + f.pz[i] * cosA;    // distance perpendicular
+        // Pull perpendicular component harder → flock narrows in that direction
+        const perpPull = perp * f.shapeSqueeze * (1.0 / (f.shapeElongate + 0.1));
+        const alongPull = along * f.shapeSqueeze * f.shapeElongate;
+        // Convert back to XZ
+        ax += (-perpPull * (-sinA) - alongPull * cosA);
+        az += (-perpPull * cosA - alongPull * sinA);
       }
       
       // ── CENTRAL DENSITY — keeps flock visible, denser in middle ──
