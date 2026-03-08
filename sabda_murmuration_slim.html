@@ -797,15 +797,16 @@ birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
 birdShape.computeVertexNormals();
 const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.DoubleSide });
 
-// 2 flocks — between background and midground. Visible but behind scene birds.
-const flockOrbits = [
-  { radius: 18, y: 5, speed: 0.005, offset: 2.44 },
-  { radius: 18, y: 6, speed: 0.004, offset: 5.58 },
+// 2 flocks — different positions, different timing, different behavior.
+// Each flock drifts with a slowly-changing wind direction.
+const flockSetup = [
+  { startAngle: 2.44, y: 5.5, driftSpeed: 0.07, eventInterval: [25,55] },  // faster events
+  { startAngle: 5.58, y: 6.0, driftSpeed: 0.05, eventInterval: [40,70] },  // slower, calmer
 ];
 
 const allFlocks = [];
 for (let fi = 0; fi < FLOCK_COUNT; fi++) {
-  const orb = flockOrbits[fi];
+  const setup = flockSetup[fi];
   const f = {
     px:new Float32Array(FLOCK_SIZE), py:new Float32Array(FLOCK_SIZE), pz:new Float32Array(FLOCK_SIZE),
     vx:new Float32Array(FLOCK_SIZE), vy:new Float32Array(FLOCK_SIZE), vz:new Float32Array(FLOCK_SIZE),
@@ -813,10 +814,17 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     prevHdg: new Float32Array(FLOCK_SIZE),
     waveTime: new Float32Array(FLOCK_SIZE),
     meshes: [],
-    orbit: orb,
-    ctr: new THREE.Object3D(), // moving container
+    // Wind-drift system — flock travels with a slowly-turning wind
+    windAngle: setup.startAngle,       // current wind heading
+    windTargetAngle: setup.startAngle,  // target heading (slowly approached)
+    anchorX: Math.sin(setup.startAngle) * 18,  // current world position
+    anchorZ: Math.cos(setup.startAngle) * 18,
+    anchorY: setup.y,
+    driftSpeed: setup.driftSpeed,
+    eventMin: setup.eventInterval[0],
+    eventMax: setup.eventInterval[1],
     pTimer: 0,
-    pNext: 15 + Math.random()*20,
+    pNext: setup.eventInterval[0] + Math.random()*setup.eventInterval[1],
     breathPhase: Math.random() * Math.PI * 2,
   };
   const d0 = Math.random() * Math.PI * 2;
@@ -852,13 +860,19 @@ function updateMurmuration(simTime, speedMult) {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // ── Orbiting center — midground distance, organic path ──
-    const orb = f.orbit;
-    const orbAngle = t * orb.speed * 10 + orb.offset;
-    const wobbleR = orb.radius + Math.sin(orbAngle * 1.3) * 1.0;
-    const orbY = orb.y + Math.sin(orbAngle * 0.7) * 0.4;
-    const orbX = Math.sin(orbAngle) * wobbleR;
-    const orbZ = Math.cos(orbAngle) * wobbleR;
+    // ── WIND DRIFT — flock travels like dust carried by shifting wind ──
+    let angleDiff = f.windTargetAngle - f.windAngle;
+    if(angleDiff > 3.14) angleDiff -= 6.28;
+    if(angleDiff < -3.14) angleDiff += 6.28;
+    f.windAngle += angleDiff * 0.008 * sm;
+    f.anchorX += Math.sin(f.windAngle) * f.driftSpeed * sm;
+    f.anchorZ += Math.cos(f.windAngle) * f.driftSpeed * sm;
+    f.anchorY += Math.sin(simTime * 0.15 + fi * 3) * 0.003 * sm;
+    const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
+    if(anchorDist > 22) { f.windTargetAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.0; }
+    else if(anchorDist < 14) { f.windTargetAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.0; }
+    f.anchorY = Math.max(4, Math.min(8, f.anchorY));
+    const orbX = f.anchorX, orbY = f.anchorY, orbZ = f.anchorZ;
     
     // Build grid for this flock
     const grid = new Map();
@@ -868,114 +882,84 @@ function updateMurmuration(simTime, speedMult) {
       grid.get(k).push(i);
     }
     
-    // ══ SHAPE TRANSFORMATIONS — unpredictable, creative, magical ══
-    // Each event picks a completely different transformation type.
-    // The strong center pull always brings the mass back together.
+    // ══ WIND EVENTS — travel, compact, stretch, repeat ══
     if(!f.waves) f.waves = [];
-    if(!f.shapeEvent) f.shapeEvent = null;
-    
     f.pTimer += sm;
     if(f.pTimer >= f.pNext){
-      f.pTimer=0;
-      f.pNext = 20 + Math.random()*40;
-      
-      let _fcx=0,_fcy=0,_fcz=0;
-      for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
-      _fcx/=N;_fcy/=N;_fcz/=N;
-      
-      // Pick a random transformation — never the same pattern twice in a row
-      const types = ['spiral','ribbon','split','column','funnel','wave','vortex'];
-      let pick = types[(Math.random()*types.length)|0];
-      if(f.lastShape === pick) pick = types[(Math.random()*types.length)|0];
-      f.lastShape = pick;
-      
-      // Random axis for the transformation
-      const axAngle = Math.random()*6.28;
-      const axX = Math.cos(axAngle), axZ = Math.sin(axAngle);
-      
-      for(let i=0;i<N;i++){
-        const lx=f.px[i]-_fcx, ly=f.py[i]-_fcy, lz=f.pz[i]-_fcz;
-        const d = Math.sqrt(lx*lx+ly*ly+lz*lz)+0.01;
-        const str = 0.015 + Math.random()*0.005; // base impulse strength
-        
-        if(pick==='spiral'){
-          // Rotational impulse — whole mass starts spinning, creates tornado
-          const cross_x = -lz, cross_z = lx; // perpendicular to radius
-          const rotStr = str * 0.8;
-          f.vx[i] += cross_x/d * rotStr;
-          f.vz[i] += cross_z/d * rotStr;
-          f.vy[i] += (Math.random()-0.5)*str*0.3;
+      f.pTimer = 0;
+      f.pNext = f.eventMin + Math.random() * (f.eventMax - f.eventMin);
+      const r = Math.random();
+      if(r < 0.30) {
+        // SHARP WIND SHIFT — whole flock changes direction
+        f.windTargetAngle += (Math.random()-0.5) * 2.5;
+      }
+      else if(r < 0.50) {
+        // GUST — sudden speed burst, compacts after
+        const gustAngle = Math.random() * 6.28;
+        const gustStr = 0.012 + Math.random()*0.008;
+        for(let i=0;i<N;i++){
+          f.vx[i] += Math.sin(gustAngle) * gustStr;
+          f.vz[i] += Math.cos(gustAngle) * gustStr;
         }
-        else if(pick==='ribbon'){
-          // Stretch along random axis — mass elongates into ribbon/band
-          const proj = lx*axX + lz*axZ; // projection onto axis
-          f.vx[i] += axX * proj * str * 0.1;
-          f.vz[i] += axZ * proj * str * 0.1;
+      }
+      else if(r < 0.65) {
+        // COMPRESSION — sharp inward pull, dense dark ball
+        let _fcx=0,_fcy=0,_fcz=0;
+        for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
+        _fcx/=N;_fcy/=N;_fcz/=N;
+        for(let i=0;i<N;i++){
+          const dx=_fcx-f.px[i], dz=_fcz-f.pz[i];
+          const d=Math.sqrt(dx*dx+dz*dz)+0.01;
+          f.vx[i] += dx/d * 0.018;
+          f.vz[i] += dz/d * 0.018;
         }
-        else if(pick==='split'){
-          // Two halves pushed apart — mass splits then reforms
-          const side = (lx*axX + lz*axZ) > 0 ? 1 : -1;
-          f.vx[i] += axX * side * str * 0.6;
-          f.vz[i] += axZ * side * str * 0.6;
+      }
+      else if(r < 0.82) {
+        // RIBBON — stretch in travel direction
+        let _fcx=0,_fcz=0;
+        for(let i=0;i<N;i++){_fcx+=f.px[i];_fcz+=f.pz[i];}
+        _fcx/=N;_fcz/=N;
+        const sx=Math.sin(f.windAngle), sz=Math.cos(f.windAngle);
+        for(let i=0;i<N;i++){
+          const proj=(f.px[i]-_fcx)*sx+(f.pz[i]-_fcz)*sz;
+          f.vx[i]+=sx*proj*0.008; f.vz[i]+=sz*proj*0.008;
         }
-        else if(pick==='column'){
-          // Compress horizontal, stretch vertical — pillar shape
-          f.vx[i] -= lx/d * str * 0.3;
-          f.vz[i] -= lz/d * str * 0.3;
-          f.vy[i] += (ly > 0 ? 1 : -1) * str * 0.5;
+      }
+      else {
+        // PROPAGATING WAVE
+        let _fcx=0,_fcy=0,_fcz=0;
+        for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
+        _fcx/=N;_fcy/=N;_fcz/=N;
+        let best=0,bestD=0;
+        for(let s=0;s<40;s++){
+          const i=(Math.random()*N)|0;
+          const dx=f.px[i]-_fcx,dz=f.pz[i]-_fcz;
+          if(dx*dx+dz*dz>bestD){bestD=dx*dx+dz*dz;best=i;}
         }
-        else if(pick==='funnel'){
-          // Edge birds sweep one direction, center stays — funnel/tornado shape
-          const edgeness = Math.min(d/4, 1);
-          f.vx[i] += axX * str * edgeness * 1.2;
-          f.vz[i] += axZ * str * edgeness * 1.2;
-          f.vy[i] -= str * (1-edgeness) * 0.3;
-        }
-        else if(pick==='vortex'){
-          // Center speeds up, edges slow — creates dense bright core
-          const coreness = Math.max(0, 1 - d/5);
-          const sp = Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i])+0.01;
-          f.vx[i] *= 1 + coreness * 0.5;
-          f.vz[i] *= 1 + coreness * 0.5;
-          // Edges get rotational push
-          if(d > 3){
-            f.vx[i] += (-lz/d) * str * 0.5;
-            f.vz[i] += (lx/d) * str * 0.5;
-          }
-        }
-        else { // wave — classic edge perturbation
-          // Find edge bird, propagating wave
-          if(i===0){
-            let best=0,bestD2=0;
-            for(let s=0;s<40;s++){const j=(Math.random()*N)|0;const dx2=f.px[j]-_fcx,dz2=f.pz[j]-_fcz;if(dx2*dx2+dz2*dz2>bestD2){bestD2=dx2*dx2+dz2*dz2;best=j;}}
-            f.waves = [{ox:f.px[best],oy:f.py[best],oz:f.pz[best],turn:(Math.random()-0.5)*2.5,radius:4+Math.random()*5,speed:0.25+Math.random()*0.2,frame:0}];
-          }
-        }
-        f.delayFrames[i] = 3 + (Math.random()*8)|0;
+        f.waves.push({ox:f.px[best],oy:f.py[best],oz:f.pz[best],
+          turn:(Math.random()-0.5)*2.0,radius:3+Math.random()*4,
+          speed:0.2+Math.random()*0.2,frame:0});
       }
     }
-    
-    // Advance classic waves (if any active)
-    for(let w=f.waves.length-1; w>=0; w--){
-      const wave = f.waves[w];
-      wave.frame += sm;
-      const wfR = wave.frame * wave.speed;
-      if(wfR > wave.radius * 2.5){ f.waves.splice(w,1); continue; }
+    // Advance propagating waves
+    for(let w=f.waves.length-1;w>=0;w--){
+      const wave=f.waves[w]; wave.frame+=sm;
+      const wfR=wave.frame*wave.speed;
+      if(wfR>wave.radius*2.5){f.waves.splice(w,1);continue;}
       for(let i=0;i<N;i++){
-        const dx=f.px[i]-wave.ox, dy=f.py[i]-wave.oy, dz=f.pz[i]-wave.oz;
+        const dx=f.px[i]-wave.ox,dy=f.py[i]-wave.oy,dz=f.pz[i]-wave.oz;
         const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-        if(d < wfR && d > wfR - wave.speed*2.5 && d < wave.radius){
-          const falloff = 1-(d/wave.radius);
+        if(d<wfR&&d>wfR-wave.speed*2.5&&d<wave.radius){
+          const ff=1-(d/wave.radius);
           const ca=Math.atan2(f.vz[i],f.vx[i]);
-          const na=ca+wave.turn*falloff*falloff;
+          const na=ca+wave.turn*ff*ff;
           const sp=Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]);
-          f.vx[i]=Math.cos(na)*sp; f.vz[i]=Math.sin(na)*sp;
-          f.delayFrames[i] = 3 + (Math.random()*6)|0;
+          f.vx[i]=Math.cos(na)*sp;f.vz[i]=Math.sin(na)*sp;
+          f.delayFrames[i]=3+(Math.random()*6)|0;
         }
       }
     }
-    
-    // Flock center
+        // Flock center
     let fcx=0,fcy=0,fcz=0;
     for(let i=0;i<N;i++){fcx+=f.px[i];fcy+=f.py[i];fcz+=f.pz[i];}
     fcx/=N;fcy/=N;fcz/=N;
