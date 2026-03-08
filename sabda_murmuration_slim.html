@@ -804,8 +804,8 @@ const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.Doubl
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 5.5, driftSpeed: 0.06, eventInterval: [12,28], zone: 'top' },
-  { startAngle: 0.79, y: 6.0, driftSpeed: 0.04, eventInterval: [18,35], zone: 'bottom' },
+  { startAngle: 3.93, y: 5.5, driftSpeed: 0.03, eventInterval: [12,28], zone: 'top' },
+  { startAngle: 0.79, y: 6.0, driftSpeed: 0.02, eventInterval: [18,35], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -870,31 +870,48 @@ function updateMurmuration(simTime, speedMult) {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // ── WIND DRIFT — flock travels like dust carried by shifting wind ──
+    // ── WIND DRIFT — gentle travel within zone ──
     let angleDiff = f.windTargetAngle - f.windAngle;
     if(angleDiff > 3.14) angleDiff -= 6.28;
     if(angleDiff < -3.14) angleDiff += 6.28;
-    f.windAngle += angleDiff * 0.008 * sm;
+    f.windAngle += angleDiff * 0.02 * sm; // FAST turn response
     f.anchorX += Math.sin(f.windAngle) * f.driftSpeed * sm;
     f.anchorZ += Math.cos(f.windAngle) * f.driftSpeed * sm;
-    f.anchorY += Math.sin(simTime * 0.15 + fi * 3) * 0.003 * sm;
+    f.anchorY += Math.sin(simTime * 0.15 + fi * 3) * 0.002 * sm;
     const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
     
-    // Keep in radius ring 14-22
-    if(anchorDist > 22) { f.windTargetAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.8; }
-    else if(anchorDist < 14) { f.windTargetAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.8; }
+    // Keep in radius ring 14-22 — hard position clamp if way out
+    if(anchorDist > 22) {
+      const scale = 21 / anchorDist;
+      f.anchorX *= scale; f.anchorZ *= scale; // snap back immediately
+      f.windTargetAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.6;
+      f.windAngle = f.windTargetAngle; // instant turn
+    } else if(anchorDist < 14) {
+      const scale = 15 / anchorDist;
+      f.anchorX *= scale; f.anchorZ *= scale;
+      f.windTargetAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.6;
+      f.windAngle = f.windTargetAngle;
+    }
     
-    // ZONE ENFORCEMENT — each flock stays on its own 2-wall strip
-    // Top strip = Left+Front walls → zone center at 225° (heading 3.93)
-    // Bottom strip = Right+Back walls → zone center at 45° (heading 0.79)
+    // ZONE ENFORCEMENT — HARD. Each flock stays on its own 2-wall strip.
     const heading = Math.atan2(f.anchorX, f.anchorZ);
-    const zoneCenter = f.zone === 'top' ? 3.93 : 0.79; // 225° or 45°
+    const zoneCenter = f.zone === 'top' ? 3.93 : 0.79;
     let zoneDiff = heading - zoneCenter;
     if(zoneDiff > 3.14) zoneDiff -= 6.28;
     if(zoneDiff < -3.14) zoneDiff += 6.28;
-    if(Math.abs(zoneDiff) > 1.3) { // more than ~75° from zone center → redirect
-      const backAngle = zoneCenter + (Math.random()-0.5)*1.0;
+    if(Math.abs(zoneDiff) > 1.0) { // 57° — tighter zone
+      // Force anchor back toward zone center
+      const backAngle = zoneCenter + (Math.random()-0.5)*0.8;
       f.windTargetAngle = backAngle;
+      f.windAngle += (backAngle - f.windAngle) * 0.15; // fast correction
+      // If really far out, teleport anchor back
+      if(Math.abs(zoneDiff) > 1.5) {
+        const newAngle = zoneCenter + (Math.random()-0.5)*0.6;
+        f.anchorX = Math.sin(newAngle) * 18;
+        f.anchorZ = Math.cos(newAngle) * 18;
+        f.windAngle = newAngle;
+        f.windTargetAngle = newAngle + (Math.random()-0.5)*0.4;
+      }
     }
     
     f.anchorY = Math.max(4, Math.min(8, f.anchorY));
@@ -926,18 +943,21 @@ function updateMurmuration(simTime, speedMult) {
       _fcx/=N;_fcy/=N;_fcz/=N;
       
       const r = Math.random();
+      // Zone center for clamping event directions
+      const zc = f.zone === 'top' ? 3.93 : 0.79;
       if(r < 0.18) {
-        // WIND SHIFT + slight stretch
-        f.windTargetAngle += (Math.random()-0.5) * 2.0;
-        f.currentPull = 0.0015 + Math.random()*0.0008; // loosens briefly but still cohesive
+        // WIND SHIFT — stays within zone
+        f.windTargetAngle = zc + (Math.random()-0.5) * 1.6; // wander within zone
+        f.currentPull = 0.0015 + Math.random()*0.0008;
       }
       else if(r < 0.30) {
-        // GUST — brief directional push
+        // GUST — brief push toward zone center area
+        const gustAngle = zc + (Math.random()-0.5) * 1.0;
         const gustStr = 0.006 + Math.random()*0.006;
         for(let i=0;i<N;i++){
           const r2 = f.responsiveness[i];
-          f.vx[i] += Math.sin(f.windAngle) * gustStr * r2;
-          f.vz[i] += Math.cos(f.windAngle) * gustStr * r2;
+          f.vx[i] += Math.sin(gustAngle) * gustStr * r2;
+          f.vz[i] += Math.cos(gustAngle) * gustStr * r2;
         }
         f.currentPull = 0.0014 + Math.random()*0.0006;
       }
