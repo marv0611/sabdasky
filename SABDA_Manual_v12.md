@@ -1520,6 +1520,7 @@ HAP Q uses GPU-accelerated decompression but produces much larger files (~10×).
 
 | **v11.5** | **Shooting star dome-following with Rodrigues rotation, 50/50 size mix (12-115 degree arc wall-crossers), bird physics overhaul (dt-scaled turns, hard teleport boundary, model flip by distance, organic flapping with sinusoidal modulation), projection optimization shader pipeline (S-curve contrast 80%, saturation boost 28%, black floor lift, highlight ceiling, edge softening), timelapse test mode (T key, 30x), 30-minute loop fade transition for birds, lighting adjustments for projector environments** |
 | **v12** | **Murmuration system: starling flock simulation with direct acceleration physics, zero-allocation hot loop, 7-neighbor topological interactions, edge perturbation wave propagation, free density variation (no equilibrium spring), SABDA scene integration with anchor-based positioning. Section 28 added to manual.** |
+| **v12.2** | **Murmuration v16: dramatic asymmetric breathing (near-zero expansion pull, 3.5× compression pull), dual-edge perturbation for fork/split shapes, speed increase to 0.12-0.30, alignment reduced to 0.05, quadratic containment pushed to 28 units. Lessons 119-121 added.** |
 ---
 
 ## 20. Lessons Learned Log (v8 + v9 + v10 + v11 + v12 Additions)
@@ -1711,6 +1712,12 @@ Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49,
 117. **(v12.1 — Murmuration) "Laggy" means architectural problem, not parameter problem.** Laggy = garbage collection stalls (allocation in hot loop) or inertia blending (smoothing layer). "Stuck together" = equilibrium spring or dominant alignment or strong center pull. Never try to fix these by tweaking numbers — the architecture must change.
 
 118. **(v12.1 — Murmuration) Test at SABDA scene scale immediately.** The standalone test (camera follows flock at 40 units) looks completely different from the SABDA scene (flock at 20-35 units from fixed origin camera). Bird mesh size, speed, spread radius, anchor strength all need different values. Integrate after first working standalone, not after hours of standalone tuning.
+
+119. **(v12.2 — Murmuration) Breathing rhythm must be ASYMMETRIC with near-zero expansion pull.** A symmetric sine wave oscillating pull ±50% is invisible. Real compress→stretch→compress requires: compress phase = strong pull (3-4× base), expand phase = nearly free (5% of base). The asymmetry creates dramatic density variation because during expansion birds fly freely and spread, then get yanked back during compression.
+
+120. **(v12.2 — Murmuration) Dual-edge perturbation creates fork/split shapes.** Instead of always perturbing one edge, occasionally (20%) fire from both opposite edges with opposing turn angles. This creates the dramatic fork/split/ribbon shapes seen in real murmurations where the flock tears apart momentarily then reconnects. The opposing bird is found by reflecting the primary edge bird through the centroid.
+
+121. **(v12.2 — Murmuration) Bird speed must scale with scene — SABDA birds were 2.5× too slow.** Standalone used speeds 0.2-0.5 producing dramatic stretching. SABDA initially used 0.08-0.20 — birds lacked momentum to stretch against even weak anchor pull. Increased to 0.12-0.30. Faster birds + weaker pull during expansion = actual visible breathing.
 
 
 ## 21. Content Calendar
@@ -2162,7 +2169,7 @@ No changes to render.js needed — just update the HTML filename it opens.
 
 Starling murmuration flocks integrated into the SABDA 360° scene. Each flock is a group of individual `THREE.Mesh` birds running a boids-style simulation with topological 7-nearest-neighbor interactions. The visual target is the dense, shape-shifting cloud seen in real starling murmurations — not scattered dots.
 
-**Current state:** v15 direct acceleration model, 2 flocks × 300 birds, anchored to front-hemisphere sky positions. Standalone test file: `murmuration_standalone.html`. Integrated scene: `sabda_murmuration_slim.html` assembled via `assemble_murmuration.py`.
+**Current state:** v16 direct acceleration model with dramatic asymmetric breathing, dual-edge perturbations, 2 flocks × 600 birds, speeds 0.12-0.30, anchored to front-hemisphere sky positions. Standalone test file: `murmuration_standalone.html`. Integrated scene: `sabda_murmuration_slim.html` assembled via `assemble_murmuration.py`.
 
 ---
 
@@ -2358,12 +2365,13 @@ Study these before any murmuration work:
 
 ### 28.12 Next Steps
 
-- [ ] Tune density spread to match reference video — more dramatic perturbations, weaker anchor
+- [x] Tune density spread to match reference video — dramatic perturbations, asymmetric breathing, dual-edge splits (v16)
+- [x] Enhance breathing rhythm — asymmetric compress/expand with near-zero expansion pull (v16)
 - [ ] Replace triangle mesh with stylized 3D starling model
 - [ ] Test 500+ birds per flock with current optimizations — may need WebWorker for sim
-- [ ] Enhance breathing rhythm — possibly periodic global oscillation
 - [ ] Visual harmony with existing SABDA scene birds (old wing-flapping ones)
 - [ ] Consider 2D canvas particle overlay for ultra-dense distant flocks (10,000+ particles as dark pixels on a texture plane)
+- [ ] Verify v16 tuning in SABDA scene — check spread, breathing visible from fixed camera
 
 ---
 
