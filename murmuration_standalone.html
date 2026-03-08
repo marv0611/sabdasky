@@ -16,13 +16,13 @@
 
 const N = 512;
 const NC = 7;
-const V0 = 0.18;
+const V0 = 0.25;          // faster — birds cover more ground
 
 // Force weights
-const W_ALIGN = 8;       // match neighbor direction — THE main force
-const W_REPEL = 3;       // collision avoidance only — very short range
-const REPEL_DIST = 0.6;  // only repel within this distance
-const W_CENTER = 0.3;    // hold mass together
+const W_ALIGN = 4;        // halved — allows directional diversity
+const W_REPEL = 3;        // collision avoidance
+const REPEL_DIST = 0.6;
+const W_CENTER = 0.04;    // 7x weaker — flock can spread WIDE before reconverging
 const W_NOISE = 1.5;     // organic variation
 
 const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
@@ -30,11 +30,11 @@ const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(
 
 const d0 = Math.random() * Math.PI * 2;
 for (let i = 0; i < N; i++) {
-  // Start spread out — let the sim find natural density
+  // Start spread out wide
   const a = Math.random() * Math.PI * 2;
-  const r = Math.sqrt(Math.random()) * 15;
+  const r = Math.sqrt(Math.random()) * 25;
   px[i] = Math.cos(a) * r;
-  py[i] = (Math.random() - 0.5) * 4;
+  py[i] = (Math.random() - 0.5) * 5;
   pz[i] = Math.sin(a) * r;
   // All same direction with slight variation
   const va = d0 + (Math.random()-0.5)*0.3;
@@ -44,7 +44,7 @@ for (let i = 0; i < N; i++) {
 }
 
 // Spatial grid
-const GS = 4;
+const GS = 6;
 const grid = new Map();
 function buildGrid() {
   grid.clear();
@@ -92,9 +92,9 @@ function perturbEdge() {
     if(dx*dx+dz*dz>bestD){bestD=dx*dx+dz*dz;best=i;}
   }
   
-  // Big turn at edge — this stretches the flock as the wave propagates
-  const turnAngle = (Math.random()-0.5) * 2.0; // up to ±57 degrees!
-  const patchRadius = 2 + Math.random() * 3;
+  // Massive turn at edge — this is what stretches the flock apart
+  const turnAngle = (Math.random()-0.5) * 3.0; // up to ±86 degrees!
+  const patchRadius = 4 + Math.random() * 6; // bigger patches
   
   for(let i=0;i<N;i++){
     const dx=px[i]-px[best],dy=py[i]-py[best],dz=pz[i]-pz[best];
@@ -117,7 +117,7 @@ function update() {
   if(perturbTimer>=nextPerturb){
     perturbEdge();
     perturbTimer=0;
-    nextPerturb = 30 + Math.random()*60; // frequent: every 0.5-1.5s
+    nextPerturb = 20 + Math.random()*40; // very frequent: every 0.3-1s
   }
   
   let fcx=0,fcy=0,fcz=0;
@@ -251,7 +251,7 @@ function animate(){
   camCx+=(cx-camCx)*0.03;camCy+=(cy-camCy)*0.03;camCz+=(cz-camCz)*0.03;
   
   const ct=performance.now()*0.00001;
-  camera.position.set(camCx+Math.sin(ct)*45,camCy+6,camCz+Math.cos(ct)*45);
+  camera.position.set(camCx+Math.sin(ct)*80,camCy+10,camCz+Math.cos(ct)*80);
   camera.lookAt(camCx,camCy,camCz);
   
   renderer.render(scene,camera);
