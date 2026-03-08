@@ -1110,18 +1110,20 @@ function updateMurmuration(simTime, speedMult) {
           }
         }
       }
-      // CENTROID COHESION — pull toward flock center (computed once above the bird loop)
-      // This is the MAIN density force. Strong and simple.
-      const tox=fcx-f.px[i], toy=fcy-f.py[i], toz=fcz-f.pz[i];
+      // ANCHOR PULL — toward local origin (0,0,0) = the orbit anchor point
+      // This BOTH keeps birds near the anchor AND clusters them (all pull to same point).
+      // Centroid pull was wrong: it kept birds near EACH OTHER but the whole 
+      // cluster drifted away at min speed, leaving the anchor behind.
+      const tox=-f.px[i], toy=-f.py[i], toz=-f.pz[i];
       const fd=Math.sqrt(tox*tox+toy*toy+toz*toz)+0.01;
       const pullStr = f.currentPull * resp;
       ax += (tox/fd) * pullStr * fd;  // proportional to distance
       ay += (toy/fd) * pullStr * fd * 0.15;
       az += (toz/fd) * pullStr * fd;
-      // HARD LEASH at 5 units
-      if(fd > 5){
-        ax += (tox/fd) * (fd-5) * 0.08;
-        az += (toz/fd) * (fd-5) * 0.08;
+      // HARD LEASH at 4 units from anchor
+      if(fd > 4){
+        ax += (tox/fd) * (fd-4) * 0.10;
+        az += (toz/fd) * (fd-4) * 0.10;
       }
       // Smooth per-bird drift — no randomness, continuous curves
       const birdSeed = i * 0.137 + fi * 7.3;
