@@ -781,9 +781,12 @@ const FLOCK_SIZE = 1500;
 const FLOCK_COUNT = 2;
 const MNC = 7;
 const M_MIN_SPEED = 0.05;
-const M_MAX_SPEED = 0.14;
-const M_SEPARATION_R2 = 0.02;  // 0.14^2 — birds can nearly overlap for extreme density
-const M_ALIGNMENT_R2 = 9.0;    // 3.0^2 — tighter neighbor interaction
+const M_MAX_SPEED = 0.15;
+const M_SEP_DIST = 0.35;       // Ballerini: exclusion zone ≈ wingspan. Smooth cosine falloff below this.
+const M_SEP_R2 = M_SEP_DIST*M_SEP_DIST;
+const M_WAVE_SPEED = 0.6;      // Wave front expansion: units per frame (Hoetzlein Flock2)
+const M_WAVE_MAX_R = 12;       // Wave dies at this radius
+const MAX_WAVES = 4;           // Concurrent waves per flock
 
 // Bird = tiny but bird-shaped. Slightly elongated body with small swept wings.
 // NOT a geometric dot (fake), NOT a long triangle (line artifact).
@@ -816,26 +819,31 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     vx:new Float32Array(FLOCK_SIZE), vy:new Float32Array(FLOCK_SIZE), vz:new Float32Array(FLOCK_SIZE),
     // Per-bird TARGET — each bird pulls toward its own unique point
     tx:new Float32Array(FLOCK_SIZE), tz:new Float32Array(FLOCK_SIZE),
-    delayFrames: new Uint8Array(FLOCK_SIZE),
+    delayFrames: new Uint16Array(FLOCK_SIZE),  // frames remaining of alignment resistance after wave hit
     prevHdg: new Float32Array(FLOCK_SIZE),
     waveTime: new Float32Array(FLOCK_SIZE),
     speedMult: new Float32Array(FLOCK_SIZE),
     responsiveness: new Float32Array(FLOCK_SIZE),
+    waveHitId: new Int8Array(FLOCK_SIZE),      // which wave last hit this bird (-1 = none)
     meshes: [],
+    // Wave propagation system — each wave is an expanding ring from an edge bird
+    waves: [],
     // Wind-drift system — flock travels with a slowly-turning wind
-    windAngle: setup.startAngle,       // current wind heading
-    windTargetAngle: setup.startAngle,  // target heading (slowly approached)
-    anchorX: Math.sin(setup.startAngle) * 10,  // current world position
+    windAngle: setup.startAngle,
+    windTargetAngle: setup.startAngle,
+    anchorX: Math.sin(setup.startAngle) * 10,
     anchorZ: Math.cos(setup.startAngle) * 10,
     anchorY: setup.y,
     driftSpeed: setup.driftSpeed,
-    zone: setup.zone,  // 'top' = Left+Front walls, 'bottom' = Right+Back walls
+    zone: setup.zone,
     eventMin: setup.eventInterval[0],
     eventMax: setup.eventInterval[1],
     pTimer: 0,
     pNext: setup.eventInterval[0] + Math.random()*setup.eventInterval[1],
     breathPhase: Math.random() * Math.PI * 2,
   };
+  // Init wave slots
+  for(let w=0;w<MAX_WAVES;w++) f.waves.push({active:false, ox:0, oz:0, radius:0, angle:0, strength:1, maxR:M_WAVE_MAX_R});
   const d0 = Math.random() * Math.PI * 2;
   for (let i = 0; i < FLOCK_SIZE; i++) {
     const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*1.5;
@@ -847,6 +855,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     f.prevHdg[i] = va;
     f.delayFrames[i] = 0;
     f.waveTime[i] = 999;
+    f.waveHitId[i] = -1;
     f.speedMult[i] = 0.7 + Math.random()*0.6;       // 0.7-1.3
     f.responsiveness[i] = 0.6 + Math.random()*0.8;   // 0.6-1.4
     // Start targets as tight cluster
@@ -860,7 +869,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
   }
   allFlocks.push(f);
 }
-console.log('SABDA: Murmuration v17 —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, '=', FLOCK_COUNT*FLOCK_SIZE, 'birds (5 behavioral upgrades)');
+console.log('SABDA: Murmuration v26 —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, '=', FLOCK_COUNT*FLOCK_SIZE, 'birds (wave propagation + Ballerini physics)');
 
 // Shared pre-allocated buffers
 const _mNearby = new Int32Array(768);
@@ -869,17 +878,14 @@ const MGS = 3;
 
 function updateMurmuration(simTime, speedMult) {
   const sm = speedMult || 1;
-  const t = simTime * 0.3;
   
   for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // Flock is SELF-DIRECTED — no external anchor movement.
-    // Position tracked via re-centering (after bird loop).
-    // Direction changes via nudges (in event system).
-    
-    // Build grid for this flock
+    // ═══════════════════════════════════════════════════════
+    // SPATIAL HASH GRID (rebuilt once per frame — acceptable)
+    // ═══════════════════════════════════════════════════════
     const grid = new Map();
     for(let i=0;i<N;i++){
       const k=((f.px[i]/MGS)|0)+','+((f.py[i]/MGS)|0)+','+((f.pz[i]/MGS)|0);
@@ -887,19 +893,12 @@ function updateMurmuration(simTime, speedMult) {
       grid.get(k).push(i);
     }
     
-    // ══ SHAPE EVENTS — dense ball is HOME. Events create brief shape moments. ══
-    // Default pull is VERY strong. Mass always wants to be a tight ball.
-    // Events push birds outward into shapes, but strong pull snaps them back.
-    if(!f.currentPull) f.currentPull = 0.0030;
-    // Pull always climbs toward 0.0040 — dense is always where it wants to be
-    f.currentPull = Math.min(0.0040, f.currentPull + 0.00005 * sm);
-    
-    // ── NO ANCHOR DRIFT — flock moves itself through alignment ──
-    // Anchor position is ONLY updated by re-centering (flock's own drift).
-    // Zone enforcement steers the flock by nudging edge birds.
+    // ═══════════════════════════════════════════════════════
+    // ANCHOR & ZONE (keeps flock on assigned walls)
+    // ═══════════════════════════════════════════════════════
     f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.001 * sm;
+    f.anchorY = Math.max(3, Math.min(6, f.anchorY));
     
-    // ZONE ENFORCEMENT — steer the flock by nudging birds on the leading edge
     const heading = Math.atan2(f.anchorX, f.anchorZ);
     const zoneCenter = f.zone === 'top' ? 3.93 : 0.79;
     let zoneDiff = heading - zoneCenter;
@@ -907,83 +906,150 @@ function updateMurmuration(simTime, speedMult) {
     if(zoneDiff < -3.14) zoneDiff += 6.28;
     const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
     
-    // If flock has drifted out of zone or radius, nudge birds to turn
-    let needsRedirect = false;
-    let redirectAngle = 0;
-    if(Math.abs(zoneDiff) > 1.3) {
-      needsRedirect = true;
-      redirectAngle = zoneCenter + (Math.random()-0.5)*0.6;
-    }
-    if(anchorDist > 14) {
-      needsRedirect = true;
-      redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.5;
-    }
-    if(anchorDist < 6) {
-      needsRedirect = true;
-      redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.5;
+    let needsRedirect = false, redirectAngle = 0;
+    if(Math.abs(zoneDiff) > 1.3) { needsRedirect = true; redirectAngle = zoneCenter + (Math.random()-0.5)*0.6; }
+    if(anchorDist > 14) { needsRedirect = true; redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.5; }
+    if(anchorDist < 6) { needsRedirect = true; redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.5; }
+    
+    // ═══════════════════════════════════════════════════════
+    // WAVE PROPAGATION — expand existing waves (Hoetzlein Flock2)
+    // Each wave is an expanding ring from an edge bird.
+    // Birds are only affected when the wave front passes through them.
+    // This creates visible dark ripples = the defining feature of murmurations.
+    // ═══════════════════════════════════════════════════════
+    for(let w=0;w<MAX_WAVES;w++){
+      const wv = f.waves[w];
+      if(!wv.active) continue;
+      wv.radius += M_WAVE_SPEED * sm;
+      if(wv.radius > wv.maxR) { wv.active = false; continue; }
+      // Find birds the wave front just reached (ring between prev radius and new radius)
+      const rOuter = wv.radius;
+      const rInner = rOuter - M_WAVE_SPEED * sm * 1.5; // slightly thick ring for smoothness
+      const rO2 = rOuter * rOuter, rI2 = rInner > 0 ? rInner*rInner : 0;
+      for(let i=0;i<N;i++){
+        if(f.waveHitId[i] === w) continue; // already hit by this wave
+        const dx = f.px[i] - wv.ox, dz = f.pz[i] - wv.oz;
+        const d2 = dx*dx + dz*dz;
+        if(d2 >= rI2 && d2 < rO2) {
+          // Wave reaches this bird! Rotate velocity toward wave angle.
+          // Strength falls off with distance from origin (quadratic falloff)
+          const distFrac = Math.sqrt(d2) / wv.maxR;
+          const wavePower = wv.strength * (1 - distFrac) * (1 - distFrac);
+          if(wavePower < 0.05) continue; // too weak
+          
+          const bHdg = Math.atan2(f.vx[i], f.vz[i]);
+          let diff = wv.angle - bHdg;
+          if(diff > 3.14159) diff -= 6.28318;
+          if(diff < -3.14159) diff += 6.28318;
+          // DIRECT velocity rotation — not a force addition (lesson 116)
+          const turnAmt = diff * wavePower * 0.6 * f.responsiveness[i];
+          const cs = Math.cos(turnAmt), sn = Math.sin(turnAmt);
+          const ov = f.vx[i], oz = f.vz[i];
+          f.vx[i] = ov*cs + oz*sn;
+          f.vz[i] = -ov*sn + oz*cs;
+          
+          f.waveHitId[i] = w;
+          // Response delay: bird RESISTS alignment for 10-25 frames (lesson 123)
+          // During delay, bird flies its new direction while neighbors haven't responded
+          // This temporal gap IS the visible wave front
+          f.delayFrames[i] = 10 + ((Math.random() * 15)|0);
+        }
+      }
     }
     
-    f.anchorY = Math.max(3, Math.min(6, f.anchorY));
-
-    // ── EVENTS — direction changes + density pulsing ──
+    // Tick down delay frames
+    for(let i=0;i<N;i++) if(f.delayFrames[i] > 0) f.delayFrames[i]--;
+    
+    // ═══════════════════════════════════════════════════════
+    // EVENT SYSTEM — varied choreography via wave launches
+    // Events fire waves from edge birds. Different event types create
+    // different shapes: sweep, split, compression, undulation.
+    // ═══════════════════════════════════════════════════════
     if(!f.cohesionMult) f.cohesionMult = 1.0;
-    // Between events, cohesion SLOWLY drifts back toward normal (1.2)
-    // Slow drift = birds take TIME to return = layered organic return
-    f.cohesionMult += (1.2 - f.cohesionMult) * 0.002 * sm;
+    // Cohesion drifts toward baseline between events
+    f.cohesionMult += (1.0 - f.cohesionMult) * 0.003 * sm;
     
     f.pTimer += sm;
-    if(f.pTimer >= f.pNext || needsRedirect){
+    if(f.pTimer >= f.pNext || needsRedirect) {
       f.pTimer = 0;
       f.pNext = f.eventMin + Math.random() * (f.eventMax - f.eventMin);
       
       const zc = f.zone === 'top' ? 3.93 : 0.79;
-      let newDir;
-      if(needsRedirect) {
-        newDir = redirectAngle;
-      } else {
-        newDir = zc + (Math.random()-0.5)*2.5;
+      
+      // Find edge bird — furthest from centroid, sampled from 50 candidates
+      let edgeI = 0, edgeD2 = 0;
+      for(let s=0;s<50;s++){
+        const ci = (Math.random()*N)|0;
+        const dd = f.px[ci]*f.px[ci] + f.pz[ci]*f.pz[ci];
+        if(dd > edgeD2) { edgeD2 = dd; edgeI = ci; }
       }
       
-      // Vary cohesion: some events CRUSH tight, some RELEASE
+      // Choose wave angle
+      let waveAngle;
+      if(needsRedirect) {
+        waveAngle = redirectAngle;
+      } else {
+        waveAngle = zc + (Math.random()-0.5)*2.5;
+      }
+      
+      // Pick event type
       const eventType = Math.random();
+      
       if(eventType < 0.30) {
-        f.cohesionMult = 3.0 + Math.random()*2.0; // CRUSH — extreme compaction
-      } else if(eventType < 0.55) {
-        f.cohesionMult = 0.1 + Math.random()*0.2; // RELEASE — birds scatter wide
-        // Give birds a speed burst outward during release — they SPREAD
+        // ── SWEEP WAVE — single edge, wide propagation → ribbon/funnel ──
+        _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.8 + Math.random()*0.4, M_WAVE_MAX_R);
+        // Slight cohesion boost during sweep to prevent total scatter
+        f.cohesionMult = 1.3 + Math.random()*0.5;
+        
+      } else if(eventType < 0.50) {
+        // ── SPLIT — dual opposite edges, opposing angles → fork shape ──
+        _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.7, M_WAVE_MAX_R * 0.8);
+        // Opposing bird: reflect through centroid
+        const oppAngle = waveAngle + 3.14159 + (Math.random()-0.5)*0.8;
+        _launchWave(f, -f.px[edgeI], -f.pz[edgeI], oppAngle, 0.7, M_WAVE_MAX_R * 0.8);
+        f.cohesionMult = 0.7 + Math.random()*0.3;
+        
+      } else if(eventType < 0.65) {
+        // ── COMPRESSION — boost cohesion, no wave → dense ball moment ──
+        f.cohesionMult = 2.5 + Math.random()*2.0;
+        
+      } else if(eventType < 0.80) {
+        // ── EXPANSION — drop cohesion, speed burst outward → cloud/scatter ──
+        f.cohesionMult = 0.15 + Math.random()*0.15;
         for(let si=0;si<N;si++){
-          const spreadStr = (0.003 + Math.random()*0.004) * f.responsiveness[si];
-          f.vx[si] += f.px[si] * spreadStr; // push outward from center
+          const spreadStr = (0.002 + Math.random()*0.003) * f.responsiveness[si];
+          f.vx[si] += f.px[si] * spreadStr;
           f.vz[si] += f.pz[si] * spreadStr;
         }
+        
       } else {
-        f.cohesionMult = 0.8 + Math.random()*0.6; // normal variation
-      }
-      
-      // Nudge 20-40% of birds toward new direction
-      const nudgeFrac = 0.2 + Math.random()*0.2;
-      const nudgeCount = (N * nudgeFrac)|0;
-      for(let ni=0;ni<nudgeCount;ni++){
-        const bi = (Math.random()*N)|0;
-        const bHdg = Math.atan2(f.vx[bi], f.vz[bi]);
-        let diff = newDir - bHdg;
-        if(diff>3.14)diff-=6.28; if(diff<-3.14)diff+=6.28;
-        const nudge = diff * (0.05 + Math.random()*0.10) * f.responsiveness[bi];
-        const nc2=Math.cos(nudge), ns2=Math.sin(nudge);
-        const tv=f.vx[bi], tz=f.vz[bi];
-        f.vx[bi]=tv*nc2+tz*ns2;
-        f.vz[bi]=-tv*ns2+tz*nc2;
+        // ── UNDULATION — 2-3 small rapid waves from same direction → rolling ripple ──
+        const baseAngle = waveAngle;
+        for(let u=0;u<2+((Math.random()*2)|0);u++){
+          // Stagger origin slightly along the edge
+          const offset = (Math.random()-0.5)*2;
+          const ox = f.px[edgeI] + Math.cos(baseAngle+1.57)*offset;
+          const oz = f.pz[edgeI] + Math.sin(baseAngle+1.57)*offset;
+          // Each sub-wave slightly different angle → undulating effect
+          const subAngle = baseAngle + (Math.random()-0.5)*0.6;
+          _launchWave(f, ox, oz, subAngle, 0.5 + Math.random()*0.3, M_WAVE_MAX_R * 0.6);
+        }
+        f.cohesionMult = 1.0;
       }
     }
     
-    // Flock center (for tension)
+    // ═══════════════════════════════════════════════════════
+    // FLOCK CENTROID (for tension tether, not for forces)
+    // ═══════════════════════════════════════════════════════
     let fcx=0,fcy=0,fcz=0;
     for(let i=0;i<N;i++){fcx+=f.px[i];fcy+=f.py[i];fcz+=f.pz[i];}
     fcx/=N;fcy/=N;fcz/=N;
     
-    
+    // ═══════════════════════════════════════════════════════
+    // PER-BIRD FORCES — Reynolds boids + Ballerini physics
+    // ═══════════════════════════════════════════════════════
     for(let i=0;i<N;i++){
-      // Find 7 nearest — zero alloc
+      // ── FIND 7 NEAREST (topological, Bialek) — zero alloc ──
       let nearCount=0;
       const gx=(f.px[i]/MGS)|0,gy=(f.py[i]/MGS)|0,gz=(f.pz[i]/MGS)|0;
       for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
@@ -1004,119 +1070,120 @@ function updateMurmuration(simTime, speedMult) {
       }
       let nc=0; for(let k=0;k<MNC;k++)if(_mNbIdx[k]>=0)nc++;
       
-      // ═══ REYNOLDS BOIDS + TOPOLOGICAL NEIGHBORS (Bialek n_c=7) ═══
-      // THREE forces that create natural flocking:
-      // 1. COHESION — pull toward centroid of 7 nearest (creates density)
-      // 2. ALIGNMENT — steer toward avg heading of 7 nearest (creates flow)
-      // 3. SEPARATION — avoid nearest (prevents collapse)
-      // Mantzaris 2025: energy = 1/N_neighbors. More neighbors = lower energy.
-      // Cohesion CREATES neighbors → lowers energy → system cools into flock.
-      
       let ax=0,ay=0,az=0;
       const resp = f.responsiveness[i];
-      const fd=Math.sqrt(f.px[i]*f.px[i]+f.pz[i]*f.pz[i])+0.01; // distance from flock center
+      const isDelayed = f.delayFrames[i] > 0; // Bird resisting alignment (wave response)
       
       if(nc>0){
-        // ── 1. COHESION — pull toward centroid of 7 nearest neighbors ──
-        // NOT a global center (→circles). LOCAL centroid (→organic clustering).
-        let cpx=0,cpz=0;
+        // ── 1. COHESION — pull toward centroid of 7 nearest (Reynolds Rule 3) ──
+        // This is the ONLY clustering force. No gravity well, no center anchor.
+        // Density variation emerges from flow convergence/divergence.
+        let cpx=0,cpy=0,cpz=0;
         for(let k=0;k<nc;k++){
           const j=_mNbIdx[k];
-          cpx += f.px[j]; cpz += f.pz[j];
+          cpx += f.px[j]; cpy += f.py[j]; cpz += f.pz[j];
         }
-        cpx /= nc; cpz /= nc;
+        cpx /= nc; cpy /= nc; cpz /= nc;
         const cox=cpx-f.px[i], coz=cpz-f.pz[i];
         const cod=Math.sqrt(cox*cox+coz*coz)+0.01;
-        // Cohesion as angular steering — steer TOWARD neighbor centroid
         const cohHdg = Math.atan2(cox, coz);
         const myHdg = Math.atan2(f.vx[i], f.vz[i]);
         let cohDiff = cohHdg - myHdg;
         if(cohDiff > 3.14159) cohDiff -= 6.28318;
         if(cohDiff < -3.14159) cohDiff += 6.28318;
-        // Edge birds get slightly stronger cohesion — but not overwhelming
-        const edgeBoost = fd > 2.0 ? 1.0 + (fd-2.0)*0.3 : 1.0;
-        const cohTurn = cohDiff * 0.020 * resp * Math.min(cod, 3) * (f.cohesionMult||1.0) * edgeBoost;
+        // Cohesion scales with distance to neighbor centroid — farther = stronger pull
+        // Cosine blend at close range to prevent jitter (lesson 124)
+        const cohDist = Math.min(cod, 4.0);
+        const cohBlend = cohDist < 0.5 ? (0.5 - Math.cos(cohDist/0.5 * 3.14159)*0.5) : 1.0;
+        const cohStr = 0.025 * resp * cohBlend * cohDist * (f.cohesionMult||1.0);
+        const cohTurn = cohDiff * cohStr;
         const ccs=Math.cos(cohTurn), csn=Math.sin(cohTurn);
         const cv1=f.vx[i]*ccs+f.vz[i]*csn, cv2=-f.vx[i]*csn+f.vz[i]*ccs;
         f.vx[i]=cv1; f.vz[i]=cv2;
+        // Y cohesion — gentle vertical pull toward neighbor centroid
+        ay += (cpy - f.py[i]) * 0.008 * (f.cohesionMult||1.0);
         
-        // ── 2. ALIGNMENT — steer toward avg heading of 7 nearest ──
-        let avx=0,avz=0;
-        for(let k=0;k<nc;k++){
-          const j=_mNbIdx[k];
-          const ns=Math.sqrt(f.vx[j]*f.vx[j]+f.vz[j]*f.vz[j])+0.001;
-          avx+=f.vx[j]/ns; avz+=f.vz[j]/ns;
-        }
-        avx/=nc; avz/=nc;
-        const nbHdg=Math.atan2(avx,avz);
-        const myHdg2=Math.atan2(f.vx[i],f.vz[i]);
-        let alDiff=nbHdg-myHdg2;
-        if(alDiff>3.14159)alDiff-=6.28318;
-        if(alDiff<-3.14159)alDiff+=6.28318;
-        const alTurn=alDiff*0.025*resp;
-        const acs=Math.cos(alTurn),asn=Math.sin(alTurn);
-        const av1=f.vx[i]*acs+f.vz[i]*asn, av2=-f.vx[i]*asn+f.vz[i]*acs;
-        f.vx[i]=av1; f.vz[i]=av2;
-        
-        // ── 3. SEPARATION — only when nearly overlapping ──
-        for(let k=0;k<nc;k++){
-          if(_mNbD2[k]<0.02&&_mNbD2[k]>0.0001){ // within 0.14 units only
-            const j=_mNbIdx[k];const d=Math.sqrt(_mNbD2[k]);
-            const str=(1-d/0.14)*0.002;
-            ax+=(f.px[i]-f.px[j])/d*str;
-            az+=(f.pz[i]-f.pz[j])/d*str;
+        // ── 2. ALIGNMENT — steer toward avg heading of 7 nearest (Reynolds Rule 2) ──
+        // SUPPRESSED during wave response delay (lesson 123)
+        // This suppression IS the mechanism that creates visible wave fronts:
+        // turning bird flies new direction while neighbors still fly old direction.
+        if(!isDelayed) {
+          let avx=0,avz=0;
+          for(let k=0;k<nc;k++){
+            const j=_mNbIdx[k];
+            const ns=Math.sqrt(f.vx[j]*f.vx[j]+f.vz[j]*f.vz[j])+0.001;
+            avx+=f.vx[j]/ns; avz+=f.vz[j]/ns;
           }
+          avx/=nc; avz/=nc;
+          const nbHdg=Math.atan2(avx,avz);
+          const myHdg2=Math.atan2(f.vx[i],f.vz[i]);
+          let alDiff=nbHdg-myHdg2;
+          if(alDiff>3.14159)alDiff-=6.28318;
+          if(alDiff<-3.14159)alDiff+=6.28318;
+          const alTurn=alDiff*0.030*resp;
+          const acs=Math.cos(alTurn),asn=Math.sin(alTurn);
+          const av1=f.vx[i]*acs+f.vz[i]*asn, av2=-f.vx[i]*asn+f.vz[i]*acs;
+          f.vx[i]=av1; f.vz[i]=av2;
+        }
+        
+        // ── 3. SEPARATION — cosine-blended repulsion (Ballerini exclusion zone) ──
+        // Anisotropic: STRONGER along velocity direction (front/back), WEAKER laterally.
+        // Ballerini: neighbors cluster laterally, avoid along motion axis.
+        // This creates the natural horizontal layer structure seen in real flocks.
+        const myVx = f.vx[i], myVz = f.vz[i];
+        const mySpd = Math.sqrt(myVx*myVx + myVz*myVz) + 0.001;
+        const myDirX = myVx/mySpd, myDirZ = myVz/mySpd; // unit velocity direction
+        
+        for(let k=0;k<nc;k++){
+          if(_mNbD2[k] > M_SEP_R2 || _mNbD2[k] < 0.0001) continue;
+          const j=_mNbIdx[k];
+          const d=Math.sqrt(_mNbD2[k]);
+          // Cosine falloff: max at 0, zero at M_SEP_DIST (smooth, no jitter)
+          const sepFrac = d / M_SEP_DIST; // 0..1
+          const sepForce = (0.5 + Math.cos(sepFrac * 3.14159) * 0.5); // 1 at 0, 0 at edge
+          // Anisotropy: measure if neighbor is along velocity or lateral
+          const ndx = (f.px[i]-f.px[j])/d, ndz = (f.pz[i]-f.pz[j])/d;
+          const alongVel = Math.abs(ndx*myDirX + ndz*myDirZ); // 0=lateral, 1=along velocity
+          // Stronger separation along velocity (1.5×), weaker lateral (0.7×)
+          const anisoMult = 0.7 + alongVel * 0.8;
+          const str = sepForce * 0.004 * anisoMult;
+          ax += ndx * str;
+          az += ndz * str;
         }
       }
       
-      // ── GRAVITY WELL — edge birds get sucked into the dense core ──
-      // After re-centering, origin = flock centroid. So pull toward origin
-      // IS pull toward the mass center. Can't create orbits because
-      // ── GENTLE GRAVITY — creates LAYERS of density, not uniform blob ──
-      // Dead zone up to 1.5 units — birds roam freely near the core.
-      // Beyond that, gentle LINEAR pull (not quadratic — no snap-back).
-      // Per-bird variation: each bird has its own "return threshold" based on
-      // personality. Fast-responsive birds start returning at 1.5 units,
-      // lazy birds don't feel pull until 3+ units. This means front/back
-      // birds return at DIFFERENT TIMES = organic layered return.
-      const returnThreshold = 1.0 + (2.0 - resp) * 1.5; // resp 0.6→2.5, resp 1.4→1.9
-      if(fd > returnThreshold) {
-        const gravStr = (fd - returnThreshold) * 0.003 * f.speedMult[i];
-        ax += (-f.px[i]/fd) * gravStr;
-        az += (-f.pz[i]/fd) * gravStr;
-      }
-      // Hard leash — only at very far distances
-      if(fd > 6) {
-        ax += (-f.px[i]/fd) * (fd-6) * 0.05;
-        az += (-f.pz[i]/fd) * (fd-6) * 0.05;
+      // ── NO GRAVITY WELL — density varies freely (Ballerini: higher at border) ──
+      // Only extreme tether at very far distances prevents permanent escape
+      const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
+      if(fd > 8) {
+        const leashStr = (fd - 8) * 0.008;
+        ax += (-f.px[i]/fd) * leashStr;
+        az += (-f.pz[i]/fd) * leashStr;
       }
       
       // ── LANGEVIN NOISE — smooth per-bird ──
-      const birdSeed=i*0.137+fi*7.3;
-      ax+=Math.sin(simTime*0.2+birdSeed)*0.00015*(2.0-resp);
-      az+=Math.cos(simTime*0.17+birdSeed*1.3)*0.00015*(2.0-resp);
+      const birdSeed = i*0.137 + fi*7.3;
+      ax += Math.sin(simTime*0.2+birdSeed) * 0.0002 * (2.0-resp);
+      az += Math.cos(simTime*0.17+birdSeed*1.3) * 0.0002 * (2.0-resp);
       
-      // Flatten into disc
-      ay -= f.vy[i]*0.40;
-      ay -= f.py[i]*0.025;
+      // ── FLATTEN into disc (Ballerini: aspect ratio 1:2.8:5.6) ──
+      ay -= f.vy[i] * 0.45;        // strong Y damping
+      ay -= f.py[i] * 0.030;       // pull toward Y=0 plane
       
-      // ── VELOCITY UPDATE with damping (Kumar: Γv term) ──
-      // Heavy damping = smooth flight. Velocity relaxes toward the force direction.
-      f.vx[i] = f.vx[i]*0.985 + ax; 
+      // ── VELOCITY UPDATE — direct acceleration (lesson 112) ──
+      f.vx[i] = f.vx[i]*0.988 + ax;
       f.vy[i] = f.vy[i]*0.96 + ay;
-      f.vz[i] = f.vz[i]*0.985 + az;
+      f.vz[i] = f.vz[i]*0.988 + az;
       
-      // ══ TECHNIQUE #3: Variable speed during turns (StarDisplay/Hildenbrandt) ══
-      // Subtle: turning birds slow slightly, straight birds drift faster
+      // ── Variable speed during turns (StarDisplay/Hildenbrandt, lesson 125) ──
       const curHdg = Math.atan2(f.vz[i], f.vx[i]);
       let dHdg = curHdg - f.prevHdg[i];
       if(dHdg > 3.14159) dHdg -= 6.28318;
       if(dHdg < -3.14159) dHdg += 6.28318;
       const turnRate = Math.abs(dHdg);
       f.prevHdg[i] = curHdg;
-      // Gentle modulation — max 20% slowdown during hard turns
-      const turnSpeedMod = 1.0 - turnRate * 0.5;  // subtle: slight slowdown during turns
-      const birdSpeed = f.speedMult[i]; // 0.7-1.3 — each bird's own pace
+      const turnSpeedMod = 1.0 - turnRate * 0.5;
+      const birdSpeed = f.speedMult[i];
       const dynMinSpeed = M_MIN_SPEED * Math.max(0.7, turnSpeedMod) * birdSpeed;
       const dynMaxSpeed = M_MAX_SPEED * Math.max(0.7, turnSpeedMod) * birdSpeed;
       
@@ -1127,59 +1194,87 @@ function updateMurmuration(simTime, speedMult) {
       f.px[i]+=f.vx[i]*sm; f.py[i]+=f.vy[i]*sm; f.pz[i]+=f.vz[i]*sm;
     }
     
-    // ══ TECHNIQUE #4: Group tension tether (Alex Scott NZ) ══
-    // Detect if flock is stretched into two subgroups; apply gentle elastic tether
-    // between the two extremes to prevent permanent splits while allowing dramatic stretching
+    // ═══════════════════════════════════════════════════════
+    // GROUP TENSION TETHER (Alex Scott NZ, lesson 126)
+    // Only outermost birds get gentle elastic pull — allows dramatic
+    // ribbons and funnels while ensuring the flock always reconnects.
+    // ═══════════════════════════════════════════════════════
     let maxExtX=f.px[0],minExtX=f.px[0],maxExtZ=f.pz[0],minExtZ=f.pz[0];
-    let maxXi=0,minXi=0,maxZi=0,minZi=0;
     for(let i=1;i<N;i++){
-      if(f.px[i]>maxExtX){maxExtX=f.px[i];maxXi=i;}
-      if(f.px[i]<minExtX){minExtX=f.px[i];minXi=i;}
-      if(f.pz[i]>maxExtZ){maxExtZ=f.pz[i];maxZi=i;}
-      if(f.pz[i]<minExtZ){minExtZ=f.pz[i];minZi=i;}
+      if(f.px[i]>maxExtX) maxExtX=f.px[i];
+      if(f.px[i]<minExtX) minExtX=f.px[i];
+      if(f.pz[i]>maxExtZ) maxExtZ=f.pz[i];
+      if(f.pz[i]<minExtZ) minExtZ=f.pz[i];
     }
-    const extentX=maxExtX-minExtX, extentZ=maxExtZ-minExtZ;
-    const maxExtent = Math.max(extentX, extentZ);
-    const TENSION_THRESHOLD = 6;
+    const maxExtent = Math.max(maxExtX-minExtX, maxExtZ-minExtZ);
+    const TENSION_THRESHOLD = 8;
     if(maxExtent > TENSION_THRESHOLD){
-      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.003;
-      const outerR = maxExtent * 0.4; // outer ring
+      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.004;
       for(let i=0;i<N;i++){
         const dx=f.px[i]-fcx, dz=f.pz[i]-fcz;
         const d=Math.sqrt(dx*dx+dz*dz);
-        if(d > maxExtent*0.3){
-          const pull = tensionStr * (d - maxExtent*0.3) / (maxExtent*0.7 + 0.01);
+        if(d > maxExtent*0.35){
+          const pull = tensionStr * (d - maxExtent*0.35) / (maxExtent*0.65 + 0.01);
           f.vx[i] -= (dx/(d+0.01)) * pull;
           f.vz[i] -= (dz/(d+0.01)) * pull;
         }
       }
     }
     
-    // ── RE-CENTER — the key trick that eliminates circles ──
-    // Subtract flock centroid from all bird positions.
-    // This keeps birds near origin WITHOUT any radial force.
-    // Add the drift to the anchor so the world position still moves.
-    // Result: in local space, birds only feel cohesion/alignment/separation.
-    // No center point. No orbits. No circles.
+    // ═══════════════════════════════════════════════════════
+    // RE-CENTER — eliminates circles (the v25 victory)
+    // ═══════════════════════════════════════════════════════
     let rcx=0,rcz=0;
     for(let i=0;i<N;i++){rcx+=f.px[i];rcz+=f.pz[i];}
     rcx/=N; rcz/=N;
     for(let i=0;i<N;i++){f.px[i]-=rcx; f.pz[i]-=rcz;}
-    // Transfer centroid drift to anchor (flock moves in world space)
+    // Also shift wave origins so they stay consistent with bird positions
+    for(let w=0;w<MAX_WAVES;w++){
+      if(f.waves[w].active){ f.waves[w].ox -= rcx; f.waves[w].oz -= rcz; }
+    }
     f.anchorX += rcx;
     f.anchorZ += rcz;
     
-    // Update meshes — use UPDATED anchor position (includes flock drift)
+    // ═══════════════════════════════════════════════════════
+    // UPDATE MESHES
+    // ═══════════════════════════════════════════════════════
     const cx=f.anchorX, cy=f.anchorY, cz=f.anchorZ;
     for(let i=0;i<N;i++){
       const m=f.meshes[i];
-      const wx=f.px[i]+cx, wy=f.py[i]+cy, wz=f.pz[i]+cz;
-      m.position.x=wx; m.position.y=wy; m.position.z=wz;
-      // Face travel direction — makes birds look alive, not static
+      m.position.x = f.px[i]+cx;
+      m.position.y = f.py[i]+cy;
+      m.position.z = f.pz[i]+cz;
       m.rotation.y = Math.atan2(f.vx[i], f.vz[i]);
-      // Fixed tiny scale — no distance compensation. They must always be specks.
     }
   }
+}
+
+// ── Wave launcher helper ──
+function _launchWave(f, ox, oz, angle, strength, maxR) {
+  // Find inactive wave slot
+  for(let w=0;w<MAX_WAVES;w++){
+    if(!f.waves[w].active){
+      f.waves[w].active = true;
+      f.waves[w].ox = ox;
+      f.waves[w].oz = oz;
+      f.waves[w].radius = 0;
+      f.waves[w].angle = angle;
+      f.waves[w].strength = strength;
+      f.waves[w].maxR = maxR;
+      // Reset wave hit tracking for this wave slot
+      for(let i=0;i<FLOCK_SIZE;i++) if(f.waveHitId[i]===w) f.waveHitId[i]=-1;
+      return;
+    }
+  }
+  // All slots full — overwrite oldest (slot 0) and shift
+  f.waves[0].active = true;
+  f.waves[0].ox = ox;
+  f.waves[0].oz = oz;
+  f.waves[0].radius = 0;
+  f.waves[0].angle = angle;
+  f.waves[0].strength = strength;
+  f.waves[0].maxR = maxR;
+  for(let i=0;i<FLOCK_SIZE;i++) if(f.waveHitId[i]===0) f.waveHitId[i]=-1;
 }
 
 // ═══════════════════════════════════════════════════════
