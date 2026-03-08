@@ -1,4 +1,4 @@
-# SABDA Immersive Visual Production Manual v11
+# SABDA Immersive Visual Production Manual v12
 
 ## Purpose
 
@@ -6,7 +6,7 @@ Step-by-step process for creating immersive 3D visual scenes for the SABDA welln
 
 This manual is parameterised. The architecture is universal. Only the **scene content** changes (butterflies, forest, underwater, rain, etc.). The pipeline, HTML structure, animation system, and delivery format are always identical.
 
-This is v11. It incorporates all v8/v9/v10 content plus: **render-only HTML architecture** (separate from interactive viewer, 10-25× faster), **loop check renderer** (render_loopcheck.js for verifying loop continuity), **bird homing fix** (gentle radial nudge replaces aggressive heading-steering that caused circular orbits), **preview mode limitations** (dt/time mismatch documentation), and **commit discipline rule** (always commit working files immediately).
+This is v12. It incorporates all v8/v9/v10 content plus: **render-only HTML architecture** (separate from interactive viewer, 10-25× faster), **loop check renderer** (render_loopcheck.js for verifying loop continuity), **bird homing fix** (gentle radial nudge replaces aggressive heading-steering that caused circular orbits), **preview mode limitations** (dt/time mismatch documentation), and **commit discipline rule** (always commit working files immediately).
 
 Previous v10 additions (all retained): Video loop continuity fixes (6 modifications ensuring seamless frame 0 to frame 1799 transitions for looped Watchout playback), and the GitHub-based file transfer workflow that eliminates context window exhaustion from large HTML uploads.
 
@@ -1519,11 +1519,12 @@ HAP Q uses GPU-accelerated decompression but produces much larger files (~10×).
 | **v11.1** | **Dual-sky Belfast crossfade (single sphere + shader mix), bird facing fix (removed +PI), staggered bird fade at loop boundary, streak-based shooting stars (shader quad), planet animation loop fix (integer cycle alignment), live browser preview with time scrub slider, render.js Puppeteer script, WebGL Metal/ANGLE backend for Mac** |
 
 | **v11.5** | **Shooting star dome-following with Rodrigues rotation, 50/50 size mix (12-115 degree arc wall-crossers), bird physics overhaul (dt-scaled turns, hard teleport boundary, model flip by distance, organic flapping with sinusoidal modulation), projection optimization shader pipeline (S-curve contrast 80%, saturation boost 28%, black floor lift, highlight ceiling, edge softening), timelapse test mode (T key, 30x), 30-minute loop fade transition for birds, lighting adjustments for projector environments** |
+| **v12** | **Murmuration system: starling flock simulation with direct acceleration physics, zero-allocation hot loop, 7-neighbor topological interactions, edge perturbation wave propagation, free density variation (no equilibrium spring), SABDA scene integration with anchor-based positioning. Section 28 added to manual.** |
 ---
 
 ## 20. Lessons Learned Log (v8 + v9 + v10 + v11 + v12 Additions)
 
-Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49, v10 adds lessons 50-52, v11 adds lessons 53-59, v11.1 adds 61-74, v11.5 adds 75-86, v12 adds 87-108.
+Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49, v10 adds lessons 50-52, v11 adds lessons 53-59, v11.1 adds 61-74, v11.5 adds 75-86, v12 adds 87-108, v12.1 adds 109-118 (murmuration).
 
 31. **(v8) ALWAYS visually inspect before delivering.** Six consecutive builds were delivered and rejected because the agent trusted numbers without looking. The moment the agent used `view` to inspect the wall preview, the problem (flat featureless water patch) was immediately visible. Visual inspection would have caught this on build #1 and saved hours. This is now Absolute Rule #1.
 
@@ -1690,6 +1691,26 @@ Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49,
 107. **(v12) Saturn has TWO groups — understand the model's internal units before touching either.** The Saturn GLB is ~1200 internal units. `saturnMainGroup` (scale 0.023) = 28 world units = the VISIBLE ringed Saturn. `saturnGroup` (scale 10) = 12,000 units = invisible (bigger than the 340-radius sky dome) — exists ONLY to hold a glow sprite. Scaling saturnMainGroup to 10 makes Saturn 12,000 units, wrapping around the entire scene invisibly. Never change Saturn scale without checking the model's internal unit size first. If removing the "UFO" glow dot, remove `saturnGroup` and keep `saturnMainGroup` — not the other way around.
 
 108. **(v12) Sky phase offset controls cycle start position.** `skyPhase = ((time + OFFSET) / 1800) * Math.PI * 2` shifts where in the warmth cycle the visual begins. +300s = start in blue Belfast. Only affects warmth/crossfade — cloud drift, planets, birds stay at t=0. Simple way to control "what does the audience see first" without restructuring the timeline. Combined with `pow()` bias on warmthRaw, this gives full control over both the ratio and the starting point of the crossfade.
+
+109. **(v12.1 — Murmuration) Watch the reference video BEFORE writing code.** 8 iterations were wasted tuning boids parameters blindly. The moment the reference video was studied frame-by-frame, the actual visual target became clear: a dark volumetric cloud with density variation, not scattered dots. Study first, code second.
+
+110. **(v12.1 — Murmuration) Only plain THREE.Mesh renders through CubeCamera.** THREE.Points (custom shaders), InstancedMesh, and GPGPU texture readback all fail silently — objects are invisible or data returns zeros. Do not attempt these approaches. Each bird must be an individual Mesh added to contentScene.
+
+111. **(v12.1 — Murmuration) Zero allocation in the per-bird simulation loop.** Array.push(), Array.sort(), object creation {j, d2}, and mesh.lookAt() all create garbage that causes visible stuttering at 600+ birds. Use pre-allocated Float32Array/Int32Array buffers, insertion sort into fixed slots, and Math.atan2/Math.asin for rotation.
+
+112. **(v12.1 — Murmuration) Direct acceleration is the only physics model that works.** Normalization (Θ operator) kills directional diversity — alignment wins every frame. Inertia blending adds mushy lag. Direction-steering with turn limits causes jerkiness. Only `velocity += small_acceleration; clamp(speed)` gives crisp, responsive, organic movement.
+
+113. **(v12.1 — Murmuration) Remove ALL equilibrium spacing forces.** Any spring, attraction zone, or cohesion toward neighbor center creates uniform crystal-lattice density. Real murmurations have massive density variation. Only collision avoidance (repel below 0.6-0.8 units) + center anchor. Let density be free.
+
+114. **(v12.1 — Murmuration) Center pull must anchor to assigned position, not flock centroid.** In the SABDA scene (fixed camera), pulling toward the centroid lets the flock drift off screen. Pull each bird toward (0,0,0) in local coordinates = the flock's assigned world position. In standalone (camera follows), centroid pull is fine.
+
+115. **(v12.1 — Murmuration) 2D pixel-space parameters don't transfer to 3D.** The Alex-Scott-NZ reference uses pixel units (maxSpeed 4, visualRange 35). Copying these to a 3D scene where the world is ~50 units produces chaos. Tune from scratch in the target coordinate system.
+
+116. **(v12.1 — Murmuration) Edge perturbation must directly set velocity, not add force.** Forces get diluted by alignment before creating directional diversity. The initiator birds at the flock edge must have their velocity directly reassigned to a new direction. Alignment then propagates the turn through the rest of the flock naturally.
+
+117. **(v12.1 — Murmuration) "Laggy" means architectural problem, not parameter problem.** Laggy = garbage collection stalls (allocation in hot loop) or inertia blending (smoothing layer). "Stuck together" = equilibrium spring or dominant alignment or strong center pull. Never try to fix these by tweaking numbers — the architecture must change.
+
+118. **(v12.1 — Murmuration) Test at SABDA scene scale immediately.** The standalone test (camera follows flock at 40 units) looks completely different from the SABDA scene (flock at 20-35 units from fixed origin camera). Bird mesh size, speed, spread radius, anchor strength all need different values. Integrate after first working standalone, not after hours of standalone tuning.
 
 
 ## 21. Content Calendar
