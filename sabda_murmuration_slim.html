@@ -814,12 +814,13 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
   const f = {
     px:new Float32Array(FLOCK_SIZE), py:new Float32Array(FLOCK_SIZE), pz:new Float32Array(FLOCK_SIZE),
     vx:new Float32Array(FLOCK_SIZE), vy:new Float32Array(FLOCK_SIZE), vz:new Float32Array(FLOCK_SIZE),
+    // Per-bird TARGET — each bird pulls toward its own unique point
+    tx:new Float32Array(FLOCK_SIZE), tz:new Float32Array(FLOCK_SIZE),
     delayFrames: new Uint8Array(FLOCK_SIZE),
     prevHdg: new Float32Array(FLOCK_SIZE),
     waveTime: new Float32Array(FLOCK_SIZE),
-    // Per-bird personality — like shooting stars, each bird is slightly different
-    speedMult: new Float32Array(FLOCK_SIZE),  // 0.7-1.3 — some faster, some slower
-    responsiveness: new Float32Array(FLOCK_SIZE),  // 0.6-1.4 — some react fast, some lazy
+    speedMult: new Float32Array(FLOCK_SIZE),
+    responsiveness: new Float32Array(FLOCK_SIZE),
     meshes: [],
     // Wind-drift system — flock travels with a slowly-turning wind
     windAngle: setup.startAngle,       // current wind heading
@@ -848,6 +849,10 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     f.waveTime[i] = 999;
     f.speedMult[i] = 0.7 + Math.random()*0.6;       // 0.7-1.3
     f.responsiveness[i] = 0.6 + Math.random()*0.8;   // 0.6-1.4
+    // Start targets as tight cluster
+    const ta = Math.random()*6.28, tr = Math.random()*0.3;
+    f.tx[i] = Math.cos(ta)*tr;
+    f.tz[i] = Math.sin(ta)*tr;
     const m = new THREE.Mesh(birdShape, birdMat);
     m.frustumCulled = false;
     contentScene.add(m);
@@ -928,7 +933,6 @@ function updateMurmuration(simTime, speedMult) {
     // ══ SHAPE EVENTS — dense ball is HOME. Events create brief shape moments. ══
     // Default pull is VERY strong. Mass always wants to be a tight ball.
     // Events push birds outward into shapes, but strong pull snaps them back.
-    if(!f.waves) f.waves = [];
     if(!f.currentPull) f.currentPull = 0.0030;
     // Pull always climbs toward 0.0040 — dense is always where it wants to be
     f.currentPull = Math.min(0.0040, f.currentPull + 0.00005 * sm);
@@ -938,123 +942,185 @@ function updateMurmuration(simTime, speedMult) {
       f.pTimer = 0;
       f.pNext = f.eventMin + Math.random() * (f.eventMax - f.eventMin);
       
-      let _fcx=0,_fcy=0,_fcz=0;
-      for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
-      _fcx/=N;_fcy/=N;_fcz/=N;
-      
-      const r = Math.random();
-      // Zone center for clamping event directions
       const zc = f.zone === 'top' ? 3.93 : 0.79;
-      if(r < 0.18) {
-        // WIND SHIFT — stays within zone
-        f.windTargetAngle = zc + (Math.random()-0.5) * 1.6; // wander within zone
-        f.currentPull = 0.0015 + Math.random()*0.0008;
-      }
-      else if(r < 0.30) {
-        // GUST — brief push toward zone center area
-        const gustAngle = zc + (Math.random()-0.5) * 1.0;
-        const gustStr = 0.006 + Math.random()*0.006;
-        for(let i=0;i<N;i++){
-          const r2 = f.responsiveness[i];
-          f.vx[i] += Math.sin(gustAngle) * gustStr * r2;
-          f.vz[i] += Math.cos(gustAngle) * gustStr * r2;
-        }
-        f.currentPull = 0.0014 + Math.random()*0.0006;
-      }
-      else if(r < 0.50) {
-        // HARD CRUSH — maximum density, tight dark ball
-        const crushStr = 0.025 + Math.random()*0.035;
-        for(let i=0;i<N;i++){
-          const dx=_fcx-f.px[i], dy=_fcy-f.py[i], dz=_fcz-f.pz[i];
-          const d=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
-          const r2 = f.responsiveness[i];
-          f.vx[i] += dx/d * crushStr * r2;
-          f.vy[i] += dy/d * crushStr * 0.3 * r2;
-          f.vz[i] += dz/d * crushStr * r2;
-        }
-        f.currentPull = 0.0040 + Math.random()*0.0020; // extreme crush
-      }
-      else if(r < 0.62) {
-        // RIBBON — brief stretch along random axis
-        const axA = Math.random()*6.28;
-        const sx=Math.cos(axA), sz=Math.sin(axA);
-        for(let i=0;i<N;i++){
-          const proj=(f.px[i]-_fcx)*sx+(f.pz[i]-_fcz)*sz;
-          f.vx[i]+=sx*proj*0.008; f.vz[i]+=sz*proj*0.008;
-        }
-        f.currentPull = 0.0016 + Math.random()*0.0006;
-      }
-      else if(r < 0.72) {
-        // SPLIT — halves push apart then snap back
-        const axA = Math.random()*6.28;
-        const sx=Math.cos(axA), sz=Math.sin(axA);
-        for(let i=0;i<N;i++){
-          const side = ((f.px[i]-_fcx)*sx+(f.pz[i]-_fcz)*sz) > 0 ? 1 : -1;
-          const r2 = f.responsiveness[i];
-          f.vx[i] += sx * side * 0.012 * r2;
-          f.vz[i] += sz * side * 0.012 * r2;
-        }
-        f.currentPull = 0.0018 + Math.random()*0.0008; // strong snap back
-      }
-      else if(r < 0.82) {
-        // FOUNTAIN — center up, edges out then down
-        for(let i=0;i<N;i++){
-          const lx=f.px[i]-_fcx, lz=f.pz[i]-_fcz;
-          const d=Math.sqrt(lx*lx+lz*lz)+0.01;
-          const coreness = Math.max(0, 1-d/3);
-          f.vy[i] += coreness * 0.012;
-          f.vx[i] += (lx/d) * (1-coreness) * 0.006;
-          f.vz[i] += (lz/d) * (1-coreness) * 0.006;
-        }
-        f.currentPull = 0.0016 + Math.random()*0.0006;
-      }
-      else if(r < 0.92) {
-        // SWIRL — partial rotation, one side turns
-        const swA = Math.random()*6.28;
-        for(let i=0;i<N;i++){
-          const lx=f.px[i]-_fcx, lz=f.pz[i]-_fcz;
-          const d=Math.sqrt(lx*lx+lz*lz)+0.01;
-          const inZone = (lx*Math.cos(swA)+lz*Math.sin(swA)) > 0 ? 1 : 0;
-          if(inZone){
-            f.vx[i] += (-lz/d) * 0.008;
-            f.vz[i] += (lx/d) * 0.008;
+      // Shift wind within zone
+      f.windTargetAngle = zc + (Math.random()-0.5) * 1.4;
+      
+      // ═══ FORMATION SYSTEM — 20 unique shapes ═══
+      // Each bird gets its own target. The COLLECTION of targets forms a shape.
+      // Alternate: gather (tight) → spread (wide) → gather → spread
+      if(!f.formationPhase) f.formationPhase = 'spread';
+      const phase = f.formationPhase === 'gather' ? 'spread' : 'gather';
+      f.formationPhase = phase;
+      
+      const pick = (Math.random()*10)|0;
+      const N = FLOCK_SIZE;
+      
+      if(phase === 'gather') {
+        // ── 10 GATHER formations — tight, dense, various shapes ──
+        const scale = 0.3 + Math.random()*0.4; // 0.3-0.7 radius
+        const angle = Math.random()*6.28; // random orientation
+        const offX = (Math.random()-0.5)*1.0; // offset from center
+        const offZ = (Math.random()-0.5)*1.0;
+        const ca=Math.cos(angle), sa=Math.sin(angle);
+        
+        if(pick===0) {
+          // Tight ball — random positions in small sphere
+          for(let i=0;i<N;i++){
+            const a=Math.random()*6.28, r=Math.pow(Math.random(),0.5)*scale;
+            f.tx[i]=Math.cos(a)*r+offX; f.tz[i]=Math.sin(a)*r+offZ;
+          }
+        } else if(pick===1) {
+          // Line — along random axis
+          for(let i=0;i<N;i++){
+            const t2=(i/N-0.5)*scale*4 + (Math.random()-0.5)*0.15;
+            f.tx[i]=ca*t2+offX; f.tz[i]=sa*t2+offZ;
+          }
+        } else if(pick===2) {
+          // Arc/crescent
+          for(let i=0;i<N;i++){
+            const a2=angle + (i/N-0.5)*2.5 + (Math.random()-0.5)*0.2;
+            const r=scale*(0.8+Math.random()*0.4);
+            f.tx[i]=Math.cos(a2)*r+offX; f.tz[i]=Math.sin(a2)*r+offZ;
+          }
+        } else if(pick===3) {
+          // Offset dense cluster
+          const ox=(Math.random()-0.5)*2, oz=(Math.random()-0.5)*2;
+          for(let i=0;i<N;i++){
+            const a=Math.random()*6.28, r=Math.pow(Math.random(),0.7)*scale*0.6;
+            f.tx[i]=Math.cos(a)*r+ox; f.tz[i]=Math.sin(a)*r+oz;
+          }
+        } else if(pick===4) {
+          // Spiral — tight logarithmic
+          for(let i=0;i<N;i++){
+            const t2=i/N*8+Math.random()*0.3;
+            const r=t2*scale*0.12;
+            f.tx[i]=Math.cos(t2)*r+offX; f.tz[i]=Math.sin(t2)*r+offZ;
+          }
+        } else if(pick===5) {
+          // Two close clumps
+          for(let i=0;i<N;i++){
+            const side = i < N/2 ? -1 : 1;
+            const a=Math.random()*6.28, r=Math.pow(Math.random(),0.5)*scale*0.5;
+            f.tx[i]=Math.cos(a)*r+ca*side*scale+offX;
+            f.tz[i]=Math.sin(a)*r+sa*side*scale+offZ;
+          }
+        } else if(pick===6) {
+          // Diagonal band — thick stripe
+          for(let i=0;i<N;i++){
+            const along=(i/N-0.5)*scale*3+(Math.random()-0.5)*0.1;
+            const across=(Math.random()-0.5)*scale*0.5;
+            f.tx[i]=ca*along-sa*across+offX; f.tz[i]=sa*along+ca*across+offZ;
+          }
+        } else if(pick===7) {
+          // S-curve
+          for(let i=0;i<N;i++){
+            const t2=(i/N-0.5)*scale*5;
+            const wave=Math.sin(t2*2)*scale*0.5+(Math.random()-0.5)*0.1;
+            f.tx[i]=ca*t2-sa*wave+offX; f.tz[i]=sa*t2+ca*wave+offZ;
+          }
+        } else if(pick===8) {
+          // Ring — hollow circle
+          for(let i=0;i<N;i++){
+            const a=i/N*6.28+(Math.random()-0.5)*0.3;
+            const r=scale*(0.9+Math.random()*0.2);
+            f.tx[i]=Math.cos(a)*r+offX; f.tz[i]=Math.sin(a)*r+offZ;
+          }
+        } else {
+          // Teardrop — dense at one end, thin tail
+          for(let i=0;i<N;i++){
+            const t2=Math.pow(i/N,0.5)*scale*3;
+            const width=scale*0.4*(1-i/N)+0.05;
+            const across=(Math.random()-0.5)*width;
+            f.tx[i]=ca*t2-sa*across+offX; f.tz[i]=sa*t2+ca*across+offZ;
           }
         }
-        f.currentPull = 0.0014 + Math.random()*0.0006;
-      }
-      else {
-        // EDGE WAVE
-        let best=0,bestD=0;
-        for(let s=0;s<40;s++){
-          const i=(Math.random()*N)|0;
-          const dx=f.px[i]-_fcx,dz=f.pz[i]-_fcz;
-          if(dx*dx+dz*dz>bestD){bestD=dx*dx+dz*dz;best=i;}
+        f.currentPull = 0.0035 + Math.random()*0.0025; // strong pull for gather
+        
+      } else {
+        // ── 10 SPREAD formations — wide, dramatic, organic ──
+        const scale = 2.0 + Math.random()*2.0; // 2-4 radius
+        const angle = Math.random()*6.28;
+        const ca=Math.cos(angle), sa=Math.sin(angle);
+        
+        if(pick===0) {
+          // Wide scatter — random positions
+          for(let i=0;i<N;i++){
+            const a=Math.random()*6.28, r=Math.pow(Math.random(),0.3)*scale;
+            f.tx[i]=Math.cos(a)*r; f.tz[i]=Math.sin(a)*r;
+          }
+        } else if(pick===1) {
+          // Long ribbon — stretched line
+          for(let i=0;i<N;i++){
+            const t2=(i/N-0.5)*scale*3+(Math.random()-0.5)*0.2;
+            const across=(Math.random()-0.5)*0.3;
+            f.tx[i]=ca*t2-sa*across; f.tz[i]=sa*t2+ca*across;
+          }
+        } else if(pick===2) {
+          // Two groups far apart
+          for(let i=0;i<N;i++){
+            const side=i<N/2?-1:1;
+            const a=Math.random()*6.28, r=Math.pow(Math.random(),0.5)*scale*0.35;
+            f.tx[i]=Math.cos(a)*r+ca*side*scale; f.tz[i]=Math.sin(a)*r+sa*side*scale;
+          }
+        } else if(pick===3) {
+          // Wide arc
+          for(let i=0;i<N;i++){
+            const a2=angle+(i/N-0.5)*3.5+(Math.random()-0.5)*0.3;
+            const r=scale*(0.7+Math.random()*0.6);
+            f.tx[i]=Math.cos(a2)*r; f.tz[i]=Math.sin(a2)*r;
+          }
+        } else if(pick===4) {
+          // Radial burst from offset point
+          const ox=(Math.random()-0.5)*2, oz=(Math.random()-0.5)*2;
+          for(let i=0;i<N;i++){
+            const a=Math.random()*6.28, r=0.5+Math.random()*scale;
+            f.tx[i]=Math.cos(a)*r+ox; f.tz[i]=Math.sin(a)*r+oz;
+          }
+        } else if(pick===5) {
+          // Shear — top half goes one way, bottom the other
+          for(let i=0;i<N;i++){
+            const side=i<N/2?-1:1;
+            const drift=side*scale*0.7+(Math.random()-0.5)*scale*0.5;
+            const spread=(Math.random()-0.5)*scale*0.4;
+            f.tx[i]=ca*drift-sa*spread; f.tz[i]=sa*drift+ca*spread;
+          }
+        } else if(pick===6) {
+          // Long stream — thin trail
+          for(let i=0;i<N;i++){
+            const t2=(i/N)*scale*4-scale*2+(Math.random()-0.5)*0.15;
+            const across=(Math.random()-0.5)*0.2;
+            f.tx[i]=ca*t2-sa*across; f.tz[i]=sa*t2+ca*across;
+          }
+        } else if(pick===7) {
+          // Bloom — petal shapes
+          const petals=3+((Math.random()*3)|0);
+          for(let i=0;i<N;i++){
+            const a=i/N*6.28*petals+(Math.random()-0.5)*0.5;
+            const r=(0.5+Math.abs(Math.sin(a*0.5))*scale)*(0.7+Math.random()*0.3);
+            f.tx[i]=Math.cos(a)*r; f.tz[i]=Math.sin(a)*r;
+          }
+        } else if(pick===8) {
+          // Cross / X shape
+          for(let i=0;i<N;i++){
+            const arm=i%2===0?0:1;
+            const t2=(Math.random()-0.5)*scale*2.5;
+            const across=(Math.random()-0.5)*0.25;
+            if(arm===0){f.tx[i]=ca*t2-sa*across;f.tz[i]=sa*t2+ca*across;}
+            else{f.tx[i]=-sa*t2-ca*across;f.tz[i]=ca*t2-sa*across;}
+          }
+        } else {
+          // Whip — curved line with one end far out
+          for(let i=0;i<N;i++){
+            const t2=Math.pow(i/N,1.5)*scale*3;
+            const curve=Math.sin(i/N*3)*scale*0.6+(Math.random()-0.5)*0.15;
+            f.tx[i]=ca*t2-sa*curve; f.tz[i]=sa*t2+ca*curve;
+          }
         }
-        f.waves.push({ox:f.px[best],oy:f.py[best],oz:f.pz[best],
-          turn:(Math.random()-0.5)*2.5,radius:2.5+Math.random()*3,
-          speed:0.25+Math.random()*0.2,frame:0});
-        f.currentPull = 0.0016 + Math.random()*0.0006;
+        f.currentPull = 0.0010 + Math.random()*0.0010; // gentle for spread
       }
     }
-    // Advance propagating waves
-    for(let w=f.waves.length-1;w>=0;w--){
-      const wave=f.waves[w]; wave.frame+=sm;
-      const wfR=wave.frame*wave.speed;
-      if(wfR>wave.radius*2.5){f.waves.splice(w,1);continue;}
-      for(let i=0;i<N;i++){
-        const dx=f.px[i]-wave.ox,dy=f.py[i]-wave.oy,dz=f.pz[i]-wave.oz;
-        const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-        if(d<wfR&&d>wfR-wave.speed*2.5&&d<wave.radius){
-          const ff=1-(d/wave.radius);
-          const ca=Math.atan2(f.vz[i],f.vx[i]);
-          const na=ca+wave.turn*ff*ff;
-          const sp=Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]);
-          f.vx[i]=Math.cos(na)*sp;f.vz[i]=Math.sin(na)*sp;
-          f.delayFrames[i]=3+(Math.random()*6)|0;
-        }
-      }
-    }
-        // Flock center
+    // Flock center (for tension and mesh offset)
     let fcx=0,fcy=0,fcz=0;
     for(let i=0;i<N;i++){fcx+=f.px[i];fcy+=f.py[i];fcz+=f.pz[i];}
     fcx/=N;fcy/=N;fcz/=N;
@@ -1110,20 +1176,26 @@ function updateMurmuration(simTime, speedMult) {
           }
         }
       }
-      // ANCHOR PULL — toward local origin (0,0,0) = the orbit anchor point
-      // This BOTH keeps birds near the anchor AND clusters them (all pull to same point).
-      // Centroid pull was wrong: it kept birds near EACH OTHER but the whole 
-      // cluster drifted away at min speed, leaving the anchor behind.
-      const tox=-f.px[i], toy=-f.py[i], toz=-f.pz[i];
-      const fd=Math.sqrt(tox*tox+toy*toy+toz*toz)+0.01;
+      // PER-BIRD TARGET PULL — each bird pulls toward its own unique target position
+      // The COLLECTION of targets forms a shape (line, arc, cluster, spiral, etc.)
+      // Different every time = never the same circular collapse.
+      const tox=f.tx[i]-f.px[i], toz=f.tz[i]-f.pz[i];
+      const toy=-f.py[i]; // always flatten to y=0
+      const fd=Math.sqrt(tox*tox+toz*toz)+0.01;
       const pullStr = f.currentPull * resp;
-      ax += (tox/fd) * pullStr * fd;  // proportional to distance
-      ay += (toy/fd) * pullStr * fd * 0.15;
-      az += (toz/fd) * pullStr * fd;
-      // HARD LEASH at 4 units from anchor
-      if(fd > 4){
-        ax += (tox/fd) * (fd-4) * 0.10;
-        az += (toz/fd) * (fd-4) * 0.10;
+      ax += (tox/fd) * pullStr * Math.min(fd, 4);  // capped proportional
+      az += (toz/fd) * pullStr * Math.min(fd, 4);
+      ay += toy * pullStr * 0.15;
+      // SOFT ANCHOR — weak pull to origin prevents long-term drift
+      const dOrig = Math.sqrt(f.px[i]*f.px[i]+f.pz[i]*f.pz[i]);
+      if(dOrig > 3) {
+        ax += (-f.px[i]/dOrig) * 0.0004 * (dOrig-3);
+        az += (-f.pz[i]/dOrig) * 0.0004 * (dOrig-3);
+      }
+      // HARD LEASH at 5 units from origin
+      if(dOrig > 5){
+        ax += (-f.px[i]/dOrig) * (dOrig-5) * 0.08;
+        az += (-f.pz[i]/dOrig) * (dOrig-5) * 0.08;
       }
       // Smooth per-bird drift — no randomness, continuous curves
       const birdSeed = i * 0.137 + fi * 7.3;
