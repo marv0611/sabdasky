@@ -1,46 +1,50 @@
 <!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>Murmuration v12</title>
+<title>Murmuration v13</title>
 <style>body{margin:0;overflow:hidden;background:#000}canvas{display:block}</style>
 </head><body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════
-// STARLING MURMURATION v12
-// PNAS model simplified: smooth forces, no spring jitter,
-// edge perturbation waves for breathing/shape-shifting
+// STARLING MURMURATION v13
+// No equilibrium spring. Density is FREE to vary.
+// Only: collision avoidance + alignment + center pull.
+// Shape changes from edge perturbation waves stretching
+// and compressing the mass.
 // ═══════════════════════════════════════════════════════
 
 const N = 512;
 const NC = 7;
-const V0 = 0.15;         // speed per simulation step
+const V0 = 0.18;
 
-// Force weights (inside Eq 9 bracket, before normalization)
-const W_ALIGN = 12;       // alignment — moderate so flock can deform
-const W_NOISE = 4;        // noise — enough for organic feel
-const W_SPACING = 8;      // spacing force weight
-const EQUIL_DIST = 1.8;   // equilibrium distance between neighbors
-const W_CENTER = 0.4;     // pull toward flock center (quadratic)
+// Force weights
+const W_ALIGN = 8;       // match neighbor direction — THE main force
+const W_REPEL = 3;       // collision avoidance only — very short range
+const REPEL_DIST = 0.6;  // only repel within this distance
+const W_CENTER = 0.3;    // hold mass together
+const W_NOISE = 1.5;     // organic variation
 
 const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
 const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
 
-// Init — packed disc
 const d0 = Math.random() * Math.PI * 2;
 for (let i = 0; i < N; i++) {
+  // Start spread out — let the sim find natural density
   const a = Math.random() * Math.PI * 2;
-  const r = Math.sqrt(Math.random()) * 8;
+  const r = Math.sqrt(Math.random()) * 15;
   px[i] = Math.cos(a) * r;
-  py[i] = (Math.random() - 0.5) * 2;
+  py[i] = (Math.random() - 0.5) * 4;
   pz[i] = Math.sin(a) * r;
-  vx[i] = Math.cos(d0) * V0 + (Math.random()-0.5)*0.01;
-  vy[i] = 0;
-  vz[i] = Math.sin(d0) * V0 + (Math.random()-0.5)*0.01;
+  // All same direction with slight variation
+  const va = d0 + (Math.random()-0.5)*0.3;
+  vx[i] = Math.cos(va) * V0;
+  vy[i] = (Math.random()-0.5) * 0.01;
+  vz[i] = Math.sin(va) * V0;
 }
 
 // Spatial grid
-const GS = 5;
+const GS = 4;
 const grid = new Map();
 function buildGrid() {
   grid.clear();
@@ -61,8 +65,8 @@ function getNearby(x,y,z) {
 }
 
 function findK(i) {
-  const near = getNearby(px[i],py[i],pz[i]);
-  const c = [];
+  const near=getNearby(px[i],py[i],pz[i]);
+  const c=[];
   for(const j of near){
     if(j===i)continue;
     const dx=px[i]-px[j],dy=py[i]-py[j],dz=pz[i]-pz[j];
@@ -72,16 +76,15 @@ function findK(i) {
   return c.slice(0,NC);
 }
 
-// ── EDGE PERTURBATION — the source of all shape changes ──
+// ── EDGE PERTURBATION ──
 let perturbTimer = 0;
-let nextPerturb = 60;
+let nextPerturb = 50;
 
 function perturbEdge() {
   let fcx=0,fcy=0,fcz=0;
   for(let i=0;i<N;i++){fcx+=px[i];fcy+=py[i];fcz+=pz[i];}
   fcx/=N;fcy/=N;fcz/=N;
   
-  // Pick an edge bird
   let best=0,bestD=0;
   for(let s=0;s<40;s++){
     const i=(Math.random()*N)|0;
@@ -89,20 +92,20 @@ function perturbEdge() {
     if(dx*dx+dz*dz>bestD){bestD=dx*dx+dz*dz;best=i;}
   }
   
-  // Turn a wedge of birds near this edge — bigger patch = bigger wave
-  const turnAngle = (Math.random()-0.5) * 1.5; // up to ±45 degrees
-  const patchRadius = 3 + Math.random() * 4;
+  // Big turn at edge — this stretches the flock as the wave propagates
+  const turnAngle = (Math.random()-0.5) * 2.0; // up to ±57 degrees!
+  const patchRadius = 2 + Math.random() * 3;
   
   for(let i=0;i<N;i++){
     const dx=px[i]-px[best],dy=py[i]-py[best],dz=pz[i]-pz[best];
     const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
     if(d < patchRadius){
-      const falloff = 1 - (d/patchRadius);
+      const f = 1 - (d/patchRadius);
       const ca = Math.atan2(vz[i],vx[i]);
-      const na = ca + turnAngle * falloff * falloff; // smooth falloff
-      vx[i] = Math.cos(na) * V0;
-      vz[i] = Math.sin(na) * V0;
-      vy[i] += (Math.random()-0.5) * 0.01;
+      const na = ca + turnAngle * f * f;
+      const sp = Math.sqrt(vx[i]*vx[i]+vz[i]*vz[i]);
+      vx[i] = Math.cos(na) * sp;
+      vz[i] = Math.sin(na) * sp;
     }
   }
 }
@@ -111,101 +114,93 @@ function update() {
   buildGrid();
   
   perturbTimer++;
-  if(perturbTimer >= nextPerturb){
+  if(perturbTimer>=nextPerturb){
     perturbEdge();
-    perturbTimer = 0;
-    nextPerturb = 40 + Math.random()*80; // every 0.7-2 seconds
+    perturbTimer=0;
+    nextPerturb = 30 + Math.random()*60; // frequent: every 0.5-1.5s
   }
   
-  // Flock center
   let fcx=0,fcy=0,fcz=0;
   for(let i=0;i<N;i++){fcx+=px[i];fcy+=py[i];fcz+=pz[i];}
   fcx/=N;fcy/=N;fcz/=N;
   
-  const nvx = new Float32Array(N), nvy = new Float32Array(N), nvz = new Float32Array(N);
+  const nvx=new Float32Array(N),nvy=new Float32Array(N),nvz=new Float32Array(N);
   
   for (let i = 0; i < N; i++) {
     const nbs = findK(i);
     let sumX=0, sumY=0, sumZ=0;
     
     if (nbs.length > 0) {
-      // ── ALIGNMENT — average neighbor velocity ──
+      // ── ALIGNMENT — normalized average direction ──
       let avx=0,avy=0,avz=0;
       for(const nb of nbs){avx+=vx[nb.j];avy+=vy[nb.j];avz+=vz[nb.j];}
-      avx/=nbs.length; avy/=nbs.length; avz/=nbs.length;
-      // Normalize to V0 then scale
       let al=Math.sqrt(avx*avx+avy*avy+avz*avz);
       if(al>0.001){avx/=al;avy/=al;avz/=al;}
       sumX += avx * W_ALIGN;
       sumY += avy * W_ALIGN;
       sumZ += avz * W_ALIGN;
       
-      // ── SPACING — simple smooth force ──
-      // Closer than EQUIL_DIST: repel. Further: attract. Strength proportional to difference.
+      // ── COLLISION AVOIDANCE ONLY — no equilibrium, no attraction ──
       for(const nb of nbs){
         const d = Math.sqrt(nb.d2);
-        if(d < 0.01) continue;
-        const ex=(px[i]-px[nb.j])/d, ey=(py[i]-py[nb.j])/d, ez=(pz[i]-pz[nb.j])/d;
-        
-        // Smooth force: positive when too close (repel), negative when too far (attract)
-        const diff = EQUIL_DIST - d;
-        const force = diff * 0.5; // linear spring, gentle
-        // Clamp to prevent extreme forces
-        const clamped = Math.max(-1, Math.min(1, force));
-        
-        sumX += ex * clamped * W_SPACING;
-        sumY += ey * clamped * W_SPACING * 0.3; // less vertical
-        sumZ += ez * clamped * W_SPACING;
+        if(d < REPEL_DIST && d > 0.01){
+          const strength = (REPEL_DIST - d) / REPEL_DIST; // 1 at d=0, 0 at d=REPEL_DIST
+          const ex=(px[i]-px[nb.j])/d, ey=(py[i]-py[nb.j])/d, ez=(pz[i]-pz[nb.j])/d;
+          sumX += ex * strength * W_REPEL;
+          sumY += ey * strength * W_REPEL * 0.3;
+          sumZ += ez * strength * W_REPEL;
+        }
       }
+      // NO attraction between neighbors. NO equilibrium distance.
+      // Density is FREE. Dense areas just happen. Sparse areas just happen.
     }
     
-    // ── CENTER PULL — keeps flock together, quadratic ──
-    const tox=fcx-px[i], toy=fcy-py[i], toz=fcz-pz[i];
+    // ── CENTER PULL — the ONLY thing keeping the mass together globally ──
+    const tox=fcx-px[i],toy=fcy-py[i],toz=fcz-pz[i];
     const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
     if(fd>0.1){
-      const pull = W_CENTER * fd;
-      sumX += (tox/fd) * pull;
-      sumY += (toy/fd) * pull * 0.3;
-      sumZ += (toz/fd) * pull;
+      const pull = W_CENTER * fd; // linear with distance
+      sumX += (tox/fd)*pull;
+      sumY += (toy/fd)*pull*0.3;
+      sumZ += (toz/fd)*pull;
     }
     
     // ── NOISE ──
-    const t = Math.random()*Math.PI*2, z2 = (Math.random()-0.5)*0.4;
-    const rr = Math.sqrt(1-z2*z2);
-    sumX += Math.cos(t)*rr * W_NOISE;
-    sumY += z2 * W_NOISE;
-    sumZ += Math.sin(t)*rr * W_NOISE;
+    const t=Math.random()*Math.PI*2, z2=(Math.random()-0.5)*0.3;
+    const rr=Math.sqrt(1-z2*z2);
+    sumX += Math.cos(t)*rr*W_NOISE;
+    sumY += z2*W_NOISE;
+    sumZ += Math.sin(t)*rr*W_NOISE;
     
     // ── FLATTEN ──
-    sumY -= vy[i] * 3; // damp vertical
-    sumY -= (py[i]-fcy) * 0.5; // pull to flock Y plane
+    sumY -= vy[i]*4;
+    sumY -= (py[i]-fcy)*0.4;
     
-    // ── NORMALIZE to constant speed (Eq 9: Θ operator) ──
-    const len = Math.sqrt(sumX*sumX+sumY*sumY+sumZ*sumZ);
-    if(len > 0.001){
-      nvx[i] = (sumX/len) * V0;
-      nvy[i] = (sumY/len) * V0;
-      nvz[i] = (sumZ/len) * V0;
+    // ── NORMALIZE to V0 ──
+    const len=Math.sqrt(sumX*sumX+sumY*sumY+sumZ*sumZ);
+    if(len>0.001){
+      nvx[i]=(sumX/len)*V0;
+      nvy[i]=(sumY/len)*V0;
+      nvz[i]=(sumZ/len)*V0;
     } else {
-      nvx[i]=vx[i]; nvy[i]=vy[i]; nvz[i]=vz[i];
+      nvx[i]=vx[i];nvy[i]=vy[i];nvz[i]=vz[i];
     }
   }
   
-  // Apply
   for(let i=0;i<N;i++){
-    vx[i]=nvx[i]; vy[i]=nvy[i]; vz[i]=nvz[i];
-    px[i]+=vx[i]; py[i]+=vy[i]; pz[i]+=vz[i];
+    vx[i]=nvx[i];vy[i]=nvy[i];vz[i]=nvz[i];
+    px[i]+=vx[i];py[i]+=vy[i];pz[i]+=vz[i];
   }
 }
 
 // ═══ RENDERING ═══
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 document.body.appendChild(renderer.domElement);
 
-const scene = new THREE.Scene();
-const skyCanvas = document.createElement('canvas');
+const scene=new THREE.Scene();
+const skyCanvas=document.createElement('canvas');
 skyCanvas.width=1;skyCanvas.height=512;
 const sctx=skyCanvas.getContext('2d');
 const grad=sctx.createLinearGradient(0,0,0,512);
@@ -223,9 +218,9 @@ const camera=new THREE.PerspectiveCamera(50,window.innerWidth/window.innerHeight
 
 const bGeo=new THREE.BufferGeometry();
 bGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array([
-  0,0,-0.15, 0,0.03,-0.15, 0,0,0.3,
-  0,0,-0.08, -0.25,0,0, 0,0,0.08,
-  0,0,0.08, 0.25,0,0, 0,0,-0.08
+  0,0,-0.12,0,0.025,-0.12,0,0,0.22,
+  0,0,-0.06,-0.2,0,0,0,0,0.06,
+  0,0,0.06,0.2,0,0,0,0,-0.06
 ]),3));
 bGeo.computeVertexNormals();
 const bMat=new THREE.MeshBasicMaterial({color:0x080604,side:THREE.DoubleSide});
@@ -238,12 +233,11 @@ for(let i=0;i<N;i++){
 }
 
 let camCx=0,camCy=0,camCz=0;
-let fpsFrames=0,fpsLast=performance.now();
+let fpsF=0,fpsL=performance.now();
 
 function animate(){
   requestAnimationFrame(animate);
-  update();
-  update(); // 2 steps per frame
+  update();update(); // 2 steps/frame
   
   for(let i=0;i<N;i++){
     meshes[i].position.set(px[i],py[i],pz[i]);
@@ -254,9 +248,7 @@ function animate(){
   let cx=0,cy=0,cz=0;
   for(let i=0;i<N;i++){cx+=px[i];cy+=py[i];cz+=pz[i];}
   cx/=N;cy/=N;cz/=N;
-  camCx+=(cx-camCx)*0.03;
-  camCy+=(cy-camCy)*0.03;
-  camCz+=(cz-camCz)*0.03;
+  camCx+=(cx-camCx)*0.03;camCy+=(cy-camCy)*0.03;camCz+=(cz-camCz)*0.03;
   
   const ct=performance.now()*0.00001;
   camera.position.set(camCx+Math.sin(ct)*45,camCy+6,camCz+Math.cos(ct)*45);
@@ -264,9 +256,8 @@ function animate(){
   
   renderer.render(scene,camera);
   
-  fpsFrames++;
-  const now=performance.now();
-  if(now-fpsLast>1000){document.title='Murmuration — '+fpsFrames+'fps';fpsFrames=0;fpsLast=now;}
+  fpsF++;const now=performance.now();
+  if(now-fpsL>1000){document.title='Murmuration — '+fpsF+'fps';fpsF=0;fpsL=now;}
 }
 animate();
 
