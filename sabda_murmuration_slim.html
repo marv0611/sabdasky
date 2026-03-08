@@ -777,7 +777,7 @@ saturnLoader1.load(saturnUrl1, gltf => {
 // 4. Group tension tether (Alex Scott NZ)
 // 5. Agitation wave propagation (Flock2 / Hoetzlein 2024)
 // ═══════════════════════════════════════════════════════
-const FLOCK_SIZE = 800;
+const FLOCK_SIZE = 1000;
 const FLOCK_COUNT = 2;
 const MNC = 7;
 const M_MIN_SPEED = 0.06;
@@ -785,22 +785,22 @@ const M_MAX_SPEED = 0.14;
 const M_SEPARATION_R2 = 0.09;  // 0.3^2 — very tight collision zone for dense packing
 const M_ALIGNMENT_R2 = 9.0;    // 3.0^2 — tighter neighbor interaction
 
-// Bird = dark speck. NOT individually visible. Just dots forming a mass.
+// Bird = small dark speck. Visible as dot at radius 26. Not individually detailed.
 const birdShape = new THREE.BufferGeometry();
 birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-  0,0.004,0.08,  0.012,0,0,  -0.012,0,0,
-  0.012,0,0,  0,-0.003,-0.05,  -0.012,0,0,
-  -0.012,0,0,  -0.06,0.002,-0.01,  0,0,-0.015,
-  0.012,0,0,  0,0,-0.015,  0.06,0.002,-0.01,
-  0,-0.003,-0.05,  -0.007,-0.003,-0.06,  0.007,-0.003,-0.06,
+  0,0.006,0.12,  0.018,0,0,  -0.018,0,0,
+  0.018,0,0,  0,-0.004,-0.08,  -0.018,0,0,
+  -0.018,0,0,  -0.09,0.003,-0.015,  0,0,-0.02,
+  0.018,0,0,  0,0,-0.02,  0.09,0.003,-0.015,
+  0,-0.004,-0.08,  -0.01,-0.004,-0.10,  0.01,-0.004,-0.10,
 ]), 3));
 birdShape.computeVertexNormals();
 const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.DoubleSide });
 
-// 2 flocks — FAR BACK. Always tiny. Always a mass. Never close to camera.
+// 2 flocks — background mass. Visible but always small.
 const flockOrbits = [
-  { radius: 35, y: 5, speed: 0.005, offset: 2.44 },
-  { radius: 35, y: 6, speed: 0.004, offset: 5.58 },
+  { radius: 26, y: 5.5, speed: 0.005, offset: 2.44 },
+  { radius: 26, y: 6.5, speed: 0.004, offset: 5.58 },
 ];
 
 const allFlocks = [];
@@ -852,11 +852,10 @@ function updateMurmuration(simTime, speedMult) {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // ── Orbiting center — far back, gentle wandering ──
+    // ── Orbiting center — stays at radius 25-28, gentle wandering ──
     const orb = f.orbit;
     const orbAngle = t * orb.speed * 10 + orb.offset;
-    // Minimal wobble — radius stays 33.5-36.5, never approaches camera
-    const wobbleR = orb.radius + Math.sin(orbAngle * 1.3) * 1 + Math.abs(Math.sin(orbAngle * 0.4)) * 0.5;
+    const wobbleR = orb.radius + Math.sin(orbAngle * 1.3) * 1.5;
     const orbY = orb.y + Math.sin(orbAngle * 0.7) * 0.5;
     const orbX = Math.sin(orbAngle) * wobbleR;
     const orbZ = Math.cos(orbAngle) * wobbleR;
