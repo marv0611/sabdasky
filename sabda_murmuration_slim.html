@@ -804,8 +804,8 @@ const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.Doubl
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 5.5, driftSpeed: 0.03, eventInterval: [12,28], zone: 'top' },
-  { startAngle: 0.79, y: 6.0, driftSpeed: 0.02, eventInterval: [18,35], zone: 'bottom' },
+  { startAngle: 3.93, y: 4.0, driftSpeed: 0.06, eventInterval: [10,22], zone: 'top' },
+  { startAngle: 0.79, y: 4.5, driftSpeed: 0.05, eventInterval: [14,28], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -825,8 +825,8 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     // Wind-drift system — flock travels with a slowly-turning wind
     windAngle: setup.startAngle,       // current wind heading
     windTargetAngle: setup.startAngle,  // target heading (slowly approached)
-    anchorX: Math.sin(setup.startAngle) * 18,  // current world position
-    anchorZ: Math.cos(setup.startAngle) * 18,
+    anchorX: Math.sin(setup.startAngle) * 10,  // current world position
+    anchorZ: Math.cos(setup.startAngle) * 10,
     anchorY: setup.y,
     driftSpeed: setup.driftSpeed,
     zone: setup.zone,  // 'top' = Left+Front walls, 'bottom' = Right+Back walls
@@ -885,14 +885,14 @@ function updateMurmuration(simTime, speedMult) {
     f.anchorY += Math.sin(simTime * 0.15 + fi * 3) * 0.002 * sm;
     const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
     
-    // Keep in radius ring 14-22 — hard position clamp if way out
-    if(anchorDist > 22) {
-      const scale = 21 / anchorDist;
-      f.anchorX *= scale; f.anchorZ *= scale; // snap back immediately
+    // Keep in radius ring 7-14 — closer to camera
+    if(anchorDist > 14) {
+      const scale = 13 / anchorDist;
+      f.anchorX *= scale; f.anchorZ *= scale;
       f.windTargetAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.6;
-      f.windAngle = f.windTargetAngle; // instant turn
-    } else if(anchorDist < 14) {
-      const scale = 15 / anchorDist;
+      f.windAngle = f.windTargetAngle;
+    } else if(anchorDist < 7) {
+      const scale = 8 / anchorDist;
       f.anchorX *= scale; f.anchorZ *= scale;
       f.windTargetAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.6;
       f.windAngle = f.windTargetAngle;
@@ -912,14 +912,14 @@ function updateMurmuration(simTime, speedMult) {
       // If really far out, teleport anchor back
       if(Math.abs(zoneDiff) > 1.5) {
         const newAngle = zoneCenter + (Math.random()-0.5)*0.6;
-        f.anchorX = Math.sin(newAngle) * 18;
-        f.anchorZ = Math.cos(newAngle) * 18;
+        f.anchorX = Math.sin(newAngle) * 10;
+        f.anchorZ = Math.cos(newAngle) * 10;
         f.windAngle = newAngle;
         f.windTargetAngle = newAngle + (Math.random()-0.5)*0.4;
       }
     }
     
-    f.anchorY = Math.max(4, Math.min(8, f.anchorY));
+    f.anchorY = Math.max(3, Math.min(6, f.anchorY));
     const orbX = f.anchorX, orbY = f.anchorY, orbZ = f.anchorZ;
     
     // Build grid for this flock
@@ -1186,16 +1186,12 @@ function updateMurmuration(simTime, speedMult) {
       ax += (tox/fd) * pullStr * Math.min(fd, 4);  // capped proportional
       az += (toz/fd) * pullStr * Math.min(fd, 4);
       ay += toy * pullStr * 0.15;
-      // SOFT ANCHOR — weak pull to origin prevents long-term drift
+      // NO soft anchor — that creates circular patterns. Formations only.
+      // HARD LEASH at 6 units — emergency only, formations keep birds within 4
       const dOrig = Math.sqrt(f.px[i]*f.px[i]+f.pz[i]*f.pz[i]);
-      if(dOrig > 3) {
-        ax += (-f.px[i]/dOrig) * 0.0004 * (dOrig-3);
-        az += (-f.pz[i]/dOrig) * 0.0004 * (dOrig-3);
-      }
-      // HARD LEASH at 5 units from origin
-      if(dOrig > 5){
-        ax += (-f.px[i]/dOrig) * (dOrig-5) * 0.08;
-        az += (-f.pz[i]/dOrig) * (dOrig-5) * 0.08;
+      if(dOrig > 6){
+        ax += (-f.px[i]/dOrig) * (dOrig-6) * 0.10;
+        az += (-f.pz[i]/dOrig) * (dOrig-6) * 0.10;
       }
       // Smooth per-bird drift — no randomness, continuous curves
       const birdSeed = i * 0.137 + fi * 7.3;
