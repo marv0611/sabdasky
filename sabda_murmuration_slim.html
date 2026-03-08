@@ -774,8 +774,8 @@ saturnLoader1.load(saturnUrl1, gltf => {
 const FLOCK_SIZE = 600;
 const FLOCK_COUNT = 2;
 const MNC = 7;
-const M_MIN_SPEED = 0.12;
-const M_MAX_SPEED = 0.30;
+const M_MIN_SPEED = 0.08;
+const M_MAX_SPEED = 0.20;
 
 const birdShape = new THREE.BufferGeometry();
 birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
@@ -809,7 +809,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     f.px[i] = Math.cos(a)*r;
     f.py[i] = (Math.random()-0.5)*4;
     f.pz[i] = Math.sin(a)*r;
-    const va = d0+(Math.random()-0.5)*0.3, sp = 0.15+Math.random()*0.08;
+    const va = d0+(Math.random()-0.5)*0.3, sp = 0.10+Math.random()*0.05;
     f.vx[i] = Math.cos(va)*sp; f.vy[i] = 0; f.vz[i] = Math.sin(va)*sp;
     const m = new THREE.Mesh(birdShape, birdMat);
     m.frustumCulled = false;
