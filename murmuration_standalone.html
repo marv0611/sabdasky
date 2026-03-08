@@ -20,13 +20,14 @@ const NC = 7; // topological neighbors
 const S = 3.0;
 
 // Paper params scaled
-const V0 = 0.05 * S;   // speed per timestep
-const ALPHA = 35;        // alignment strength
-const BETA = 5;          // cohesion/repulsion strength
+const V0 = 0.06 * S;   // speed per timestep
+const ALPHA = 25;        // alignment strength (was 35 — too dominant)
+const BETA = 12;         // cohesion/repulsion strength (was 5 — too weak)
 const R0 = 1.0 * S;     // max interaction distance
 const RB = 0.2 * S;     // hard core repulsion
 const RE = 0.5 * S;     // equilibrium distance
 const RA = 0.8 * S;     // attraction boundary
+const NC_NOISE = 3;      // noise strength (was 7 = NC — way too much)
 
 const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
 const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
@@ -83,10 +84,10 @@ function findNeighbors(i) {
 // Returns force magnitude (positive = repulsion, negative = attraction)
 // Direction is along e_ij (unit vector from j to i)
 function distanceForce(rij) {
-  if (rij < RB) return -100; // hard core — strong repulsion (paper says -infinity)
-  if (rij < RA) return 0.25 * (rij - RE) / (RA - RE); // Eq 12: repel if closer than RE, attract if further
-  if (rij < R0) return 1.0; // Eq 13: attraction at long range
-  return 0;
+  if (rij < RB) return -100; // hard core repulsion
+  if (rij < RA) return 0.25 * (rij - RE) / (RA - RE); // equilibrium spring
+  if (rij < R0) return 0.5; // long-range: ATTRACTION toward neighbor
+  return 0.2; // beyond R0: still pull gently to prevent escape
 }
 
 // Random unit vector on sphere
@@ -99,6 +100,11 @@ function randUnit() {
 
 function update() {
   buildGrid();
+  
+  // Flock center (compute once)
+  let fcx=0,fcy=0,fcz=0;
+  for(let i=0;i<N;i++){fcx+=px[i];fcy+=py[i];fcz+=pz[i];}
+  fcx/=N;fcy/=N;fcz/=N;
   
   // Compute new velocities (Eq 9)
   const nvx = new Float32Array(N), nvy = new Float32Array(N), nvz = new Float32Array(N);
@@ -127,31 +133,36 @@ function update() {
       const ex = (px[i]-px[nb.j])/d;
       const ey = (py[i]-py[nb.j])/d;
       const ez = (pz[i]-pz[nb.j])/d;
-      // Negative f = attraction (toward j), positive = repulsion (away from j)
-      // But paper Eq 12: when rij < re, (rij-re)/(ra-re) < 0, meaning force pushes TOWARD equilibrium
-      // Actually re-reading: f_ij is in direction e_ij. When r < re, (r-re) < 0, so force is negative = toward j = attraction
-      // When r > re, force is positive = away from j = repulsion... wait that's wrong for cohesion
-      // Let me re-read: Eq 12 says f = 1/4 * (r-re)/(ra-re) * e_ij
-      // When r < re: (r-re) is negative, force points opposite to e_ij, i.e., TOWARD j. Good — attraction.
-      // When r > re but < ra: positive, force away from j. That's repulsion. But re=0.5 and ra=0.8...
-      // Actually this creates an equilibrium at re. Below re=attract, above re=repel, beyond ra=attract again (eq13).
-      // Let me reconsider: Eq 13 says f(ra < r < r0) = e_ij. That's AWAY from j = repulsion?
-      // No wait — I think the convention might be different. Let me use: positive force = attract toward j
-      frcX += -f * ex * BETA; // negate because e_ij points from j to i
+      // e_ij points from j to i (away from neighbor)
+      // Convention: positive f = attraction, so we negate: -f*e = toward neighbor
+      frcX += -f * ex * BETA;
       frcY += -f * ey * BETA;
       frcZ += -f * ez * BETA;
     }
     
     // Noise: nc * η_i (random unit vector scaled by nc)
     const eta = randUnit();
-    const noiseX = NC * eta.x;
-    const noiseY = NC * eta.y;
-    const noiseZ = NC * eta.z;
+    const noiseX = NC_NOISE * eta.x;
+    const noiseY = NC_NOISE * eta.y;
+    const noiseZ = NC_NOISE * eta.z;
     
     // Sum (Eq 9 inside the brackets)
     let sumX = aliX + frcX + noiseX;
     let sumY = aliY + frcY + noiseY;
     let sumZ = aliZ + frcZ + noiseZ;
+    
+    // CENTER PULL — quadratic with distance from flock centroid
+    const tox=fcx-px[i], toy=fcy-py[i], toz=fcz-pz[i];
+    const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
+    if(fd>0.1){
+      const pull = 0.5 * fd;
+      sumX += (tox/fd) * pull;
+      sumY += (toy/fd) * pull * 0.3;
+      sumZ += (toz/fd) * pull;
+    }
+    
+    // Extra vertical flattening
+    sumY -= py[i] * 2.0;
     
     // Normalize Θ and multiply by v0
     const len = Math.sqrt(sumX*sumX + sumY*sumY + sumZ*sumZ);
