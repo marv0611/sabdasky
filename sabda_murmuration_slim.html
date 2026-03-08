@@ -807,8 +807,8 @@ const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.Doubl
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 7.0, driftSpeed: 0.10, eventInterval: [10,22], zone: 'top' },
-  { startAngle: 0.79, y: 7.5, driftSpeed: 0.08, eventInterval: [14,28], zone: 'bottom' },
+  { startAngle: 3.93, y: 4.5, driftSpeed: 0.10, eventInterval: [10,22], zone: 'top' },
+  { startAngle: 0.79, y: 5.0, driftSpeed: 0.08, eventInterval: [14,28], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -831,8 +831,8 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     // Wind-drift system — flock travels with a slowly-turning wind
     windAngle: setup.startAngle,
     windTargetAngle: setup.startAngle,
-    anchorX: Math.sin(setup.startAngle) * 10,
-    anchorZ: Math.cos(setup.startAngle) * 10,
+    anchorX: Math.sin(setup.startAngle) * 8,
+    anchorZ: Math.cos(setup.startAngle) * 8,
     anchorY: setup.y,
     driftSpeed: setup.driftSpeed,
     zone: setup.zone,
@@ -906,19 +906,19 @@ function updateMurmuration(simTime, speedMult) {
     // No fixed orbit. Soft boundaries keep them visible.
     // They sweep from back to front and out again.
     // ═══════════════════════════════════════════════════════
-    f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.001 * sm;
-    f.anchorY = Math.max(6, Math.min(10, f.anchorY));
+    f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.003 * sm; // stronger vertical movement
+    f.anchorY = Math.max(2, Math.min(8, f.anchorY)); // can go low (2) and high (8)
     
     const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
     
     let needsRedirect = false, redirectAngle = 0;
-    // Too far — bring back to front
-    if(anchorDist > 16) {
+    // Too far — max 12 (was 16) so they never become a tiny mass
+    if(anchorDist > 12) {
       needsRedirect = true;
       redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.2;
     }
-    // Too close to camera — push out slightly
-    if(anchorDist < 6) {
+    // Too close to camera
+    if(anchorDist < 5) {
       needsRedirect = true;
       redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.2;
     }
