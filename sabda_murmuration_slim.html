@@ -820,7 +820,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     orbit: orb,
     ctr: new THREE.Object3D(), // moving container
     pTimer: 0,
-    pNext: 30 + Math.random()*30,
+    pNext: 15 + Math.random()*20,
     breathPhase: Math.random() * Math.PI * 2,
   };
   const d0 = Math.random() * Math.PI * 2;
@@ -855,14 +855,14 @@ function updateMurmuration() {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // ── Orbiting center — flock travels a slow arc across the sky ──
+    // ── Orbiting center — flock travels an organic path across the sky ──
     const orb = f.orbit;
-    const orbAngle = t * orb.speed * 10 + orb.offset; // slow drift
-    // Wobble the y slightly for organic movement
-    const orbY = orb.y + Math.sin(orbAngle * 0.7) * 0.8;
-    // Arc across hemisphere — stays on its own side
-    const orbX = Math.sin(orbAngle) * orb.radius;
-    const orbZ = Math.cos(orbAngle) * orb.radius;
+    const orbAngle = t * orb.speed * 10 + orb.offset;
+    // Organic wobble — radius and height vary slowly
+    const wobbleR = orb.radius + Math.sin(orbAngle * 1.3) * 3 + Math.sin(orbAngle * 0.4) * 2;
+    const orbY = orb.y + Math.sin(orbAngle * 0.7) * 1.2 + Math.cos(orbAngle * 0.3) * 0.8;
+    const orbX = Math.sin(orbAngle) * wobbleR;
+    const orbZ = Math.cos(orbAngle) * wobbleR;
     
     // Build grid for this flock
     const grid = new Map();
@@ -872,49 +872,60 @@ function updateMurmuration() {
       grid.get(k).push(i);
     }
     
-    // ══ TECHNIQUE #5: Agitation wave propagation (Flock2/Hoetzlein) ══
-    // Visible shape changes, natural timing
+    // ══ MULTI-WAVE SYSTEM — dramatic density variation through interference ══
+    // Up to 3 active waves simultaneously. Where waves converge = dense dark core.
+    // Where they diverge = wispy transparent edge. This IS the murmuration look.
+    if(!f.waves) f.waves = [];
+    
     f.pTimer++;
     if(f.pTimer >= f.pNext){
       f.pTimer=0;
-      f.pNext = 25 + Math.random()*50; // 0.8-2.5 seconds — natural rhythm
+      // Varied rhythm — sometimes rapid reshaping, sometimes calm drift
+      f.pNext = 15 + Math.random()*35;
       
-      // Find edge bird
-      let _fcx=0,_fcy=0,_fcz=0;
-      for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
-      _fcx/=N;_fcy/=N;_fcz/=N;
-      let best=0,bestD=0;
-      for(let s=0;s<40;s++){
-        const i=(Math.random()*N)|0;
-        const dx=f.px[i]-_fcx,dy=f.py[i]-_fcy,dz=f.pz[i]-_fcz;
-        if(dx*dx+dy*dy+dz*dz>bestD){bestD=dx*dx+dy*dy+dz*dz;best=i;}
+      // Remove expired waves, keep max 3 active
+      f.waves = f.waves.filter(w => w.frame * w.speed < w.radius * 2.5);
+      if(f.waves.length < 3){
+        let _fcx=0,_fcy=0,_fcz=0;
+        for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
+        _fcx/=N;_fcy/=N;_fcz/=N;
+        
+        // Find edge bird
+        let best=0,bestD=0;
+        for(let s=0;s<50;s++){
+          const i=(Math.random()*N)|0;
+          const dx=f.px[i]-_fcx,dy=f.py[i]-_fcy,dz=f.pz[i]-_fcz;
+          if(dx*dx+dy*dy+dz*dz>bestD){bestD=dx*dx+dy*dy+dz*dz;best=i;}
+        }
+        
+        // Varied wave sizes — some sweep across whole flock, some are local
+        const isWide = Math.random() < 0.35;
+        f.waves.push({
+          ox: f.px[best], oy: f.py[best], oz: f.pz[best],
+          turn: (Math.random()-0.5) * (isWide ? 2.8 : 1.6),  // wide = bigger turn
+          radius: isWide ? (10 + Math.random()*8) : (4 + Math.random()*6),
+          speed: 0.25 + Math.random()*0.3,
+          frame: 0,
+        });
       }
-      
-      // Natural wave — visible turn, slow enough to look organic
-      f.waveOx=f.px[best]; f.waveOy=f.py[best]; f.waveOz=f.pz[best];
-      f.waveTurn=(Math.random()-0.5)*2.0;  // visible turns, organic
-      f.waveR = 5 + Math.random()*8;       // covers portion of compact flock
-      f.waveSpeed = 0.3 + Math.random()*0.25; // slow enough to see the ripple
-      f.waveFrame = 0;
-      f.hasWave2 = false;
     }
     
-    // Advance wave front — birds are turned gently as wave passes through
-    if(f.waveFrame !== undefined && f.waveFrame >= 0){
-      f.waveFrame++;
-      const waveFrontR = f.waveFrame * f.waveSpeed;
-      if(waveFrontR < f.waveR * 2) { // stop processing after wave has passed
+    // Advance all active waves — birds turn as each wave passes through
+    for(let w=0; w<f.waves.length; w++){
+      const wave = f.waves[w];
+      wave.frame++;
+      const wfR = wave.frame * wave.speed;
+      if(wfR < wave.radius * 2.5){
         for(let i=0;i<N;i++){
-          const dx=f.px[i]-f.waveOx, dy=f.py[i]-f.waveOy, dz=f.pz[i]-f.waveOz;
+          const dx=f.px[i]-wave.ox, dy=f.py[i]-wave.oy, dz=f.pz[i]-wave.oz;
           const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-          if(d < waveFrontR && d > waveFrontR - f.waveSpeed*2.0 && d < f.waveR){
-            const falloff = 1-(d/f.waveR);
+          if(d < wfR && d > wfR - wave.speed*2.5 && d < wave.radius){
+            const falloff = 1-(d/wave.radius);
             const ca=Math.atan2(f.vz[i],f.vx[i]);
-            const na=ca+f.waveTurn*falloff*falloff;
+            const na=ca+wave.turn*falloff*falloff;
             const sp=Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]);
             f.vx[i]=Math.cos(na)*sp; f.vz[i]=Math.sin(na)*sp;
-            // Soft response delay — reduce alignment, don't kill it
-            f.delayFrames[i] = 5 + (Math.random()*8)|0;
+            f.delayFrames[i] = 4 + (Math.random()*10)|0;
           }
         }
       }
@@ -986,23 +997,22 @@ function updateMurmuration() {
         ax += sepX; ay += sepY; az += sepZ;
         // Apply alignment with response delay scaling
         const aw = nc > 0 ? 1.0/nc : 0;
-        ax += (avx*aw - f.vx[i]) * 0.06 * alignScale;
-        ay += (avy*aw - f.vy[i]) * 0.06 * alignScale;
-        az += (avz*aw - f.vz[i]) * 0.06 * alignScale;
+        ax += (avx*aw - f.vx[i]) * 0.045 * alignScale;
+        ay += (avy*aw - f.vy[i]) * 0.045 * alignScale;
+        az += (avz*aw - f.vz[i]) * 0.045 * alignScale;
       }
-      // Center pull — ANCHOR to (0,0,0) local = flock center in world
-      // DRAMATIC breathing: near-zero pull during expand, strong during compress
+      // Center pull — VERY WEAK. Just prevents the flock from drifting to infinity.
+      // Density variation comes from WAVE INTERFERENCE, not center pull uniformity.
       const breathT = performance.now()*0.001;
-      const rawBreath = Math.sin(breathT * 0.25 + f.breathPhase); // ~25s cycle
-      const basePull = 0.00015;  // keeps mass dense but allows breathing
+      const rawBreath = Math.sin(breathT * 0.20 + f.breathPhase); // ~31s cycle
+      const basePull = 0.00006;  // weak — lets waves create density patterns
       const pullStrength = rawBreath > 0 
-        ? basePull * (1.0 + rawBreath * 0.8)   // compress: up to 1.8× — gentle squeeze
-        : basePull * Math.max(0.4, 1.0 + rawBreath * 0.6);  // expand: down to 40% — mass stays together
+        ? basePull * (1.0 + rawBreath * 1.5)   // compress: visible squeeze
+        : basePull * Math.max(0.1, 1.0 + rawBreath * 0.9);  // expand: nearly free — waves dominate
       const tox=-f.px[i],toy=-f.py[i],toz=-f.pz[i];
       const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
       if(fd>0.1){
-        // Distance-dependent: quadratic beyond 28 units to prevent runaway
-        const pull = fd < 15 ? pullStrength*fd : pullStrength*15 + (fd-15)*(fd-15)*0.0004;
+        const pull = fd < 15 ? pullStrength*fd : pullStrength*15 + (fd-15)*(fd-15)*0.0003;
         ax+=(tox/fd)*pull;ay+=(toy/fd)*pull*0.15;az+=(toz/fd)*pull;
       }
       // Wind — organic drift currents
@@ -1050,9 +1060,9 @@ function updateMurmuration() {
     }
     const extentX=maxExtX-minExtX, extentZ=maxExtZ-minExtZ;
     const maxExtent = Math.max(extentX, extentZ);
-    const TENSION_THRESHOLD = 22;
+    const TENSION_THRESHOLD = 25;
     if(maxExtent > TENSION_THRESHOLD){
-      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.0003;
+      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.0002;
       const outerR = maxExtent * 0.4; // outer ring
       for(let i=0;i<N;i++){
         const dx=f.px[i]-fcx, dz=f.pz[i]-fcz;
