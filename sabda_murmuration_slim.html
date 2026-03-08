@@ -869,55 +869,59 @@ const MGS = 3;
 
 function updateMurmuration(simTime, speedMult) {
   const sm = speedMult || 1;
-  const t = simTime * 0.3; // scene time scaled for orbit/wind (replaces performance.now()*0.0003)
+  const t = simTime * 0.3;
   
   for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // ── WIND DRIFT — gentle travel within zone ──
-    let angleDiff = f.windTargetAngle - f.windAngle;
-    if(angleDiff > 3.14) angleDiff -= 6.28;
-    if(angleDiff < -3.14) angleDiff += 6.28;
-    f.windAngle += angleDiff * 0.02 * sm; // FAST turn response
-    f.anchorX += Math.sin(f.windAngle) * f.driftSpeed * sm;
-    f.anchorZ += Math.cos(f.windAngle) * f.driftSpeed * sm;
-    f.anchorY += Math.sin(simTime * 0.15 + fi * 3) * 0.002 * sm;
-    const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
+    // ── WAYPOINT TRAVEL — flock flies toward random destinations ──
+    // No arcs, no orbits. Straight lines to random points = unpredictable paths.
+    if(!f.waypointX) {
+      // Init first waypoint
+      const zc = f.zone === 'top' ? 3.93 : 0.79;
+      const a = zc + (Math.random()-0.5)*1.8;
+      const r = 7 + Math.random()*7;
+      f.waypointX = Math.sin(a)*r;
+      f.waypointZ = Math.cos(a)*r;
+      f.waypointY = 3 + Math.random()*3;
+    }
+    // Move anchor toward waypoint
+    const dx = f.waypointX - f.anchorX;
+    const dz = f.waypointZ - f.anchorZ;
+    const dy = f.waypointY - f.anchorY;
+    const dist = Math.sqrt(dx*dx + dz*dz) + 0.01;
+    const speed = f.driftSpeed * sm;
+    f.anchorX += (dx/dist) * speed;
+    f.anchorZ += (dz/dist) * speed;
+    f.anchorY += dy * 0.01 * sm;
     
-    // Keep in radius ring 7-14 — closer to camera
-    if(anchorDist > 14) {
-      const scale = 13 / anchorDist;
-      f.anchorX *= scale; f.anchorZ *= scale;
-      f.windTargetAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.6;
-      f.windAngle = f.windTargetAngle;
-    } else if(anchorDist < 7) {
-      const scale = 8 / anchorDist;
-      f.anchorX *= scale; f.anchorZ *= scale;
-      f.windTargetAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.6;
-      f.windAngle = f.windTargetAngle;
+    // When close to waypoint, pick new random destination in zone
+    if(dist < 1.5) {
+      const zc = f.zone === 'top' ? 3.93 : 0.79;
+      // Random angle within zone ±80°, random radius 7-14
+      const a = zc + (Math.random()-0.5)*2.8;
+      const r = 7 + Math.random()*7;
+      f.waypointX = Math.sin(a)*r;
+      f.waypointZ = Math.cos(a)*r;
+      f.waypointY = 3 + Math.random()*3;
     }
     
-    // ZONE ENFORCEMENT — HARD. Each flock stays on its own 2-wall strip.
+    // ZONE SAFETY — if somehow outside zone, waypoint snaps back
     const heading = Math.atan2(f.anchorX, f.anchorZ);
     const zoneCenter = f.zone === 'top' ? 3.93 : 0.79;
     let zoneDiff = heading - zoneCenter;
     if(zoneDiff > 3.14) zoneDiff -= 6.28;
     if(zoneDiff < -3.14) zoneDiff += 6.28;
-    if(Math.abs(zoneDiff) > 1.0) { // 57° — tighter zone
-      // Force anchor back toward zone center
-      const backAngle = zoneCenter + (Math.random()-0.5)*0.8;
-      f.windTargetAngle = backAngle;
-      f.windAngle += (backAngle - f.windAngle) * 0.15; // fast correction
-      // If really far out, teleport anchor back
-      if(Math.abs(zoneDiff) > 1.5) {
-        const newAngle = zoneCenter + (Math.random()-0.5)*0.6;
-        f.anchorX = Math.sin(newAngle) * 10;
-        f.anchorZ = Math.cos(newAngle) * 10;
-        f.windAngle = newAngle;
-        f.windTargetAngle = newAngle + (Math.random()-0.5)*0.4;
-      }
+    if(Math.abs(zoneDiff) > 1.8) {
+      const a = zoneCenter + (Math.random()-0.5)*1.0;
+      f.waypointX = Math.sin(a)*10;
+      f.waypointZ = Math.cos(a)*10;
     }
+    // Radius safety
+    const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
+    if(anchorDist > 15) { const s=14/anchorDist; f.anchorX*=s; f.anchorZ*=s; }
+    if(anchorDist < 6) { const s=7/anchorDist; f.anchorX*=s; f.anchorZ*=s; }
     
     f.anchorY = Math.max(3, Math.min(6, f.anchorY));
     const orbX = f.anchorX, orbY = f.anchorY, orbZ = f.anchorZ;
@@ -943,8 +947,12 @@ function updateMurmuration(simTime, speedMult) {
       f.pNext = f.eventMin + Math.random() * (f.eventMax - f.eventMin);
       
       const zc = f.zone === 'top' ? 3.93 : 0.79;
-      // Shift wind within zone
-      f.windTargetAngle = zc + (Math.random()-0.5) * 1.4;
+      // New waypoint on each event — flock changes direction with each formation
+      const wpA = zc + (Math.random()-0.5)*2.8;
+      const wpR = 7 + Math.random()*7;
+      f.waypointX = Math.sin(wpA)*wpR;
+      f.waypointZ = Math.cos(wpA)*wpR;
+      f.waypointY = 3 + Math.random()*3;
       
       // ═══ FORMATION SYSTEM — 20 unique shapes ═══
       // Each bird gets its own target. The COLLECTION of targets forms a shape.
@@ -1353,7 +1361,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   // ── SKY WARMTH ──
   const skyPhase = ((time + 300)/1800)*Math.PI*2;  // +300s offset = start in blue Belfast phase
   const warmthRaw = (Math.sin(skyPhase)+1)/2;
-  const warmth = Math.pow(warmthRaw, 2.5);  // strong bias toward Belfast (blue) ~80/20
+  const warmth = Math.pow(warmthRaw, 4.0);  // very strong bias toward Belfast (blue) ~90/10
   skySphereMat.uniforms.mixVal.value = 1.0 - warmth;  // warmth=1 → sky A (evening), warmth=0 → sky B (belfast)
 
   // Cloud bank colour sync — warm pink when evening sky, cool blue-grey when Belfast
