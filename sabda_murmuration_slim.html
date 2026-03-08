@@ -777,7 +777,7 @@ saturnLoader1.load(saturnUrl1, gltf => {
 // 4. Group tension tether (Alex Scott NZ)
 // 5. Agitation wave propagation (Flock2 / Hoetzlein 2024)
 // ═══════════════════════════════════════════════════════
-const FLOCK_SIZE = 1200;
+const FLOCK_SIZE = 1500;
 const FLOCK_COUNT = 2;
 const MNC = 7;
 const M_MIN_SPEED = 0.06;
@@ -817,6 +817,9 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     delayFrames: new Uint8Array(FLOCK_SIZE),
     prevHdg: new Float32Array(FLOCK_SIZE),
     waveTime: new Float32Array(FLOCK_SIZE),
+    // Per-bird personality — like shooting stars, each bird is slightly different
+    speedMult: new Float32Array(FLOCK_SIZE),  // 0.7-1.3 — some faster, some slower
+    responsiveness: new Float32Array(FLOCK_SIZE),  // 0.6-1.4 — some react fast, some lazy
     meshes: [],
     // Wind-drift system — flock travels with a slowly-turning wind
     windAngle: setup.startAngle,       // current wind heading
@@ -842,7 +845,9 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     f.vx[i] = Math.cos(va)*sp; f.vy[i] = 0; f.vz[i] = Math.sin(va)*sp;
     f.prevHdg[i] = va;
     f.delayFrames[i] = 0;
-    f.waveTime[i] = 999;  // no active wave
+    f.waveTime[i] = 999;
+    f.speedMult[i] = 0.7 + Math.random()*0.6;       // 0.7-1.3
+    f.responsiveness[i] = 0.6 + Math.random()*0.8;   // 0.6-1.4
     const m = new THREE.Mesh(birdShape, birdMat);
     m.frustumCulled = false;
     contentScene.add(m);
@@ -853,7 +858,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
 console.log('SABDA: Murmuration v17 —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, '=', FLOCK_COUNT*FLOCK_SIZE, 'birds (5 behavioral upgrades)');
 
 // Shared pre-allocated buffers
-const _mNearby = new Int32Array(512);
+const _mNearby = new Int32Array(768);
 const _mNbIdx = new Int32Array(MNC), _mNbD2 = new Float32Array(MNC);
 const MGS = 3;
 
@@ -930,8 +935,9 @@ function updateMurmuration(simTime, speedMult) {
         // GUST — brief directional push
         const gustStr = 0.006 + Math.random()*0.006;
         for(let i=0;i<N;i++){
-          f.vx[i] += Math.sin(f.windAngle) * gustStr;
-          f.vz[i] += Math.cos(f.windAngle) * gustStr;
+          const r2 = f.responsiveness[i];
+          f.vx[i] += Math.sin(f.windAngle) * gustStr * r2;
+          f.vz[i] += Math.cos(f.windAngle) * gustStr * r2;
         }
         f.currentPull = 0.0014 + Math.random()*0.0006;
       }
@@ -941,9 +947,10 @@ function updateMurmuration(simTime, speedMult) {
         for(let i=0;i<N;i++){
           const dx=_fcx-f.px[i], dy=_fcy-f.py[i], dz=_fcz-f.pz[i];
           const d=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
-          f.vx[i] += dx/d * crushStr;
-          f.vy[i] += dy/d * crushStr * 0.3;
-          f.vz[i] += dz/d * crushStr;
+          const r2 = f.responsiveness[i];
+          f.vx[i] += dx/d * crushStr * r2;
+          f.vy[i] += dy/d * crushStr * 0.3 * r2;
+          f.vz[i] += dz/d * crushStr * r2;
         }
         f.currentPull = 0.0025 + Math.random()*0.0015; // extreme pull
       }
@@ -963,8 +970,9 @@ function updateMurmuration(simTime, speedMult) {
         const sx=Math.cos(axA), sz=Math.sin(axA);
         for(let i=0;i<N;i++){
           const side = ((f.px[i]-_fcx)*sx+(f.pz[i]-_fcz)*sz) > 0 ? 1 : -1;
-          f.vx[i] += sx * side * 0.012;
-          f.vz[i] += sz * side * 0.012;
+          const r2 = f.responsiveness[i];
+          f.vx[i] += sx * side * 0.012 * r2;
+          f.vz[i] += sz * side * 0.012 * r2;
         }
         f.currentPull = 0.0018 + Math.random()*0.0008; // strong snap back
       }
@@ -1038,7 +1046,7 @@ function updateMurmuration(simTime, speedMult) {
       const gx=(f.px[i]/MGS)|0,gy=(f.py[i]/MGS)|0,gz=(f.pz[i]/MGS)|0;
       for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
         const cell=grid.get((gx+a)+','+(gy+b)+','+(gz+c));
-        if(cell)for(let n=0;n<cell.length;n++){if(nearCount<512)_mNearby[nearCount++]=cell[n];}
+        if(cell)for(let n=0;n<cell.length;n++){if(nearCount<768)_mNearby[nearCount++]=cell[n];}
       }
       for(let k=0;k<MNC;k++){_mNbIdx[k]=-1;_mNbD2[k]=1e9;}
       const mx=f.px[i],my=f.py[i],mz=f.pz[i];
@@ -1055,61 +1063,66 @@ function updateMurmuration(simTime, speedMult) {
       let nc=0; for(let k=0;k<MNC;k++)if(_mNbIdx[k]>=0)nc++;
       
       let ax=0,ay=0,az=0;
+      const resp = f.responsiveness[i]; // this bird's personality
       if(nc>0){
-        // ══ TECHNIQUE #1: Per-bird response delay (Cavagna/Giardina) ══
-        // Recently turned birds have reduced alignment — creates soft wave front
         const delayLeft = f.delayFrames[i];
-        const alignScale = delayLeft > 0 ? 0.25 : 1.0; // 25% alignment during delay
+        const alignScale = delayLeft > 0 ? 0.25 : 1.0;
         if(delayLeft > 0) f.delayFrames[i] = Math.max(0, delayLeft - sm);
         
-        // ══ TECHNIQUE #2: Cosine force blending (Three.js GPGPU) ══
-        // Smooth transitions between separation and alignment zones
         let avx=0,avy=0,avz=0;
+        let apx=0,apy=0,apz=0;  // average POSITION of neighbors
         let sepX=0,sepY=0,sepZ=0;
         for(let k=0;k<nc;k++){
           const j=_mNbIdx[k];
           const d2=_mNbD2[k];
           const d=Math.sqrt(d2);
           
+          // Neighbor position for LOCAL cohesion
+          apx += f.px[j]; apy += f.py[j]; apz += f.pz[j];
+          
           if(d2 < M_SEPARATION_R2 && d > 0.01){
-            // Separation zone — cosine falloff (strongest at center)
             const pct = d2 / M_SEPARATION_R2;
-            const sepForce = (1.0 - pct) * 0.02; // weak — allows dense packing
+            const sepForce = (1.0 - pct) * 0.02;
             sepX += (f.px[i]-f.px[j])/d * sepForce;
             sepY += (f.py[i]-f.py[j])/d * sepForce * 0.3;
             sepZ += (f.pz[i]-f.pz[j])/d * sepForce;
           }
           if(d2 < M_ALIGNMENT_R2){
-            // Alignment zone — cosine blend (zero at edge, full at center)
             const pct = d2 / M_ALIGNMENT_R2;
-            const w = 0.5 - Math.cos(pct * 3.14159) * 0.5; // smooth cosine blend
+            const w = 0.5 - Math.cos(pct * 3.14159) * 0.5;
             avx += f.vx[j] * w;
             avy += f.vy[j] * w;
             avz += f.vz[j] * w;
           }
         }
-        // Apply separation
         ax += sepX; ay += sepY; az += sepZ;
-        // Apply alignment with response delay scaling
-        const aw = nc > 0 ? 1.0/nc : 0;
-        ax += (avx*aw - f.vx[i]) * 0.10 * alignScale;
-        ay += (avy*aw - f.vy[i]) * 0.10 * alignScale;
-        az += (avz*aw - f.vz[i]) * 0.10 * alignScale;
+        const aw = 1.0/nc;
+        ax += (avx*aw - f.vx[i]) * 0.10 * alignScale * resp;
+        ay += (avy*aw - f.vy[i]) * 0.10 * alignScale * resp;
+        az += (avz*aw - f.vz[i]) * 0.10 * alignScale * resp;
+        
+        // ══ LOCAL NEIGHBOR COHESION — pull toward neighbor center, NOT global center ══
+        // This means the mass compacts into whatever shape it currently has,
+        // not always into a circle. Elongated shapes tighten as elongated.
+        // Split groups tighten independently before merging.
+        apx *= aw; apy *= aw; apz *= aw; // avg neighbor position (local coords)
+        const cohX = apx - f.px[i], cohY = apy - f.py[i], cohZ = apz - f.pz[i];
+        const cohD = Math.sqrt(cohX*cohX + cohY*cohY + cohZ*cohZ) + 0.01;
+        const cohStr = f.currentPull * resp * 8.0; // scaled up since this is local not global
+        ax += (cohX/cohD) * cohStr * Math.min(cohD, 3);
+        ay += (cohY/cohD) * cohStr * Math.min(cohD, 3) * 0.2;
+        az += (cohZ/cohD) * cohStr * Math.min(cohD, 3);
       }
-      // Center pull — set by events. Default very strong = dense ball is home.
-      const myPull = f.currentPull;
-      // Per-bird variation — outer birds pulled harder (prevents stragglers)
-      // Inner birds pulled softer (allows dense core to breathe)
+      // SOFT GLOBAL ANCHOR — very weak, just prevents infinite drift
       const tox=-f.px[i],toy=-f.py[i],toz=-f.pz[i];
       const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
-      if(fd>0.1){
-        const distFactor = 0.6 + (fd / 5.0) * 0.8; // outer=1.4x, inner=0.6x
-        const pull = fd < 3.5 ? myPull*fd*distFactor : myPull*3.5*distFactor + (fd-3.5)*(fd-3.5)*0.006;
-        ax+=(tox/fd)*pull;ay+=(toy/fd)*pull*0.2;az+=(toz/fd)*pull;
+      if(fd > 3){
+        const anchorPull = 0.0003 * (fd - 3); // only kicks in beyond 3 units
+        ax+=(tox/fd)*anchorPull; az+=(toz/fd)*anchorPull;
       }
-      // HARD LEASH — tighter, 5 units max
-      if(fd > 5){
-        const leash = (fd - 5) * 0.08;
+      // HARD LEASH — absolute max 6 units
+      if(fd > 6){
+        const leash = (fd - 6) * 0.06;
         ax += (tox/fd) * leash;
         az += (toz/fd) * leash;
       }
@@ -1134,8 +1147,9 @@ function updateMurmuration(simTime, speedMult) {
       f.prevHdg[i] = curHdg;
       // Gentle modulation — max 20% slowdown during hard turns
       const turnSpeedMod = 1.0 - turnRate * 0.5;  // subtle: slight slowdown during turns
-      const dynMinSpeed = M_MIN_SPEED * Math.max(0.7, turnSpeedMod);
-      const dynMaxSpeed = M_MAX_SPEED * Math.max(0.7, turnSpeedMod);
+      const birdSpeed = f.speedMult[i]; // 0.7-1.3 — each bird's own pace
+      const dynMinSpeed = M_MIN_SPEED * Math.max(0.7, turnSpeedMod) * birdSpeed;
+      const dynMaxSpeed = M_MAX_SPEED * Math.max(0.7, turnSpeedMod) * birdSpeed;
       
       const spd=Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i]);
       if(spd>dynMaxSpeed){const s=dynMaxSpeed/spd;f.vx[i]*=s;f.vy[i]*=s;f.vz[i]*=s;}
