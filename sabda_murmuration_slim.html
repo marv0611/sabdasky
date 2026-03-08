@@ -780,8 +780,8 @@ saturnLoader1.load(saturnUrl1, gltf => {
 const FLOCK_SIZE = 1500;
 const FLOCK_COUNT = 2;
 const MNC = 7;
-const M_MIN_SPEED = 0.07;
-const M_MAX_SPEED = 0.13;
+const M_MIN_SPEED = 0.06;
+const M_MAX_SPEED = 0.12;
 const M_SEPARATION_R2 = 0.02;  // 0.14^2 — birds can nearly overlap for extreme density
 const M_ALIGNMENT_R2 = 9.0;    // 3.0^2 — tighter neighbor interaction
 
@@ -875,30 +875,31 @@ function updateMurmuration(simTime, speedMult) {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // ── ERRATIC ANCHOR — sharp random direction changes like a butterfly ──
+    // ── SMOOTH ANCHOR — banks into turns like a bird, never snaps direction ──
     if(!f.moveAngle) f.moveAngle = Math.random()*6.28;
+    if(!f.targetAngle) f.targetAngle = f.moveAngle;
     if(!f.moveTimer) f.moveTimer = 0;
-    if(!f.moveDuration) f.moveDuration = 1 + Math.random()*3; // 1-4 seconds per direction
+    if(!f.moveDuration) f.moveDuration = 3 + Math.random()*5;
     
-    f.moveTimer += sm / 30; // convert frames to approx seconds
+    f.moveTimer += sm / 30;
     if(f.moveTimer >= f.moveDuration) {
       f.moveTimer = 0;
-      f.moveDuration = 0.5 + Math.random()*3; // next leg: 0.5-3.5 seconds
-      // SHARP turn — new direction can be ANYTHING within zone
+      f.moveDuration = 3 + Math.random()*6; // 3-9 seconds between new targets
       const zc = f.zone === 'top' ? 3.93 : 0.79;
-      // Sometimes toward zone center, sometimes tangent, sometimes away then back
       const turnType = Math.random();
       if(turnType < 0.3) {
-        // Toward center area
-        f.moveAngle = zc + (Math.random()-0.5)*1.0;
-      } else if(turnType < 0.6) {
-        // Sharp random turn — any direction
-        f.moveAngle += 1.5 + Math.random()*3.0; // 85°-270° turn
+        f.targetAngle = zc + (Math.random()-0.5)*1.2;
+      } else if(turnType < 0.7) {
+        f.targetAngle += 0.8 + Math.random()*1.5; // gentle to medium arc
       } else {
-        // Reverse or near-reverse
-        f.moveAngle += 2.5 + Math.random()*1.5; // 143°-230° turn
+        f.targetAngle += 1.5 + Math.random()*1.5; // wider sweeping turn
       }
     }
+    // GRADUAL turn toward target — this creates ARCS not corners
+    let angleDiff = f.targetAngle - f.moveAngle;
+    if(angleDiff > 3.14) angleDiff -= 6.28;
+    if(angleDiff < -3.14) angleDiff += 6.28;
+    f.moveAngle += angleDiff * 0.015 * sm; // slow turn rate = wide smooth arcs
     
     const speed = f.driftSpeed * sm;
     const dx_anchor = Math.sin(f.moveAngle) * speed;
@@ -906,7 +907,6 @@ function updateMurmuration(simTime, speedMult) {
     f.anchorX += dx_anchor;
     f.anchorZ += dz_anchor;
     f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.002 * sm;
-    // Store anchor velocity as unit vector for weathercock injection
     const anchorSpd = Math.sqrt(dx_anchor*dx_anchor + dz_anchor*dz_anchor) + 0.001;
     f.anchorVX = dx_anchor / anchorSpd;
     f.anchorVZ = dz_anchor / anchorSpd;
@@ -918,18 +918,18 @@ function updateMurmuration(simTime, speedMult) {
     if(zoneDiff > 3.14) zoneDiff -= 6.28;
     if(zoneDiff < -3.14) zoneDiff += 6.28;
     if(Math.abs(zoneDiff) > 1.5) {
-      f.moveAngle = zoneCenter + (Math.random()-0.5)*0.8;
-      f.moveDuration = 2 + Math.random()*2; // give it time to get back
+      f.targetAngle = zoneCenter + (Math.random()-0.5)*0.8;
+      f.moveDuration = 4 + Math.random()*3;
       f.moveTimer = 0;
     }
-    // Radius containment
+    // Radius containment — smooth curve back
     const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
     if(anchorDist > 14) {
-      f.moveAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.0;
+      f.targetAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.8;
       f.moveTimer = 0;
     }
     if(anchorDist < 6) {
-      f.moveAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.0;
+      f.targetAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.8;
       f.moveTimer = 0;
     }
     
@@ -961,22 +961,22 @@ function updateMurmuration(simTime, speedMult) {
       // fast birds snap to new direction, slow birds trail behind = organic shapes.
       const turnType = Math.random();
       if(turnType < 0.4) {
-        // CRUSH — very strong pull, tight dense mass
-        f.currentPull = 0.005 + Math.random()*0.003;
-        f.moveAngle += 1.0 + Math.random()*2.5; // turn while crushing
-        f.moveDuration = 1 + Math.random()*2;
+        // COMPRESS — tighter pull, flock gathers as it curves
+        f.currentPull = 0.004 + Math.random()*0.002;
+        f.targetAngle += 0.6 + Math.random()*1.5; // gentle arc
+        f.moveDuration = 4 + Math.random()*4;
         f.moveTimer = 0;
       } else if(turnType < 0.7) {
-        // RELEASE — weak pull, mass expands as birds spread at different speeds
-        f.currentPull = 0.0008 + Math.random()*0.0008;
-        f.moveAngle += 2.0 + Math.random()*2.0; // sharp turn during release = whip
-        f.moveDuration = 0.5 + Math.random()*1.5;
+        // RELEASE — weak pull, flock stretches along the curve
+        f.currentPull = 0.0010 + Math.random()*0.0010;
+        f.targetAngle += 1.0 + Math.random()*1.5; // wider sweeping arc
+        f.moveDuration = 3 + Math.random()*3;
         f.moveTimer = 0;
       } else {
-        // REVERSAL — flip direction, creates dramatic fold-over
+        // LONG CURVE — gradual 180° arc, flock folds over itself beautifully
         f.currentPull = 0.002 + Math.random()*0.002;
-        f.moveAngle += 2.8 + Math.random()*0.8; // near-180° turn
-        f.moveDuration = 1 + Math.random()*2;
+        f.targetAngle += 2.0 + Math.random()*1.5; // big arc over many seconds
+        f.moveDuration = 5 + Math.random()*5;
         f.moveTimer = 0;
       }
     }
@@ -1021,51 +1021,61 @@ function updateMurmuration(simTime, speedMult) {
       const resp = f.responsiveness[i];
       
       if(nc>0){
-        // ── ALIGNMENT (Heisenberg coupling J·Σ ~sj) ──
-        // Each bird steers toward the AVERAGE VELOCITY DIRECTION of its 7 nearest neighbors.
-        // This is the force that creates coherent flocking and propagates directional
-        // information across the entire flock with scale-free correlations.
-        let avx=0,avy=0,avz=0;
+        // ── ALIGNMENT as ANGULAR STEERING ──
+        // Instead of pushing velocity linearly toward neighbor direction,
+        // we ROTATE the velocity vector gradually toward it.
+        // This creates banking arcs — like a bird tilting into a turn.
+        let avx=0,avz=0;
         for(let k=0;k<nc;k++){
           const j=_mNbIdx[k];
-          // Normalize neighbor velocity to unit vector — we align DIRECTION not speed
-          const ns = Math.sqrt(f.vx[j]*f.vx[j]+f.vy[j]*f.vy[j]+f.vz[j]*f.vz[j])+0.001;
+          const ns = Math.sqrt(f.vx[j]*f.vx[j]+f.vz[j]*f.vz[j])+0.001;
           avx += f.vx[j]/ns;
-          avy += f.vy[j]/ns;
           avz += f.vz[j]/ns;
         }
-        avx /= nc; avy /= nc; avz /= nc;
-        // My velocity direction
-        const ms = Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i])+0.001;
-        const mvx=f.vx[i]/ms, mvy=f.vy[i]/ms, mvz=f.vz[i]/ms;
-        // Alignment force = J * (neighbor_avg_direction - my_direction)
-        const J = 0.015 * resp; // coupling strength (Bialek's J)
-        ax += (avx - mvx) * J;
-        ay += (avy - mvy) * J * 0.3; // weaker vertical alignment
-        az += (avz - mvz) * J;
+        avx /= nc; avz /= nc;
+        // My heading and neighbor average heading
+        const myHdg = Math.atan2(f.vx[i], f.vz[i]);
+        const nbHdg = Math.atan2(avx, avz);
+        let hdgDiff = nbHdg - myHdg;
+        if(hdgDiff > 3.14159) hdgDiff -= 6.28318;
+        if(hdgDiff < -3.14159) hdgDiff += 6.28318;
+        // Apply small fraction of angle difference per frame = smooth turn
+        const turnRate = 0.02 * resp; // max ~1.1° per frame = silky smooth arcs
+        const turn = hdgDiff * turnRate;
+        // Rotate velocity vector by 'turn' radians
+        const cs = Math.cos(turn), sn = Math.sin(turn);
+        const nvx = f.vx[i]*cs + f.vz[i]*sn;
+        const nvz = -f.vx[i]*sn + f.vz[i]*cs;
+        f.vx[i] = nvx;
+        f.vz[i] = nvz;
         
-        // ── SOFT SEPARATION — prevents collapse to point ──
+        // ── SOFT SEPARATION ──
         for(let k=0;k<nc;k++){
-          if(_mNbD2[k] < 0.06 && _mNbD2[k] > 0.0001){ // within ~0.25 units
+          if(_mNbD2[k] < 0.06 && _mNbD2[k] > 0.0001){
             const j=_mNbIdx[k];
             const d=Math.sqrt(_mNbD2[k]);
-            const str = (1 - d/0.25) * 0.003;
+            const str = (1 - d/0.25) * 0.002;
             ax += (f.px[i]-f.px[j])/d * str;
             az += (f.pz[i]-f.pz[j])/d * str;
           }
         }
       }
       
-      // ── ANCHOR DIRECTION INJECTION (Kumar et al. "weathercock effect") ──
-      // The anchor's VELOCITY propagates through the flock via alignment, 
-      // not its POSITION. Birds near anchor get nudged in the anchor's travel direction.
-      // This is like wind affecting a weathercock — flow reorients nearby particles.
+      // ── ANCHOR DIRECTION INJECTION as ANGULAR STEERING ──
+      // Birds near anchor gently steer toward anchor's travel direction.
       const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
-      if(fd < 3.0) { // only birds near the anchor (within ~3 units)
-        const proximity = 1.0 - fd/3.0; // strongest at center
-        const dirStr = 0.004 * proximity * resp;
-        ax += f.anchorVX * dirStr;
-        az += f.anchorVZ * dirStr;
+      if(fd < 3.5) {
+        const proximity = 1.0 - fd/3.5;
+        const anchorHdg = Math.atan2(f.anchorVX, f.anchorVZ);
+        const myHdg2 = Math.atan2(f.vx[i], f.vz[i]);
+        let hd2 = anchorHdg - myHdg2;
+        if(hd2 > 3.14159) hd2 -= 6.28318;
+        if(hd2 < -3.14159) hd2 += 6.28318;
+        const anchorTurn = hd2 * 0.008 * proximity * resp;
+        const cs2 = Math.cos(anchorTurn), sn2 = Math.sin(anchorTurn);
+        const av2 = f.vx[i]*cs2 + f.vz[i]*sn2;
+        const bv2 = -f.vx[i]*sn2 + f.vz[i]*cs2;
+        f.vx[i] = av2; f.vz[i] = bv2;
       }
       
       // ── VERY WEAK position tether — just prevents infinite drift ──
@@ -1093,9 +1103,9 @@ function updateMurmuration(simTime, speedMult) {
       
       // ── VELOCITY UPDATE with damping (Kumar: Γv term) ──
       // Heavy damping = smooth flight. Velocity relaxes toward the force direction.
-      f.vx[i] = f.vx[i]*0.97 + ax; 
-      f.vy[i] = f.vy[i]*0.95 + ay;
-      f.vz[i] = f.vz[i]*0.97 + az;
+      f.vx[i] = f.vx[i]*0.985 + ax; 
+      f.vy[i] = f.vy[i]*0.96 + ay;
+      f.vz[i] = f.vz[i]*0.985 + az;
       
       // ══ TECHNIQUE #3: Variable speed during turns (StarDisplay/Hildenbrandt) ══
       // Subtle: turning birds slow slightly, straight birds drift faster
