@@ -679,7 +679,7 @@ contentScene.add(planetGroup);
     // Center horizontally at phi=PI/2 (faces +Z direction in planet space)
     const phiStart = Math.PI/2 - phiLen/2;
     // 10% below equator: shift theta down
-    const thetaOffset = 0.12;
+    const thetaOffset = 0.22; // lower on planet (was 0.12)
     const thetaStart = Math.PI/2 - thetaLen/2 + thetaOffset;
     
     const logoGeo = new THREE.SphereGeometry(R, 48, 12, phiStart, phiLen, thetaStart, thetaLen);
@@ -830,8 +830,8 @@ saturnLoader1.load(saturnUrl1, gltf => {
 const FLOCK_SIZE = 1500;
 const FLOCK_COUNT = 2;
 const MNC = 7;
-const M_MIN_SPEED = 0.045;
-const M_MAX_SPEED = 0.144;
+const M_MIN_SPEED = 0.036;
+const M_MAX_SPEED = 0.115;
 const M_SEP_DIST = 0.25;       // Exclusion zone with cosine falloff
 const M_SEP_R2 = M_SEP_DIST*M_SEP_DIST;
 const M_WAVE_SPEED = 0.4;      // Wave front expansion: units per frame
@@ -857,8 +857,8 @@ const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.Doubl
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 4.5, driftSpeed: 0.09, eventInterval: [10,22], zone: 'top' },
-  { startAngle: 0.79, y: 5.0, driftSpeed: 0.072, eventInterval: [14,28], zone: 'bottom' },
+  { startAngle: 3.93, y: 4.5, driftSpeed: 0.065, eventInterval: [10,22], zone: 'top' },
+  { startAngle: 0.79, y: 5.0, driftSpeed: 0.055, eventInterval: [14,28], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -967,8 +967,8 @@ function updateMurmuration(simTime, speedMult) {
       needsRedirect = true;
       redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.0;
     }
-    // Too close
-    if(anchorDist < 5) {
+    // Too close — keep flock at comfortable distance for meditation room
+    if(anchorDist < 7) {
       needsRedirect = true;
       redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.0;
     }
@@ -994,7 +994,7 @@ function updateMurmuration(simTime, speedMult) {
     // disappears and never returns. This applies a continuous correction
     // to EVERY bird, every frame, growing stronger with distance.
     if(needsRedirect && anchorDist > 0) {
-      const urgency = Math.max(0, (anchorDist - 10) * 0.03); // ramps up past 10
+      const urgency = Math.max(0, (anchorDist - 10) * 0.03, (7 - anchorDist) * 0.04); // also corrects when too close
       const zoneUrgency = Math.max(0, (Math.abs(zoneDiff) - 1.2) * 0.02);
       const totalUrgency = Math.min(0.15, urgency + zoneUrgency); // cap at 15% rotation per frame
       if(totalUrgency > 0.001) {
