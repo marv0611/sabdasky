@@ -875,66 +875,9 @@ function updateMurmuration(simTime, speedMult) {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // ── SMOOTH ANCHOR — banks into turns like a bird, never snaps direction ──
-    if(!f.moveAngle) f.moveAngle = Math.random()*6.28;
-    if(!f.targetAngle) f.targetAngle = f.moveAngle;
-    if(!f.moveTimer) f.moveTimer = 0;
-    if(!f.moveDuration) f.moveDuration = 3 + Math.random()*5;
-    
-    f.moveTimer += sm / 30;
-    if(f.moveTimer >= f.moveDuration) {
-      f.moveTimer = 0;
-      f.moveDuration = 3 + Math.random()*6; // 3-9 seconds between new targets
-      const zc = f.zone === 'top' ? 3.93 : 0.79;
-      const turnType = Math.random();
-      if(turnType < 0.3) {
-        f.targetAngle = zc + (Math.random()-0.5)*1.2;
-      } else if(turnType < 0.7) {
-        f.targetAngle += 0.8 + Math.random()*1.5; // gentle to medium arc
-      } else {
-        f.targetAngle += 1.5 + Math.random()*1.5; // wider sweeping turn
-      }
-    }
-    // GRADUAL turn toward target — this creates ARCS not corners
-    let angleDiff = f.targetAngle - f.moveAngle;
-    if(angleDiff > 3.14) angleDiff -= 6.28;
-    if(angleDiff < -3.14) angleDiff += 6.28;
-    f.moveAngle += angleDiff * 0.025 * sm; // moderate turn rate
-    
-    const speed = f.driftSpeed * sm;
-    const dx_anchor = Math.sin(f.moveAngle) * speed;
-    const dz_anchor = Math.cos(f.moveAngle) * speed;
-    f.anchorX += dx_anchor;
-    f.anchorZ += dz_anchor;
-    f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.002 * sm;
-    const anchorSpd = Math.sqrt(dx_anchor*dx_anchor + dz_anchor*dz_anchor) + 0.001;
-    f.anchorVX = dx_anchor / anchorSpd;
-    f.anchorVZ = dz_anchor / anchorSpd;
-    
-    // Zone containment — redirect toward zone center if straying
-    const heading = Math.atan2(f.anchorX, f.anchorZ);
-    const zoneCenter = f.zone === 'top' ? 3.93 : 0.79;
-    let zoneDiff = heading - zoneCenter;
-    if(zoneDiff > 3.14) zoneDiff -= 6.28;
-    if(zoneDiff < -3.14) zoneDiff += 6.28;
-    if(Math.abs(zoneDiff) > 1.5) {
-      f.targetAngle = zoneCenter + (Math.random()-0.5)*0.8;
-      f.moveDuration = 4 + Math.random()*3;
-      f.moveTimer = 0;
-    }
-    // Radius containment — smooth curve back
-    const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
-    if(anchorDist > 14) {
-      f.targetAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.8;
-      f.moveTimer = 0;
-    }
-    if(anchorDist < 6) {
-      f.targetAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.8;
-      f.moveTimer = 0;
-    }
-    
-    f.anchorY = Math.max(3, Math.min(6, f.anchorY));
-    const orbX = f.anchorX, orbY = f.anchorY, orbZ = f.anchorZ;
+    // Flock is SELF-DIRECTED — no external anchor movement.
+    // Position tracked via re-centering (after bird loop).
+    // Direction changes via nudges (in event system).
     
     // Build grid for this flock
     const grid = new Map();
@@ -951,39 +894,71 @@ function updateMurmuration(simTime, speedMult) {
     // Pull always climbs toward 0.0040 — dense is always where it wants to be
     f.currentPull = Math.min(0.0040, f.currentPull + 0.00005 * sm);
     
+    // ── NO ANCHOR DRIFT — flock moves itself through alignment ──
+    // Anchor position is ONLY updated by re-centering (flock's own drift).
+    // Zone enforcement steers the flock by nudging edge birds.
+    f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.001 * sm;
+    
+    // ZONE ENFORCEMENT — steer the flock by nudging birds on the leading edge
+    const heading = Math.atan2(f.anchorX, f.anchorZ);
+    const zoneCenter = f.zone === 'top' ? 3.93 : 0.79;
+    let zoneDiff = heading - zoneCenter;
+    if(zoneDiff > 3.14) zoneDiff -= 6.28;
+    if(zoneDiff < -3.14) zoneDiff += 6.28;
+    const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
+    
+    // If flock has drifted out of zone or radius, nudge birds to turn
+    let needsRedirect = false;
+    let redirectAngle = 0;
+    if(Math.abs(zoneDiff) > 1.3) {
+      needsRedirect = true;
+      redirectAngle = zoneCenter + (Math.random()-0.5)*0.6;
+    }
+    if(anchorDist > 14) {
+      needsRedirect = true;
+      redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.5;
+    }
+    if(anchorDist < 6) {
+      needsRedirect = true;
+      redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*0.5;
+    }
+    
+    f.anchorY = Math.max(3, Math.min(6, f.anchorY));
+
+    // ── EVENTS — inject direction changes into random subset of birds ──
     f.pTimer += sm;
-    if(f.pTimer >= f.pNext){
+    if(f.pTimer >= f.pNext || needsRedirect){
       f.pTimer = 0;
       f.pNext = f.eventMin + Math.random() * (f.eventMax - f.eventMin);
       
-      // On each event: sharp anchor direction change + pull change
-      // This is ALL the shape variety needs. When anchor turns sharply,
-      // fast birds snap to new direction, slow birds trail behind = organic shapes.
-      const turnType = Math.random();
-      if(turnType < 0.4) {
-        // COMPRESS — tighter pull, flock gathers as it curves
-        f.currentPull = 0.004 + Math.random()*0.002;
-        f.targetAngle += 0.6 + Math.random()*1.5; // gentle arc
-        f.moveDuration = 4 + Math.random()*4;
-        f.moveTimer = 0;
-      } else if(turnType < 0.7) {
-        // RELEASE — weak pull, flock stretches along the curve
-        f.currentPull = 0.0010 + Math.random()*0.0010;
-        f.targetAngle += 1.0 + Math.random()*1.5; // wider sweeping arc
-        f.moveDuration = 3 + Math.random()*3;
-        f.moveTimer = 0;
+      // Pick a new travel direction
+      const zc = f.zone === 'top' ? 3.93 : 0.79;
+      let newDir;
+      if(needsRedirect) {
+        newDir = redirectAngle;
       } else {
-        // LONG CURVE — gradual 180° arc, flock folds over itself beautifully
-        f.currentPull = 0.002 + Math.random()*0.002;
-        f.targetAngle += 2.0 + Math.random()*1.5; // big arc over many seconds
-        f.moveDuration = 5 + Math.random()*5;
-        f.moveTimer = 0;
+        // Random new direction — but stay roughly in zone
+        newDir = zc + (Math.random()-0.5)*2.5;
+      }
+      
+      // Nudge 20-40% of birds toward new direction (edge birds + random sample)
+      const nudgeFrac = 0.2 + Math.random()*0.2;
+      const nudgeCount = (N * nudgeFrac)|0;
+      for(let ni=0;ni<nudgeCount;ni++){
+        const bi = (Math.random()*N)|0;
+        const bHdg = Math.atan2(f.vx[bi], f.vz[bi]);
+        let diff = newDir - bHdg;
+        if(diff>3.14)diff-=6.28; if(diff<-3.14)diff+=6.28;
+        // Gentle nudge — rotate velocity 5-15% toward new direction
+        const nudge = diff * (0.05 + Math.random()*0.10) * f.responsiveness[bi];
+        const nc2=Math.cos(nudge), ns2=Math.sin(nudge);
+        const tv=f.vx[bi], tz=f.vz[bi];
+        f.vx[bi]=tv*nc2+tz*ns2;
+        f.vz[bi]=-tv*ns2+tz*nc2;
       }
     }
-    // Between events, pull slowly tightens — dense is default
-    f.currentPull = Math.min(0.005, f.currentPull + 0.00003 * sm);
     
-    // Flock center (for tension and mesh offset)
+    // Flock center (for tension)
     let fcx=0,fcy=0,fcz=0;
     for(let i=0;i<N;i++){fcx+=f.px[i];fcy+=f.py[i];fcz+=f.pz[i];}
     fcx/=N;fcy/=N;fcz/=N;
@@ -1073,29 +1048,16 @@ function updateMurmuration(simTime, speedMult) {
         }
       }
       
-      // ── ANCHOR COHESION — steer toward local origin (=anchor) ──
-      // This MOVES the flock with the anchor across the sky.
-      // Also angular steering = smooth arcs, never radial snap.
-      const fd=Math.sqrt(f.px[i]*f.px[i]+f.pz[i]*f.pz[i])+0.01;
-      const anchorHdg=Math.atan2(-f.px[i],-f.pz[i]); // toward origin
-      const myH3=Math.atan2(f.vx[i],f.vz[i]);
-      let anDiff=anchorHdg-myH3;
-      if(anDiff>3.14159)anDiff-=6.28318;
-      if(anDiff<-3.14159)anDiff+=6.28318;
-      // Strength grows with distance — close birds barely feel it, far birds curve back
-      const anchorStr=Math.max(0,(fd-1.0)*0.006)*resp;
-      const anTurn=anDiff*anchorStr;
-      if(Math.abs(anTurn)>0.0001){
-        const ncs=Math.cos(anTurn),nsn=Math.sin(anTurn);
-        const tvx=f.vx[i],tvz=f.vz[i];
-        f.vx[i]=tvx*ncs+tvz*nsn;
-        f.vz[i]=-tvx*nsn+tvz*ncs;
-      }
+      // ── NO ANCHOR FORCE — zero center-point attraction ──
+      // Any force toward a center = orbital mechanics = circles.
+      // Instead: flock holds together through COHESION alone.
+      // Re-centering (below the bird loop) keeps local coords near origin.
       
-      // Hard leash at 5 — emergency
-      if(fd>5){
-        ax+=(-f.px[i]/fd)*(fd-5)*0.06;
-        az+=(-f.pz[i]/fd)*(fd-5)*0.06;
+      // Hard leash at 6 — emergency only, should rarely trigger
+      const fd=Math.sqrt(f.px[i]*f.px[i]+f.pz[i]*f.pz[i])+0.01;
+      if(fd>6){
+        ax+=(-f.px[i]/fd)*(fd-6)*0.04;
+        az+=(-f.pz[i]/fd)*(fd-6)*0.04;
       }
       
       // ── LANGEVIN NOISE — smooth per-bird ──
@@ -1162,8 +1124,22 @@ function updateMurmuration(simTime, speedMult) {
       }
     }
     
-    // Update meshes — positioned relative to orbiting center
-    const cx=orbX, cy=orbY, cz=orbZ;
+    // ── RE-CENTER — the key trick that eliminates circles ──
+    // Subtract flock centroid from all bird positions.
+    // This keeps birds near origin WITHOUT any radial force.
+    // Add the drift to the anchor so the world position still moves.
+    // Result: in local space, birds only feel cohesion/alignment/separation.
+    // No center point. No orbits. No circles.
+    let rcx=0,rcz=0;
+    for(let i=0;i<N;i++){rcx+=f.px[i];rcz+=f.pz[i];}
+    rcx/=N; rcz/=N;
+    for(let i=0;i<N;i++){f.px[i]-=rcx; f.pz[i]-=rcz;}
+    // Transfer centroid drift to anchor (flock moves in world space)
+    f.anchorX += rcx;
+    f.anchorZ += rcz;
+    
+    // Update meshes — use UPDATED anchor position (includes flock drift)
+    const cx=f.anchorX, cy=f.anchorY, cz=f.anchorZ;
     for(let i=0;i<N;i++){
       const m=f.meshes[i];
       const wx=f.px[i]+cx, wy=f.py[i]+cy, wz=f.pz[i]+cz;
