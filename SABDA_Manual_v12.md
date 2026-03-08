@@ -1521,6 +1521,7 @@ HAP Q uses GPU-accelerated decompression but produces much larger files (~10×).
 | **v11.5** | **Shooting star dome-following with Rodrigues rotation, 50/50 size mix (12-115 degree arc wall-crossers), bird physics overhaul (dt-scaled turns, hard teleport boundary, model flip by distance, organic flapping with sinusoidal modulation), projection optimization shader pipeline (S-curve contrast 80%, saturation boost 28%, black floor lift, highlight ceiling, edge softening), timelapse test mode (T key, 30x), 30-minute loop fade transition for birds, lighting adjustments for projector environments** |
 | **v12** | **Murmuration system: starling flock simulation with direct acceleration physics, zero-allocation hot loop, 7-neighbor topological interactions, edge perturbation wave propagation, free density variation (no equilibrium spring), SABDA scene integration with anchor-based positioning. Section 28 added to manual.** |
 | **v12.2** | **Murmuration v16: dramatic asymmetric breathing (near-zero expansion pull, 3.5× compression pull), dual-edge perturbation for fork/split shapes, speed increase to 0.12-0.30, alignment reduced to 0.05, quadratic containment pushed to 28 units. Lessons 119-121 added.** |
+| **v12.3** | **Murmuration v17: Five behavioral upgrades from research — agitation wave propagation (Flock2/Hoetzlein), per-bird response delay (Cavagna/Giardina), cosine force blending (Three.js GPGPU), variable speed during turns (StarDisplay), group tension tether (Alex Scott). Lessons 122-126 added.** |
 ---
 
 ## 20. Lessons Learned Log (v8 + v9 + v10 + v11 + v12 Additions)
@@ -1718,6 +1719,16 @@ Building on all v7 lessons (1-30), v8 adds lessons 31-42, v9 adds lessons 43-49,
 120. **(v12.2 — Murmuration) Dual-edge perturbation creates fork/split shapes.** Instead of always perturbing one edge, occasionally (20%) fire from both opposite edges with opposing turn angles. This creates the dramatic fork/split/ribbon shapes seen in real murmurations where the flock tears apart momentarily then reconnects. The opposing bird is found by reflecting the primary edge bird through the centroid.
 
 121. **(v12.2 — Murmuration) Bird speed must scale with scene — SABDA birds were 2.5× too slow.** Standalone used speeds 0.2-0.5 producing dramatic stretching. SABDA initially used 0.08-0.20 — birds lacked momentum to stretch against even weak anchor pull. Increased to 0.12-0.30. Faster birds + weaker pull during expansion = actual visible breathing.
+
+122. **(v12.3 — Murmuration) Agitation waves must propagate at finite speed, not instant.** The single biggest visual improvement. Instead of all birds in a patch turning simultaneously, a wave front advances outward from the initiator at ~0.8 units/frame. Birds are turned only when the wave front passes through them. This creates visible dark ripples rolling across the flock — the defining visual feature of real murmurations. Source: Hoetzlein "Flock2" (2024).
+
+123. **(v12.3 — Murmuration) Per-bird response delay creates wave fronts.** When a bird is hit by a wave, it resists alignment for 8-20 frames. During this delay, the bird flies in its new direction while neighbors haven't yet responded. This temporal gap IS the visible wave front — a region where adjacent birds fly different directions, creating the density differential visible as a dark pulse. Source: Cavagna/Giardina PNAS 2012.
+
+124. **(v12.3 — Murmuration) Cosine force blending eliminates jitter.** Hard cutoffs between separation and alignment zones cause visible jittering as birds rapidly switch between regimes. Smooth cosine interpolation (`0.5 - cos(pct * PI) * 0.5`) blends forces continuously. Source: Three.js GPGPU birds example.
+
+125. **(v12.3 — Murmuration) Variable speed during turns creates natural density.** Birds turning hard decelerate, straight-flying birds accelerate. This emerges from real aerodynamics (banking costs energy). The visual result: inside of turns compresses (dark dense core), outside stretches (wispy edge). Implemented by measuring heading change per frame and modulating speed limits. Source: StarDisplay (Hildenbrandt/Hemelrijk).
+
+126. **(v12.3 — Murmuration) Group tension tether prevents permanent splits.** Instead of strong center pull (which kills stretching), detect when flock extent exceeds a threshold and apply gentle elastic pull only to outermost birds. Allows dramatic 35+ unit ribbons and funnels while ensuring the flock always reconnects. Source: Alex Scott NZ murmuration reference.
 
 122. **(v12.3 — Murmuration) Asymmetric breathing fixes the speed problem — don't need high speed.** With near-zero pull during expansion (5% of base), even 0.08-0.20 speed birds spread freely. The previous speed increase (0.12-0.30) was needed when breathing was symmetric ±50%. After implementing asymmetric breathing (compress=3.5×, expand=5%), speeds reduced back to 0.08-0.20 — still produces dramatic stretching because birds are essentially unanchored during expansion phase.
 
@@ -2171,7 +2182,7 @@ No changes to render.js needed — just update the HTML filename it opens.
 
 Starling murmuration flocks integrated into the SABDA 360° scene. Each flock is a group of individual `THREE.Mesh` birds running a boids-style simulation with topological 7-nearest-neighbor interactions. The visual target is the dense, shape-shifting cloud seen in real starling murmurations — not scattered dots.
 
-**Current state:** v16 direct acceleration model with dramatic asymmetric breathing, dual-edge perturbations, 2 flocks × 600 birds, speeds 0.08-0.20, anchored to front-hemisphere sky positions. Standalone test file: `murmuration_standalone.html`. Integrated scene: `sabda_murmuration_slim.html` assembled via `assemble_murmuration.py`.
+**Current state:** v17 with five behavioral upgrades — agitation wave propagation, per-bird response delay, cosine force blending, variable speed during turns, group tension tether. 2 flocks × 600 birds, speeds 0.10-0.28, separated 180° apart. Standalone: `murmuration_standalone.html`. Integrated: `sabda_murmuration_slim.html` via `assemble_murmuration.py`.
 
 ---
 
