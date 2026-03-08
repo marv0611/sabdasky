@@ -780,8 +780,8 @@ saturnLoader1.load(saturnUrl1, gltf => {
 const FLOCK_SIZE = 600;
 const FLOCK_COUNT = 2;
 const MNC = 7;
-const M_MIN_SPEED = 0.10;
-const M_MAX_SPEED = 0.28;
+const M_MIN_SPEED = 0.04;
+const M_MAX_SPEED = 0.10;
 const M_SEPARATION_R2 = 0.25;  // 0.5^2 — collision zone
 const M_ALIGNMENT_R2 = 16.0;   // 4.0^2 — neighbor interaction zone
 
@@ -816,10 +816,10 @@ birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
 birdShape.computeVertexNormals();
 const birdMat = new THREE.MeshBasicMaterial({ color: 0x080604, side: THREE.DoubleSide });
 
-// 2 flocks — separated ~180° so they never appear on the same wall
+// 2 flocks — distant atmospheric clouds, separated 180° apart
 const flockCenters = [
-  new THREE.Vector3(16, 5.0, -16),    // front-right quadrant
-  new THREE.Vector3(-16, 5.5, 16),    // back-left quadrant (opposite wall)
+  new THREE.Vector3(20, 6.0, -22),    // front-right, further back
+  new THREE.Vector3(-18, 6.5, 22),    // back-left, opposite wall
 ];
 
 const allFlocks = [];
@@ -837,7 +837,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     meshes: [],
     center: flockCenters[fi],
     pTimer: 0,
-    pNext: 30 + Math.random()*40,
+    pNext: 60 + Math.random()*60,
     breathPhase: Math.random() * Math.PI * 2,
   };
   const d0 = Math.random() * Math.PI * 2;
@@ -846,7 +846,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     f.px[i] = Math.cos(a)*r;
     f.py[i] = (Math.random()-0.5)*4;
     f.pz[i] = Math.sin(a)*r;
-    const va = d0+(Math.random()-0.5)*0.3, sp = 0.10+Math.random()*0.05;
+    const va = d0+(Math.random()-0.5)*0.3, sp = 0.05+Math.random()*0.03;
     f.vx[i] = Math.cos(va)*sp; f.vy[i] = 0; f.vz[i] = Math.sin(va)*sp;
     f.prevHdg[i] = va;
     f.delayFrames[i] = 0;
@@ -881,74 +881,49 @@ function updateMurmuration() {
     }
     
     // ══ TECHNIQUE #5: Agitation wave propagation (Flock2/Hoetzlein) ══
-    // Instead of instant perturbation, waves propagate outward over frames
+    // GENTLE — slow propagation, subtle turns, long intervals between waves
     f.pTimer++;
     if(f.pTimer >= f.pNext){
       f.pTimer=0;
-      const isBurst = Math.random() < 0.3;
-      const isDual = Math.random() < 0.2;
-      f.pNext = isBurst ? (6+Math.random()*10) : (12+Math.random()*25);
+      f.pNext = 40 + Math.random()*80; // 1.3-4 seconds between gentle waves
       
       // Find edge bird
       let _fcx=0,_fcy=0,_fcz=0;
       for(let i=0;i<N;i++){_fcx+=f.px[i];_fcy+=f.py[i];_fcz+=f.pz[i];}
       _fcx/=N;_fcy/=N;_fcz/=N;
       let best=0,bestD=0;
-      for(let s=0;s<60;s++){
+      for(let s=0;s<40;s++){
         const i=(Math.random()*N)|0;
         const dx=f.px[i]-_fcx,dy=f.py[i]-_fcy,dz=f.pz[i]-_fcz;
         if(dx*dx+dy*dy+dz*dz>bestD){bestD=dx*dx+dy*dy+dz*dz;best=i;}
       }
       
-      // Store wave origin and turn angle on the flock
+      // Gentle wave — small turn angle, slow propagation
       f.waveOx=f.px[best]; f.waveOy=f.py[best]; f.waveOz=f.pz[best];
-      f.waveTurn=(Math.random()-0.5)*4.2;
-      f.waveR = isBurst ? (12+Math.random()*14) : (7+Math.random()*11);
-      f.waveSpeed = 0.8 + Math.random()*0.4; // units per frame the wave front advances
-      f.waveFrame = 0; // wave age in frames
-      f.waveBurst = isBurst;
-      
-      // Dual wave from opposite edge
-      if(isDual){
-        f.wave2Ox=2*_fcx-f.px[best]; f.wave2Oz=2*_fcz-f.pz[best];
-        f.wave2Turn=-f.waveTurn*0.8; f.wave2R=f.waveR*0.8;
-        f.wave2Frame=0; f.hasWave2=true;
-      } else { f.hasWave2=false; }
+      f.waveTurn=(Math.random()-0.5)*1.4;  // max ±40° — gentle, not jarring
+      f.waveR = 8 + Math.random()*8;       // moderate patch size
+      f.waveSpeed = 0.3 + Math.random()*0.3; // slow wave front — takes 5-10s to cross flock
+      f.waveFrame = 0;
+      f.waveBurst = false;
+      f.hasWave2 = false;
     }
     
-    // Advance wave fronts — birds are hit when wave front reaches them
-    if(f.waveFrame !== undefined){
+    // Advance wave front — birds are turned gently as wave passes through
+    if(f.waveFrame !== undefined && f.waveFrame >= 0){
       f.waveFrame++;
-      const waveFrontR = f.waveFrame * f.waveSpeed; // current wave front radius
-      for(let i=0;i<N;i++){
-        const dx=f.px[i]-f.waveOx, dy=f.py[i]-f.waveOy, dz=f.pz[i]-f.waveOz;
-        const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-        // Bird gets hit when wave front passes through it
-        if(d < waveFrontR && d > waveFrontR - f.waveSpeed*1.5 && d < f.waveR){
-          const falloff = 1-(d/f.waveR);
-          const ca=Math.atan2(f.vz[i],f.vx[i]);
-          const na=ca+f.waveTurn*falloff*falloff;
-          const sp=Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]);
-          f.vx[i]=Math.cos(na)*sp; f.vz[i]=Math.sin(na)*sp;
-          if(f.waveBurst) f.vy[i]+=(Math.random()-0.5)*0.02*falloff;
-          // Set response delay — this bird will resist alignment for a few frames
-          f.delayFrames[i] = 8 + (Math.random()*12)|0;
-        }
-      }
-      // Same for dual wave
-      if(f.hasWave2){
-        f.wave2Frame++;
-        const wf2 = f.wave2Frame * f.waveSpeed;
+      const waveFrontR = f.waveFrame * f.waveSpeed;
+      if(waveFrontR < f.waveR * 2) { // stop processing after wave has passed
         for(let i=0;i<N;i++){
-          const dx=f.px[i]-f.wave2Ox, dz=f.pz[i]-f.wave2Oz;
-          const d=Math.sqrt(dx*dx+dz*dz);
-          if(d < wf2 && d > wf2 - f.waveSpeed*1.5 && d < f.wave2R){
-            const falloff=1-(d/f.wave2R);
+          const dx=f.px[i]-f.waveOx, dy=f.py[i]-f.waveOy, dz=f.pz[i]-f.waveOz;
+          const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+          if(d < waveFrontR && d > waveFrontR - f.waveSpeed*2.0 && d < f.waveR){
+            const falloff = 1-(d/f.waveR);
             const ca=Math.atan2(f.vz[i],f.vx[i]);
-            const na=ca+f.wave2Turn*falloff*falloff;
+            const na=ca+f.waveTurn*falloff*falloff;
             const sp=Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]);
             f.vx[i]=Math.cos(na)*sp; f.vz[i]=Math.sin(na)*sp;
-            f.delayFrames[i] = 8 + (Math.random()*12)|0;
+            // Soft response delay — reduce alignment, don't kill it
+            f.delayFrames[i] = 5 + (Math.random()*8)|0;
           }
         }
       }
@@ -985,9 +960,10 @@ function updateMurmuration() {
       let ax=0,ay=0,az=0;
       if(nc>0){
         // ══ TECHNIQUE #1: Per-bird response delay (Cavagna/Giardina) ══
-        // Birds recently hit by a wave resist alignment — creates visible wave front
-        const alignScale = f.delayFrames[i] > 0 ? 0.01 : 1.0; // nearly zero during delay
-        if(f.delayFrames[i] > 0) f.delayFrames[i]--;
+        // Recently turned birds have reduced alignment — creates soft wave front
+        const delayLeft = f.delayFrames[i];
+        const alignScale = delayLeft > 0 ? 0.3 : 1.0; // 30% alignment during delay, not zero
+        if(delayLeft > 0) f.delayFrames[i]--;
         
         // ══ TECHNIQUE #2: Cosine force blending (Three.js GPGPU) ══
         // Smooth transitions between separation and alignment zones
@@ -1026,12 +1002,11 @@ function updateMurmuration() {
       // Center pull — ANCHOR to (0,0,0) local = flock center in world
       // DRAMATIC breathing: near-zero pull during expand, strong during compress
       const breathT = performance.now()*0.001;
-      const rawBreath = Math.sin(breathT * 0.30 + f.breathPhase); // ~21s full cycle
-      // rawBreath > 0 = compress (strong pull), rawBreath < 0 = expand (nearly free)
-      const basePull = 0.00008;
+      const rawBreath = Math.sin(breathT * 0.18 + f.breathPhase); // ~35s full cycle — slow, meditative
+      const basePull = 0.00006;
       const pullStrength = rawBreath > 0 
-        ? basePull * (1.0 + rawBreath * 2.5)   // compress: up to 3.5× base
-        : basePull * Math.max(0.05, 1.0 + rawBreath * 0.95);  // expand: down to 5% of base
+        ? basePull * (1.0 + rawBreath * 1.2)   // compress: up to 2.2× — gentle squeeze
+        : basePull * Math.max(0.2, 1.0 + rawBreath * 0.8);  // expand: down to 20% — soft release
       const tox=-f.px[i],toy=-f.py[i],toz=-f.pz[i];
       const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
       if(fd>0.1){
@@ -1039,31 +1014,30 @@ function updateMurmuration() {
         const pull = fd < 28 ? pullStrength*fd : pullStrength*28 + (fd-28)*(fd-28)*0.0002;
         ax+=(tox/fd)*pull;ay+=(toy/fd)*pull*0.15;az+=(toz/fd)*pull;
       }
-      // Wind — slow organic currents (stronger for visible drift)
-      const wPhase = t + fi * 2.0; // offset per flock so they drift differently
-      ax+=Math.sin(wPhase*0.7+f.py[i]*0.1)*0.005;
-      az+=Math.cos(wPhase*0.5+f.px[i]*0.05)*0.005;
-      ay+=Math.sin(wPhase*0.3)*0.001;
-      // Noise — slightly stronger for density variation
-      ax+=(Math.random()-0.5)*0.010; az+=(Math.random()-0.5)*0.010;
+      // Wind — gentle organic drift
+      const wPhase = t + fi * 2.0;
+      ax+=Math.sin(wPhase*0.7+f.py[i]*0.1)*0.002;
+      az+=Math.cos(wPhase*0.5+f.px[i]*0.05)*0.002;
+      ay+=Math.sin(wPhase*0.3)*0.0005;
+      // Noise — minimal, just prevents perfect lattice
+      ax+=(Math.random()-0.5)*0.004; az+=(Math.random()-0.5)*0.004;
       // Flatten — keep flock disc-shaped like real murmurations
       ay-=f.vy[i]*0.20; ay-=f.py[i]*0.012;
       
       f.vx[i]+=ax; f.vy[i]+=ay; f.vz[i]+=az;
       
       // ══ TECHNIQUE #3: Variable speed during turns (StarDisplay/Hildenbrandt) ══
-      // Birds turning hard slow down, straight-flying birds speed up
-      // This creates natural density compression on inside of turns
+      // Subtle: turning birds slow slightly, straight birds drift faster
       const curHdg = Math.atan2(f.vz[i], f.vx[i]);
       let dHdg = curHdg - f.prevHdg[i];
       if(dHdg > 3.14159) dHdg -= 6.28318;
       if(dHdg < -3.14159) dHdg += 6.28318;
-      const turnRate = Math.abs(dHdg); // radians per frame
+      const turnRate = Math.abs(dHdg);
       f.prevHdg[i] = curHdg;
-      // Modulate speed: hard turns → slow down, straight → speed up
-      const turnSpeedMod = 1.0 - turnRate * 1.5; // turning at 0.3 rad/frame → 55% speed
-      const dynMinSpeed = M_MIN_SPEED * Math.max(0.5, turnSpeedMod);
-      const dynMaxSpeed = M_MAX_SPEED * Math.max(0.6, turnSpeedMod);
+      // Gentle modulation — max 20% slowdown during hard turns
+      const turnSpeedMod = 1.0 - turnRate * 0.6;
+      const dynMinSpeed = M_MIN_SPEED * Math.max(0.8, turnSpeedMod);
+      const dynMaxSpeed = M_MAX_SPEED * Math.max(0.8, turnSpeedMod);
       
       const spd=Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i]);
       if(spd>dynMaxSpeed){const s=dynMaxSpeed/spd;f.vx[i]*=s;f.vy[i]*=s;f.vz[i]*=s;}
@@ -1085,10 +1059,10 @@ function updateMurmuration() {
     }
     const extentX=maxExtX-minExtX, extentZ=maxExtZ-minExtZ;
     const maxExtent = Math.max(extentX, extentZ);
-    const TENSION_THRESHOLD = 35; // units — allow stretching up to this
+    const TENSION_THRESHOLD = 30;
     if(maxExtent > TENSION_THRESHOLD){
-      // Apply gentle inward pull only to birds in the outer 20% of the extent
-      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.0003;
+      // Apply very gentle inward pull only to outermost birds
+      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.0001;
       const outerR = maxExtent * 0.4; // outer ring
       for(let i=0;i<N;i++){
         const dx=f.px[i]-fcx, dz=f.pz[i]-fcz;
