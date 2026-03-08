@@ -899,12 +899,12 @@ function updateMurmuration() {
         }
         
         // Varied wave sizes — some sweep across whole flock, some are local
-        const isWide = Math.random() < 0.35;
+        const isWide = Math.random() < 0.4;
         f.waves.push({
           ox: f.px[best], oy: f.py[best], oz: f.pz[best],
-          turn: (Math.random()-0.5) * (isWide ? 2.8 : 1.6),  // wide = bigger turn
-          radius: isWide ? (10 + Math.random()*8) : (4 + Math.random()*6),
-          speed: 0.25 + Math.random()*0.3,
+          turn: (Math.random()-0.5) * (isWide ? 3.5 : 2.0),  // wide = dramatic sweep
+          radius: isWide ? (12 + Math.random()*10) : (5 + Math.random()*7),
+          speed: 0.3 + Math.random()*0.3,
           frame: 0,
         });
       }
@@ -964,7 +964,7 @@ function updateMurmuration() {
         // ══ TECHNIQUE #1: Per-bird response delay (Cavagna/Giardina) ══
         // Recently turned birds have reduced alignment — creates soft wave front
         const delayLeft = f.delayFrames[i];
-        const alignScale = delayLeft > 0 ? 0.3 : 1.0; // 30% alignment during delay, not zero
+        const alignScale = delayLeft > 0 ? 0.15 : 1.0; // 15% alignment during delay — sharper wave fronts
         if(delayLeft > 0) f.delayFrames[i]--;
         
         // ══ TECHNIQUE #2: Cosine force blending (Three.js GPGPU) ══
@@ -1004,11 +1004,15 @@ function updateMurmuration() {
       // Center pull — VERY WEAK. Just prevents the flock from drifting to infinity.
       // Density variation comes from WAVE INTERFERENCE, not center pull uniformity.
       const breathT = performance.now()*0.001;
-      const rawBreath = Math.sin(breathT * 0.20 + f.breathPhase); // ~31s cycle
-      const basePull = 0.00006;  // weak — lets waves create density patterns
+      // Two overlapping sine waves create irregular breathing rhythm
+      const breath1 = Math.sin(breathT * 0.20 + f.breathPhase); // ~31s
+      const breath2 = Math.sin(breathT * 0.13 + f.breathPhase * 1.7); // ~48s
+      const rawBreath = breath1 * 0.6 + breath2 * 0.4; // combined irregular rhythm
+      
+      const basePull = 0.00010;
       const pullStrength = rawBreath > 0 
-        ? basePull * (1.0 + rawBreath * 1.5)   // compress: visible squeeze
-        : basePull * Math.max(0.1, 1.0 + rawBreath * 0.9);  // expand: nearly free — waves dominate
+        ? basePull * (1.0 + rawBreath * 4.0)   // compress: up to 5× — tight dark ball
+        : basePull * Math.max(0.02, 1.0 + rawBreath * 0.98);  // expand: down to 2% — nearly free
       const tox=-f.px[i],toy=-f.py[i],toz=-f.pz[i];
       const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
       if(fd>0.1){
@@ -1036,9 +1040,9 @@ function updateMurmuration() {
       const turnRate = Math.abs(dHdg);
       f.prevHdg[i] = curHdg;
       // Gentle modulation — max 20% slowdown during hard turns
-      const turnSpeedMod = 1.0 - turnRate * 0.6;
-      const dynMinSpeed = M_MIN_SPEED * Math.max(0.8, turnSpeedMod);
-      const dynMaxSpeed = M_MAX_SPEED * Math.max(0.8, turnSpeedMod);
+      const turnSpeedMod = 1.0 - turnRate * 1.2;  // stronger: hard turns halve speed
+      const dynMinSpeed = M_MIN_SPEED * Math.max(0.5, turnSpeedMod);
+      const dynMaxSpeed = M_MAX_SPEED * Math.max(0.5, turnSpeedMod);
       
       const spd=Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i]);
       if(spd>dynMaxSpeed){const s=dynMaxSpeed/spd;f.vx[i]*=s;f.vy[i]*=s;f.vz[i]*=s;}
