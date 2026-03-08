@@ -780,8 +780,8 @@ saturnLoader1.load(saturnUrl1, gltf => {
 const FLOCK_SIZE = 1500;
 const FLOCK_COUNT = 2;
 const MNC = 7;
-const M_MIN_SPEED = 0.05;
-const M_MAX_SPEED = 0.16;
+const M_MIN_SPEED = 0.045;
+const M_MAX_SPEED = 0.144;
 const M_SEP_DIST = 0.25;       // Exclusion zone with cosine falloff
 const M_SEP_R2 = M_SEP_DIST*M_SEP_DIST;
 const M_WAVE_SPEED = 0.4;      // Wave front expansion: units per frame
@@ -807,8 +807,8 @@ const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.Doubl
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 4.5, driftSpeed: 0.10, eventInterval: [10,22], zone: 'top' },
-  { startAngle: 0.79, y: 5.0, driftSpeed: 0.08, eventInterval: [14,28], zone: 'bottom' },
+  { startAngle: 3.93, y: 4.5, driftSpeed: 0.09, eventInterval: [10,22], zone: 'top' },
+  { startAngle: 0.79, y: 5.0, driftSpeed: 0.072, eventInterval: [14,28], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -906,21 +906,36 @@ function updateMurmuration(simTime, speedMult) {
     // No fixed orbit. Soft boundaries keep them visible.
     // They sweep from back to front and out again.
     // ═══════════════════════════════════════════════════════
-    f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.003 * sm; // stronger vertical movement
-    f.anchorY = Math.max(2, Math.min(8, f.anchorY)); // can go low (2) and high (8)
+    f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.003 * sm;
+    f.anchorY = Math.max(2, Math.min(8, f.anchorY));
     
     const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
     
     let needsRedirect = false, redirectAngle = 0;
-    // Too far — max 12 (was 16) so they never become a tiny mass
+    // Too far
     if(anchorDist > 12) {
       needsRedirect = true;
-      redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.2;
+      redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.0;
     }
-    // Too close to camera
+    // Too close
     if(anchorDist < 5) {
       needsRedirect = true;
-      redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.2;
+      redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.0;
+    }
+    
+    // ── ZONE ENFORCEMENT — each flock stays on its 2-wall strip ──
+    // Top strip (flock 1) = Left+Front walls = zone center 225° (3.93 rad)
+    // Bottom strip (flock 2) = Right+Back walls = zone center 45° (0.79 rad)
+    // This guarantees BOTH screens always have at least one flock visible.
+    const heading = Math.atan2(f.anchorX, f.anchorZ);
+    const zoneCenter = f.zone === 'top' ? 3.93 : 0.79;
+    let zoneDiff = heading - zoneCenter;
+    if(zoneDiff > 3.14) zoneDiff -= 6.28;
+    if(zoneDiff < -3.14) zoneDiff += 6.28;
+    // Soft redirect at 80° from zone center
+    if(Math.abs(zoneDiff) > 1.4) {
+      needsRedirect = true;
+      redirectAngle = zoneCenter + (Math.random()-0.5)*1.2;
     }
     
     // ═══════════════════════════════════════════════════════
@@ -994,7 +1009,7 @@ function updateMurmuration(simTime, speedMult) {
       f.pTimer = 0;
       f.pNext = f.eventMin + Math.random() * (f.eventMax - f.eventMin);
       
-      const zc = Math.atan2(f.anchorX, f.anchorZ); // current heading = travel direction
+      const zc = f.zone === 'top' ? 3.93 : 0.79; // zone center, not current heading
       
       // Find edge bird — furthest from centroid, sampled from 50 candidates
       let edgeI = 0, edgeD2 = 0;
