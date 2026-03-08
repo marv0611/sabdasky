@@ -779,17 +779,17 @@ const M_MAX_SPEED = 0.20;
 
 const birdShape = new THREE.BufferGeometry();
 birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-  0,0,-0.5, 0,0.10,-0.5, 0,0,0.7,
-  0,0,-0.25, -0.7,0,0, 0,0,0.25,
-  0,0,0.25, 0.7,0,0, 0,0,-0.25
+  0,0,-0.18, 0,0.035,-0.18, 0,0,0.25,
+  0,0,-0.09, -0.25,0,0, 0,0,0.09,
+  0,0,0.09, 0.25,0,0, 0,0,-0.09
 ]), 3));
 birdShape.computeVertexNormals();
 const birdMat = new THREE.MeshBasicMaterial({ color: 0x0c0908, side: THREE.DoubleSide });
 
-// 2 flocks — front-facing, close enough to see, at bird height
+// 2 flocks — front-facing, lower in sky, close enough for small birds to read
 const flockCenters = [
-  new THREE.Vector3(20, 7, -15),    // front-right, slightly closer
-  new THREE.Vector3(-22, 8, -18),   // front-left, slightly higher
+  new THREE.Vector3(18, 4.5, -14),    // front-right
+  new THREE.Vector3(-18, 5.0, -16),   // front-left
 ];
 
 const allFlocks = [];
@@ -805,7 +805,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
   };
   const d0 = Math.random() * Math.PI * 2;
   for (let i = 0; i < FLOCK_SIZE; i++) {
-    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*30;
+    const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*18;
     f.px[i] = Math.cos(a)*r;
     f.py[i] = (Math.random()-0.5)*4;
     f.pz[i] = Math.sin(a)*r;
@@ -823,7 +823,7 @@ console.log('SABDA: Murmuration v15 —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, 
 // Shared pre-allocated buffers
 const _mNearby = new Int32Array(512);
 const _mNbIdx = new Int32Array(MNC), _mNbD2 = new Float32Array(MNC);
-const MGS = 12;
+const MGS = 6;
 
 function updateMurmuration() {
   const t = performance.now()*0.0003;
@@ -950,8 +950,8 @@ function updateMurmuration() {
         avx/=nc;avy/=nc;avz/=nc;
         ax+=(avx-f.vx[i])*0.05; ay+=(avy-f.vy[i])*0.05; az+=(avz-f.vz[i])*0.05;
         for(let k=0;k<nc;k++){
-          if(_mNbD2[k]<0.64&&_mNbD2[k]>0.0001){
-            const j=_mNbIdx[k],d=Math.sqrt(_mNbD2[k]),s=(0.8-d)/0.8;
+          if(_mNbD2[k]<0.16&&_mNbD2[k]>0.0001){
+            const j=_mNbIdx[k],d=Math.sqrt(_mNbD2[k]),s=(0.4-d)/0.4;
             ax+=(f.px[i]-f.px[j])/d*s*0.03; ay+=(f.py[i]-f.py[j])/d*s*0.01; az+=(f.pz[i]-f.pz[j])/d*s*0.03;
           }
         }
