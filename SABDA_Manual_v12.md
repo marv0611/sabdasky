@@ -2135,6 +2135,217 @@ No changes to render.js needed — just update the HTML filename it opens.
 
 ---
 
-*Manual v11 — February 2026*
+## 28. Murmuration System (v12)
+
+### Overview
+
+Starling murmuration flocks integrated into the SABDA 360° scene. Each flock is a group of individual `THREE.Mesh` birds running a boids-style simulation with topological 7-nearest-neighbor interactions. The visual target is the dense, shape-shifting cloud seen in real starling murmurations — not scattered dots.
+
+**Current state:** v15 direct acceleration model, 2 flocks × 300 birds, anchored to front-hemisphere sky positions. Standalone test file: `murmuration_standalone.html`. Integrated scene: `sabda_murmuration_slim.html` assembled via `assemble_murmuration.py`.
+
+---
+
+### 28.1 Rendering Constraints
+
+**What renders through CubeCamera:** Plain `THREE.Mesh` objects added to `contentScene`. Each bird is an individual mesh.
+
+**What does NOT render through CubeCamera (do not attempt):**
+- `THREE.Points` with custom shaders — invisible through CubeCamera
+- `InstancedMesh` — invisible through CubeCamera
+- GPGPU texture readback (`readRenderTargetPixels` with FloatType) — returns zeros silently
+
+**Practical bird count limit:** ~600-800 per flock before frame rate degrades. Performance must be managed through code optimization, not rendering tricks.
+
+---
+
+### 28.2 Performance: Zero-Allocation Hot Loop
+
+The neighbor-finding loop runs for every bird every frame. With 600 birds at 60fps = 36,000+ calls/second. ANY allocation in this loop causes garbage collector stalls → visible stuttering the user calls "laggy."
+
+**Causes of lagginess (confirmed through testing):**
+- `Array.push()` and `Array.sort()` inside neighbor loop
+- `Array.slice()` for top-K selection
+- Creating `{j, d2}` objects per candidate
+- `mesh.lookAt()` (internally creates temporary Matrix4, Vector3, Quaternion)
+
+**Required approach:**
+- Pre-allocated `Float32Array` / `Int32Array` for ALL buffers (positions, velocities, neighbor indices, neighbor distances, nearby cell results)
+- Insertion sort into fixed 7-slot typed array buffer (not full sort + slice)
+- `Math.atan2` + `Math.asin` for mesh rotation (not `lookAt()`)
+- Spatial hash grid with `Map` of arrays (grid rebuilds once per frame, acceptable)
+
+**Rule:** If it allocates inside the per-bird loop, it will stutter. No exceptions.
+
+---
+
+### 28.3 Physics Model: Direct Acceleration
+
+After testing normalization (PNAS Eq 9), inertia blending, direction-steering, and direct acceleration — only direct acceleration produces crisp, responsive, non-laggy movement.
+
+**The model:**
+```
+velocity += acceleration    // forces are small accelerations
+clamp(speed, MIN, MAX)      // prevent freeze or explosion
+position += velocity        // move
+```
+
+No normalization operator. No inertia blending parameter. No momentum accumulator. Velocity persists naturally between frames (Newton's first law). A bird turned by a perturbation keeps flying that direction until forces gradually bend it back. This allows different parts of the flock to fly different directions simultaneously → stretching, density variation, shape-shifting.
+
+**Why other approaches failed:**
+
+| Approach | Problem |
+|----------|---------|
+| Θ normalization (PNAS Eq 9) | Direction recomputed from scratch each frame → alignment always wins → rigid blob, no spreading |
+| High inertia blending (0.95-0.985) | Extra smoothing layer → laggy, mushy, unresponsive movement |
+| Direction-steering with turn rate limit | Capped at ~1.4°/frame → jerky, choppy, birds barely respond |
+
+**Key insight:** "High inertia" in boids is NOT a code parameter — it's an emergent property of small accelerations on persistent velocity. Don't implement inertia. It happens because `velocity += tiny_force` naturally preserves most of the old direction.
+
+---
+
+### 28.4 Force Balance
+
+Only three forces produce good results. Everything else was harmful or redundant.
+
+**Alignment (0.05-0.08):** `acceleration += (avg_neighbor_velocity - my_velocity) * strength`. Steer toward average velocity of 7 nearest topological neighbors. This IS the turning wave propagation mechanism. Too strong → rigid blob. Too weak → flock dissolves.
+
+**Collision avoidance (0.03 within 0.6-0.8 units):** Only repel when nearly colliding. No equilibrium distance. No attraction. Density must be FREE to vary.
+
+**Center anchor (0.0004 × distance for SABDA scene):** The ONLY global cohesion force.
+- In standalone (camera follows): pull toward flock centroid
+- In SABDA scene (fixed camera): pull toward (0,0,0) in local coordinates = assigned world position
+
+**Forces confirmed harmful — do not reintroduce:**
+
+| Force | Why it fails |
+|-------|-------------|
+| Equilibrium spring / distance force | Creates uniform crystal-lattice spacing → kills density variation → stuck-together blob |
+| Strong center pull (>0.002) | Yanks birds into tight ball before they can spread |
+| Cohesion toward neighbor center | Redundant with alignment, increases stickiness |
+| Predator avoidance | Causes circling artifacts |
+| Waypoints | Causes circling |
+| Speed matching between neighbors | Unnecessary with speed clamping |
+| Momentum accumulator | Extra smoothing = extra lag |
+| Flow fields | Marginal effect, adds code complexity |
+| Information cascade / leader system | Overengineered, alignment already propagates turns |
+
+---
+
+### 28.5 Edge Perturbation: Source of Shape Changes
+
+Real murmurations change shape because turning waves propagate with delay. The front turns while the back hasn't yet → funnel, stretch, split, ribbon. When the wave completes → compression. This is the "breathing."
+
+**Implementation:**
+- Every 0.4-1.5 seconds, find an edge bird (furthest from centroid, sampled from 30-50 random candidates)
+- DIRECTLY SET velocity of a patch of birds (radius 4-10 around the edge bird) to a new direction (±60-90°)
+- The patch turn must bypass normal forces — direct velocity assignment, not force addition
+- Use quadratic falloff within the patch: `falloff = (1 - d/radius)²`
+- Alignment then naturally propagates the turn through the rest of the flock over 2-5 seconds
+
+**Critical:** Perturbation must DIRECTLY SET velocity, not add a force. Forces get diluted by alignment before creating real directional diversity.
+
+---
+
+### 28.6 Density Variation: No Equilibrium
+
+The biggest visual gap between simulation and reality: real murmurations have massive density variation (dark dense cores, transparent wispy edges). Uniform spacing = crystal lattice ≠ fluid.
+
+**Rule:** Remove ALL inter-bird attraction. Only collision avoidance below 0.6-0.8 units. Density variation emerges from flow convergence/divergence during turning waves. Where flows converge → dense core. Where flows diverge → wispy edge.
+
+---
+
+### 28.7 2D Reference Parameters Do Not Transfer to 3D
+
+The Alex-Scott-NZ Murmuration reference runs in 2D pixel space (1920×1080). Its default parameters:
+```
+separation: 0.08, alignment: 0.15, cohesion: 0.003
+noiseIntensity: 0.5, maxSpeed: 4, minSpeed: 2
+visualRange: 35, protectedRange: 8, centerAttraction: 0.0
+groupTension: 0.5
+```
+
+These are in PIXELS. Copying them to a 3D scene where the world is ~50 units produces chaos. Divide speeds by 10-20, distances by 5-10, or tune from scratch.
+
+---
+
+### 28.8 SABDA Scene Integration
+
+**Anchor vs Follow:** In standalone the camera follows the flock. In SABDA the camera is fixed at origin. Center pull must anchor to the assigned world position, not the flock centroid (which drifts with the birds).
+
+**Flock positioning:**
+- Place centers at distance 15-25 from origin
+- y = 4-8 (sky height, above horizon, below zenith)
+- Front hemisphere (negative Z or mixed) so visible on primary walls
+- Two large flocks > four small ones (more visual impact, more density layers)
+- EYE_H = 1.6 in the scene — position flocks well above this
+
+**Scale for SABDA scene:**
+- Bird mesh: body 0.6 units long, wingspan 1.0 — visible at 20-30 unit distance
+- Flock spread radius: 15-20 units — covers meaningful chunk of sky
+- Speed: 0.06-0.15 per frame (scene birds move at ~0.03-0.06)
+- Center anchor pull: 0.0004 × distance (weak enough for 20+ unit spreading)
+
+---
+
+### 28.9 File Structure
+
+```
+murmuration_standalone.html    — standalone test (camera follows flock)
+sabda_murmuration_slim.html    — integrated SABDA scene with murmurations
+assemble_murmuration.py        — assembles full HTML with .b64 assets
+sabda_murmuration_full.html    — assembled output (gitignored, ~25MB)
+```
+
+**Test commands:**
+```bash
+# Standalone murmuration test
+open murmuration_standalone.html
+
+# Full SABDA scene with murmurations
+python3 assemble_murmuration.py && open sabda_murmuration_full.html
+```
+
+---
+
+### 28.10 Visual Reference
+
+Study these before any murmuration work:
+- Fox Weather murmuration compilation (YouTube: X0sE10zUYyY)
+- Lough Ennell / River Shannon murmuration footage
+- Bialek, Cavagna, Giardina et al. "Statistical mechanics for natural flocks of birds" PNAS 2012
+
+**Key visual observations from reference video (0:20-1:00):**
+1. The mass is a DARK CLOUD — you almost can't see individual birds at distance. Semi-transparent, varying density.
+2. Shape is predominantly FLAT — wider than tall. A horizontal disc that tilts, warps, stretches.
+3. Dense leading edge, wispy trailing edge during turns.
+4. The mass drifts SLOWLY, the shape morphs FASTER.
+5. Funnel/tornado shapes form when a turning wave is mid-propagation (front turned, tail hasn't yet).
+6. "Breathing" = wave completing its pass → compression → new wave → expansion.
+7. Birds are less than a body-length apart in dense regions. Spacing under 1 unit.
+
+---
+
+### 28.11 Process Lessons
+
+1. **Watch the reference video BEFORE writing code.** Study the visual target frame by frame. Understand what you're trying to make before touching parameters.
+2. **Start with the simplest possible physics** (direct acceleration, 3 forces) and tune from there. Do not add complexity (personality traits, flow fields, information cascades, momentum accumulators) until the simple version works.
+3. **Test at target scale immediately.** Integrate into SABDA scene after the first working standalone version. Don't tune standalone for hours then discover it doesn't work at scene scale.
+4. **Performance test with target bird count from day one.** Build for 600+ birds with zero-alloc loop from the start. Don't optimize retroactively.
+5. **When something is "laggy" or "stuck together" — the architecture is wrong, not the parameters.** Laggy = allocation in hot loop or inertia blending. Stuck = equilibrium spring or strong center pull or dominant alignment. Don't try to fix architectural problems by tweaking numbers.
+
+---
+
+### 28.12 Next Steps
+
+- [ ] Tune density spread to match reference video — more dramatic perturbations, weaker anchor
+- [ ] Replace triangle mesh with stylized 3D starling model
+- [ ] Test 500+ birds per flock with current optimizations — may need WebWorker for sim
+- [ ] Enhance breathing rhythm — possibly periodic global oscillation
+- [ ] Visual harmony with existing SABDA scene birds (old wing-flapping ones)
+- [ ] Consider 2D canvas particle overlay for ultra-dense distant flocks (10,000+ particles as dark pixels on a texture plane)
+
+---
+
+*Manual v12 — March 2026*
 *Standard: 10/10 or nothing.*
 *Rule #1: Look before you deliver.*
