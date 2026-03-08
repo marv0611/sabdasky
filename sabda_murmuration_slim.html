@@ -912,9 +912,9 @@ function updateMurmuration(simTime, speedMult) {
     // Default pull is VERY strong. Mass always wants to be a tight ball.
     // Events push birds outward into shapes, but strong pull snaps them back.
     if(!f.waves) f.waves = [];
-    if(!f.currentPull) f.currentPull = 0.0020;
-    // Gravity toward dense: pull slowly increases when no event fires
-    f.currentPull = Math.min(0.0025, f.currentPull + 0.00001 * sm);
+    if(!f.currentPull) f.currentPull = 0.0030;
+    // Pull always climbs toward 0.0040 — dense is always where it wants to be
+    f.currentPull = Math.min(0.0040, f.currentPull + 0.00005 * sm);
     
     f.pTimer += sm;
     if(f.pTimer >= f.pNext){
@@ -929,7 +929,7 @@ function updateMurmuration(simTime, speedMult) {
       if(r < 0.18) {
         // WIND SHIFT + slight stretch
         f.windTargetAngle += (Math.random()-0.5) * 2.0;
-        f.currentPull = 0.0012 + Math.random()*0.0008; // loosens briefly
+        f.currentPull = 0.0015 + Math.random()*0.0008; // loosens briefly but still cohesive
       }
       else if(r < 0.30) {
         // GUST — brief directional push
@@ -952,7 +952,7 @@ function updateMurmuration(simTime, speedMult) {
           f.vy[i] += dy/d * crushStr * 0.3 * r2;
           f.vz[i] += dz/d * crushStr * r2;
         }
-        f.currentPull = 0.0025 + Math.random()*0.0015; // extreme pull
+        f.currentPull = 0.0040 + Math.random()*0.0020; // extreme crush
       }
       else if(r < 0.62) {
         // RIBBON — brief stretch along random axis
@@ -962,7 +962,7 @@ function updateMurmuration(simTime, speedMult) {
           const proj=(f.px[i]-_fcx)*sx+(f.pz[i]-_fcz)*sz;
           f.vx[i]+=sx*proj*0.008; f.vz[i]+=sz*proj*0.008;
         }
-        f.currentPull = 0.0010 + Math.random()*0.0005;
+        f.currentPull = 0.0016 + Math.random()*0.0006;
       }
       else if(r < 0.72) {
         // SPLIT — halves push apart then snap back
@@ -1063,87 +1063,58 @@ function updateMurmuration(simTime, speedMult) {
       let nc=0; for(let k=0;k<MNC;k++)if(_mNbIdx[k]>=0)nc++;
       
       let ax=0,ay=0,az=0;
-      const resp = f.responsiveness[i]; // this bird's personality
+      const resp = f.responsiveness[i];
       if(nc>0){
         const delayLeft = f.delayFrames[i];
-        const alignScale = delayLeft > 0 ? 0.25 : 1.0;
+        const alignScale = delayLeft > 0 ? 0.4 : 1.0;
         if(delayLeft > 0) f.delayFrames[i] = Math.max(0, delayLeft - sm);
         
+        // ALIGNMENT — strong, makes birds flow together as a mass
         let avx=0,avy=0,avz=0;
-        let apx=0,apy=0,apz=0;  // average POSITION of neighbors
-        let sepX=0,sepY=0,sepZ=0;
         for(let k=0;k<nc;k++){
           const j=_mNbIdx[k];
-          const d2=_mNbD2[k];
-          const d=Math.sqrt(d2);
-          
-          // Neighbor position for LOCAL cohesion
-          apx += f.px[j]; apy += f.py[j]; apz += f.pz[j];
-          
-          if(d2 < M_SEPARATION_R2 && d > 0.01){
-            const pct = d2 / M_SEPARATION_R2;
-            const sepForce = (1.0 - pct) * 0.02;
-            sepX += (f.px[i]-f.px[j])/d * sepForce;
-            sepY += (f.py[i]-f.py[j])/d * sepForce * 0.3;
-            sepZ += (f.pz[i]-f.pz[j])/d * sepForce;
-          }
-          if(d2 < M_ALIGNMENT_R2){
-            const pct = d2 / M_ALIGNMENT_R2;
-            const w = 0.5 - Math.cos(pct * 3.14159) * 0.5;
-            avx += f.vx[j] * w;
-            avy += f.vy[j] * w;
-            avz += f.vz[j] * w;
+          avx += f.vx[j]; avy += f.vy[j]; avz += f.vz[j];
+        }
+        const aw = 1.0/nc;
+        ax += (avx*aw - f.vx[i]) * 0.12 * alignScale * resp;
+        ay += (avy*aw - f.vy[i]) * 0.12 * alignScale * resp;
+        az += (avz*aw - f.vz[i]) * 0.12 * alignScale * resp;
+        
+        // MINIMAL separation — only prevents literal overlap, allows extreme density
+        for(let k=0;k<nc;k++){
+          if(_mNbD2[k] < 0.01 && _mNbD2[k] > 0.0001){ // only within 0.1 units!
+            const j=_mNbIdx[k];
+            const d=Math.sqrt(_mNbD2[k]);
+            ax += (f.px[i]-f.px[j])/d * 0.008;
+            az += (f.pz[i]-f.pz[j])/d * 0.008;
           }
         }
-        ax += sepX; ay += sepY; az += sepZ;
-        const aw = 1.0/nc;
-        ax += (avx*aw - f.vx[i]) * 0.07 * alignScale * resp;
-        ay += (avy*aw - f.vy[i]) * 0.07 * alignScale * resp;
-        az += (avz*aw - f.vz[i]) * 0.07 * alignScale * resp;
-        
-        // ══ LOCAL NEIGHBOR COHESION — pull toward neighbor center, NOT global center ══
-        // This means the mass compacts into whatever shape it currently has,
-        // not always into a circle. Elongated shapes tighten as elongated.
-        // Split groups tighten independently before merging.
-        apx *= aw; apy *= aw; apz *= aw; // avg neighbor position (local coords)
-        const cohX = apx - f.px[i], cohY = apy - f.py[i], cohZ = apz - f.pz[i];
-        const cohD = Math.sqrt(cohX*cohX + cohY*cohY + cohZ*cohZ) + 0.01;
-        const cohStr = f.currentPull * resp * 5.0;
-        // Smooth application — stronger when far from neighbors, gentle when close
-        const cohApp = Math.min(cohD * 0.5, 2.0); // caps force at distance
-        ax += (cohX/cohD) * cohStr * cohApp;
-        ay += (cohY/cohD) * cohStr * cohApp * 0.15;
-        az += (cohZ/cohD) * cohStr * cohApp;
       }
-      // SOFT GLOBAL ANCHOR — very weak, just prevents infinite drift
-      const tox=-f.px[i],toy=-f.py[i],toz=-f.pz[i];
-      const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
-      if(fd > 3){
-        const anchorPull = 0.0003 * (fd - 3); // only kicks in beyond 3 units
-        ax+=(tox/fd)*anchorPull; az+=(toz/fd)*anchorPull;
+      // CENTROID COHESION — pull toward flock center (computed once above the bird loop)
+      // This is the MAIN density force. Strong and simple.
+      const tox=fcx-f.px[i], toy=fcy-f.py[i], toz=fcz-f.pz[i];
+      const fd=Math.sqrt(tox*tox+toy*toy+toz*toz)+0.01;
+      const pullStr = f.currentPull * resp;
+      ax += (tox/fd) * pullStr * fd;  // proportional to distance
+      ay += (toy/fd) * pullStr * fd * 0.15;
+      az += (toz/fd) * pullStr * fd;
+      // HARD LEASH at 5 units
+      if(fd > 5){
+        ax += (tox/fd) * (fd-5) * 0.08;
+        az += (toz/fd) * (fd-5) * 0.08;
       }
-      // HARD LEASH — absolute max 6 units
-      if(fd > 6){
-        const leash = (fd - 6) * 0.06;
-        ax += (tox/fd) * leash;
-        az += (toz/fd) * leash;
-      }
-      // Wind — smooth per-bird flow (NOT random noise — that causes jitter)
-      const wPhase = t + fi * 2.0;
-      ax+=Math.sin(wPhase*0.7+f.py[i]*0.1)*0.0008;
-      az+=Math.cos(wPhase*0.5+f.px[i]*0.05)*0.0008;
-      // Smooth per-bird variation — each bird has unique but CONTINUOUS drift
-      // Uses bird index as seed, changes slowly over time. No frame-to-frame randomness.
+      // Smooth per-bird drift — no randomness, continuous curves
       const birdSeed = i * 0.137 + fi * 7.3;
-      ax += Math.sin(simTime*0.4 + birdSeed) * 0.0005;
-      az += Math.cos(simTime*0.35 + birdSeed*1.3) * 0.0005;
-      // Flatten
-      ay-=f.vy[i]*0.40; ay-=f.py[i]*0.030;
+      ax += Math.sin(simTime*0.3 + birdSeed) * 0.0003;
+      az += Math.cos(simTime*0.25 + birdSeed*1.3) * 0.0003;
+      // Flatten into disc
+      ay -= f.vy[i]*0.50;
+      ay -= f.py[i]*0.035;
       
-      // Apply acceleration then DAMP velocity — removes jitter/oscillation
-      f.vx[i]+=ax; f.vy[i]+=ay; f.vz[i]+=az;
-      // Velocity damping — smooths out rapid direction changes
-      f.vx[i] *= 0.985; f.vy[i] *= 0.98; f.vz[i] *= 0.985;
+      // Apply forces + HEAVY damping — silky smooth flight
+      f.vx[i] = f.vx[i]*0.96 + ax; 
+      f.vy[i] = f.vy[i]*0.94 + ay;
+      f.vz[i] = f.vz[i]*0.96 + az;
       
       // ══ TECHNIQUE #3: Variable speed during turns (StarDisplay/Hildenbrandt) ══
       // Subtle: turning birds slow slightly, straight birds drift faster
