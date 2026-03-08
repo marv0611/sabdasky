@@ -46,25 +46,36 @@ function buildGrid(){
     grid.get(k).push(i);
   }
 }
+const _nearby=new Int32Array(512);
 function getNearby(x,y,z){
-  const r=[];
+  let count=0;
   const gx=(x/GS)|0,gy=(y/GS)|0,gz=(z/GS)|0;
   for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
     const cell=grid.get((gx+a)+','+(gy+b)+','+(gz+c));
-    if(cell)for(const i of cell)r.push(i);
+    if(cell)for(let n=0;n<cell.length;n++){if(count<512)_nearby[count++]=cell[n];}
   }
-  return r;
+  return count;
 }
+// Pre-allocated neighbor buffer — NO allocation in hot loop
+const nbIdx=new Int32Array(NC),nbD2=new Float32Array(NC);
 function findK(i){
-  const near=getNearby(px[i],py[i],pz[i]);
-  const c=[];
-  for(const j of near){
+  const nearCount=getNearby(px[i],py[i],pz[i]);
+  for(let k=0;k<NC;k++){nbIdx[k]=-1;nbD2[k]=1e9;}
+  const mx=px[i],my=py[i],mz=pz[i];
+  for(let n=0;n<nearCount;n++){
+    const j=_nearby[n];
     if(j===i)continue;
-    const dx=px[i]-px[j],dy=py[i]-py[j],dz=pz[i]-pz[j];
-    c.push({j,d2:dx*dx+dy*dy+dz*dz});
+    const dx=mx-px[j],dy=my-py[j],dz=mz-pz[j];
+    const d2=dx*dx+dy*dy+dz*dz;
+    if(d2<nbD2[NC-1]){
+      let pos=NC-1;
+      while(pos>0&&d2<nbD2[pos-1]){nbD2[pos]=nbD2[pos-1];nbIdx[pos]=nbIdx[pos-1];pos--;}
+      nbD2[pos]=d2;nbIdx[pos]=j;
+    }
   }
-  c.sort((a,b)=>a.d2-b.d2);
-  return c.slice(0,NC);
+  let count=0;
+  for(let k=0;k<NC;k++)if(nbIdx[k]>=0)count++;
+  return count;
 }
 
 // Edge perturbation
@@ -106,27 +117,27 @@ function update(){
   
   for(let i=0;i<N;i++){
     let ax=0,ay=0,az=0;
-    const nbs=findK(i);
+    const n=findK(i);
     
-    if(nbs.length>0){
-      // ALIGNMENT — steer toward avg neighbor velocity
-      // This is a small acceleration, not a velocity replacement
+    if(n>0){
+      // ALIGNMENT
       let avx=0,avy=0,avz=0;
-      for(const nb of nbs){avx+=vx[nb.j];avy+=vy[nb.j];avz+=vz[nb.j];}
-      avx/=nbs.length;avy/=nbs.length;avz/=nbs.length;
-      // Acceleration = difference * strength
+      for(let k=0;k<n;k++){const j=nbIdx[k];avx+=vx[j];avy+=vy[j];avz+=vz[j];}
+      avx/=n;avy/=n;avz/=n;
       ax+=(avx-vx[i])*0.08;
       ay+=(avy-vy[i])*0.08;
       az+=(avz-vz[i])*0.08;
       
       // COLLISION AVOIDANCE
-      for(const nb of nbs){
-        const d=Math.sqrt(nb.d2);
-        if(d<0.8&&d>0.01){
+      for(let k=0;k<n;k++){
+        const d2=nbD2[k];
+        if(d2<0.64&&d2>0.0001){ // 0.8^2
+          const j=nbIdx[k];
+          const d=Math.sqrt(d2);
           const s=(0.8-d)/0.8;
-          ax+=(px[i]-px[nb.j])/d*s*0.03;
-          ay+=(py[i]-py[nb.j])/d*s*0.01;
-          az+=(pz[i]-pz[nb.j])/d*s*0.03;
+          ax+=(px[i]-px[j])/d*s*0.03;
+          ay+=(py[i]-py[j])/d*s*0.01;
+          az+=(pz[i]-pz[j])/d*s*0.03;
         }
       }
     }
@@ -217,9 +228,10 @@ function animate(){
   update();
   
   for(let i=0;i<N;i++){
-    meshes[i].position.set(px[i],py[i],pz[i]);
-    const sp=Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
-    if(sp>0.001)meshes[i].lookAt(px[i]+vx[i],py[i]+vy[i],pz[i]+vz[i]);
+    const m=meshes[i];
+    m.position.x=px[i];m.position.y=py[i];m.position.z=pz[i];
+    m.rotation.y=Math.atan2(vx[i],vz[i]);
+    m.rotation.x=-Math.asin(vy[i]/Math.max(0.01,Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i])));
   }
   
   let cx=0,cy=0,cz=0;
