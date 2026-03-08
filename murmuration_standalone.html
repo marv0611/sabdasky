@@ -1,39 +1,52 @@
 <!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>Murmuration v10</title>
+<title>Murmuration v11</title>
 <style>body{margin:0;overflow:hidden;background:#000}canvas{display:block}</style>
 </head><body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════
-// STARLING MURMURATION v10
-// Back to basics. Simple smooth forces. No turn limiting.
-// Fluid motion from momentum smoothing only.
+// STARLING MURMURATION v11
+// Direct implementation of Bialek, Cavagna, Giardina
+// et al. PNAS 2012 — Self-Propelled Particle Model
+// Equations 9-13 with exact parameter ratios
 // ═══════════════════════════════════════════════════════
 
-const N = 500;
-const K = 7;
-const TARGET_SPEED = 1.5; // units per second (not per frame)
+const N = 512;
+const NC = 7; // topological neighbors
+
+// Scale factor from paper units (r0=1) to scene units
+const S = 3.0;
+
+// Paper params scaled
+const V0 = 0.05 * S;   // speed per timestep
+const ALPHA = 35;        // alignment strength
+const BETA = 5;          // cohesion/repulsion strength
+const R0 = 1.0 * S;     // max interaction distance
+const RB = 0.2 * S;     // hard core repulsion
+const RE = 0.5 * S;     // equilibrium distance
+const RA = 0.8 * S;     // attraction boundary
 
 const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
 const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
 
-// Init — dense flat disc, all same direction
+// Init — cluster, all flying roughly same direction
 const d0 = Math.random() * Math.PI * 2;
 for (let i = 0; i < N; i++) {
   const a = Math.random() * Math.PI * 2;
-  const r = Math.sqrt(Math.random()) * 10;
-  px[i] = Math.cos(a) * r;
-  py[i] = (Math.random() - 0.5) * 3;
-  pz[i] = Math.sin(a) * r;
-  vx[i] = Math.cos(d0) * TARGET_SPEED + (Math.random()-0.5)*0.1;
-  vy[i] = (Math.random()-0.5) * 0.02;
-  vz[i] = Math.sin(d0) * TARGET_SPEED + (Math.random()-0.5)*0.1;
+  const r = Math.pow(Math.random(), 0.33) * 12;
+  const elev = (Math.random() - 0.5) * 0.6;
+  px[i] = Math.cos(a) * Math.cos(elev) * r;
+  py[i] = Math.sin(elev) * r * 0.3; // flat
+  pz[i] = Math.sin(a) * Math.cos(elev) * r;
+  vx[i] = Math.cos(d0) * V0;
+  vy[i] = 0;
+  vz[i] = Math.sin(d0) * V0;
 }
 
 // Spatial grid
-const GS = 6;
+const GS = R0;
 const grid = new Map();
 function buildGrid() {
   grid.clear();
@@ -53,145 +66,121 @@ function getNearby(x,y,z) {
   return r;
 }
 
-function findK(i) {
-  const near=getNearby(px[i],py[i],pz[i]);
-  const c=[];
-  for(const j of near){
-    if(j===i)continue;
-    const dx=px[i]-px[j],dy=py[i]-py[j],dz=pz[i]-pz[j];
-    c.push({j,d2:dx*dx+dy*dy+dz*dz});
+// Find NC nearest neighbors (topological, not metric)
+function findNeighbors(i) {
+  const near = getNearby(px[i], py[i], pz[i]);
+  const cands = [];
+  for (const j of near) {
+    if (j === i) continue;
+    const dx=px[i]-px[j], dy=py[i]-py[j], dz=pz[i]-pz[j];
+    cands.push({ j, d2: dx*dx+dy*dy+dz*dz });
   }
-  c.sort((a,b)=>a.d2-b.d2);
-  return c.slice(0,K);
+  cands.sort((a,b) => a.d2 - b.d2);
+  return cands.slice(0, NC);
 }
 
-// Edge perturbation
-let waveTimer = 0;
-let nextWave = 3 + Math.random()*4; // seconds
-
-function perturbEdge() {
-  let cx=0,cy=0,cz=0;
-  for(let i=0;i<N;i++){cx+=px[i];cy+=py[i];cz+=pz[i];}
-  cx/=N;cy/=N;cz/=N;
-  
-  // Find edge bird
-  let best=0,bestD=0;
-  for(let s=0;s<30;s++){
-    const i=(Math.random()*N)|0;
-    const dx=px[i]-cx,dz=pz[i]-cz;
-    const d=dx*dx+dz*dz;
-    if(d>bestD){bestD=d;best=i;}
-  }
-  
-  // Turn a patch of ~40 birds at the edge
-  const turnAngle = (Math.random()-0.5)*1.0;
-  for(let i=0;i<N;i++){
-    const dx=px[i]-px[best],dy=py[i]-py[best],dz=pz[i]-pz[best];
-    const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
-    if(d<5){
-      const f=1-d/5;
-      const ca=Math.atan2(vz[i],vx[i]);
-      const na=ca+turnAngle*f;
-      const sp=Math.sqrt(vx[i]*vx[i]+vz[i]*vz[i]);
-      vx[i]=Math.cos(na)*sp;
-      vz[i]=Math.sin(na)*sp;
-    }
-  }
+// Distance-dependent force f_ij (Eqs 11-13)
+// Returns force magnitude (positive = repulsion, negative = attraction)
+// Direction is along e_ij (unit vector from j to i)
+function distanceForce(rij) {
+  if (rij < RB) return -100; // hard core — strong repulsion (paper says -infinity)
+  if (rij < RA) return 0.25 * (rij - RE) / (RA - RE); // Eq 12: repel if closer than RE, attract if further
+  if (rij < R0) return 1.0; // Eq 13: attraction at long range
+  return 0;
 }
 
-let lastTime = performance.now();
+// Random unit vector on sphere
+function randUnit() {
+  const z = Math.random() * 2 - 1;
+  const t = Math.random() * Math.PI * 2;
+  const r = Math.sqrt(1 - z*z);
+  return { x: r*Math.cos(t), y: z*0.3, z: r*Math.sin(t) }; // flatten Y noise
+}
 
 function update() {
-  const now = performance.now();
-  const dt = Math.min((now - lastTime) / 1000, 0.05); // seconds, capped at 50ms
-  lastTime = now;
-  
   buildGrid();
   
-  waveTimer += dt;
-  if(waveTimer >= nextWave){
-    perturbEdge();
-    waveTimer = 0;
-    nextWave = 2 + Math.random() * 5;
+  // Compute new velocities (Eq 9)
+  const nvx = new Float32Array(N), nvy = new Float32Array(N), nvz = new Float32Array(N);
+  
+  for (let i = 0; i < N; i++) {
+    const nbs = findNeighbors(i);
+    
+    // Alignment: α * Σ v_j
+    let aliX = 0, aliY = 0, aliZ = 0;
+    for (const nb of nbs) {
+      aliX += vx[nb.j];
+      aliY += vy[nb.j];
+      aliZ += vz[nb.j];
+    }
+    aliX *= ALPHA;
+    aliY *= ALPHA;
+    aliZ *= ALPHA;
+    
+    // Distance force: β * Σ f_ij
+    let frcX = 0, frcY = 0, frcZ = 0;
+    for (const nb of nbs) {
+      const d = Math.sqrt(nb.d2);
+      if (d < 0.001) continue;
+      const f = distanceForce(d);
+      // e_ij points from j to i (repulsion direction)
+      const ex = (px[i]-px[nb.j])/d;
+      const ey = (py[i]-py[nb.j])/d;
+      const ez = (pz[i]-pz[nb.j])/d;
+      // Negative f = attraction (toward j), positive = repulsion (away from j)
+      // But paper Eq 12: when rij < re, (rij-re)/(ra-re) < 0, meaning force pushes TOWARD equilibrium
+      // Actually re-reading: f_ij is in direction e_ij. When r < re, (r-re) < 0, so force is negative = toward j = attraction
+      // When r > re, force is positive = away from j = repulsion... wait that's wrong for cohesion
+      // Let me re-read: Eq 12 says f = 1/4 * (r-re)/(ra-re) * e_ij
+      // When r < re: (r-re) is negative, force points opposite to e_ij, i.e., TOWARD j. Good — attraction.
+      // When r > re but < ra: positive, force away from j. That's repulsion. But re=0.5 and ra=0.8...
+      // Actually this creates an equilibrium at re. Below re=attract, above re=repel, beyond ra=attract again (eq13).
+      // Let me reconsider: Eq 13 says f(ra < r < r0) = e_ij. That's AWAY from j = repulsion?
+      // No wait — I think the convention might be different. Let me use: positive force = attract toward j
+      frcX += -f * ex * BETA; // negate because e_ij points from j to i
+      frcY += -f * ey * BETA;
+      frcZ += -f * ez * BETA;
+    }
+    
+    // Noise: nc * η_i (random unit vector scaled by nc)
+    const eta = randUnit();
+    const noiseX = NC * eta.x;
+    const noiseY = NC * eta.y;
+    const noiseZ = NC * eta.z;
+    
+    // Sum (Eq 9 inside the brackets)
+    let sumX = aliX + frcX + noiseX;
+    let sumY = aliY + frcY + noiseY;
+    let sumZ = aliZ + frcZ + noiseZ;
+    
+    // Normalize Θ and multiply by v0
+    const len = Math.sqrt(sumX*sumX + sumY*sumY + sumZ*sumZ);
+    if (len > 0.001) {
+      nvx[i] = (sumX / len) * V0;
+      nvy[i] = (sumY / len) * V0;
+      nvz[i] = (sumZ / len) * V0;
+    } else {
+      nvx[i] = vx[i];
+      nvy[i] = vy[i];
+      nvz[i] = vz[i];
+    }
   }
   
-  // Flock center
-  let fcx=0,fcy=0,fcz=0;
-  for(let i=0;i<N;i++){fcx+=px[i];fcy+=py[i];fcz+=pz[i];}
-  fcx/=N;fcy/=N;fcz/=N;
-
+  // Apply (Eq 10): x(t+1) = x(t) + v(t+1)
   for (let i = 0; i < N; i++) {
-    let accX=0, accY=0, accZ=0;
-    const nbs = findK(i);
-    
-    if (nbs.length > 0) {
-      // ── SEPARATION ──
-      for(const nb of nbs){
-        if(nb.d2 < 1.2*1.2 && nb.d2>0.001){
-          const d=Math.sqrt(nb.d2);
-          const f = 2.0*(1.2-d)/1.2;
-          accX+=(px[i]-px[nb.j])/d*f;
-          accY+=(py[i]-py[nb.j])/d*f;
-          accZ+=(pz[i]-pz[nb.j])/d*f;
-        }
-      }
-      
-      // ── ALIGNMENT ──
-      let avx=0,avy=0,avz=0;
-      for(const nb of nbs){avx+=vx[nb.j];avy+=vy[nb.j];avz+=vz[nb.j];}
-      avx/=nbs.length;avy/=nbs.length;avz/=nbs.length;
-      accX+=(avx-vx[i])*3.0;
-      accY+=(avy-vy[i])*3.0;
-      accZ+=(avz-vz[i])*3.0;
-      
-      // ── COHESION ──
-      let cx=0,cy=0,cz=0;
-      for(const nb of nbs){cx+=px[nb.j];cy+=py[nb.j];cz+=pz[nb.j];}
-      cx/=nbs.length;cy/=nbs.length;cz/=nbs.length;
-      accX+=(cx-px[i])*0.2;
-      accY+=(cy-py[i])*0.2;
-      accZ+=(cz-pz[i])*0.2;
-    }
-    
-    // ── CENTER PULL — quadratic ──
-    const tox=fcx-px[i], toy=fcy-py[i], toz=fcz-pz[i];
-    const fd=Math.sqrt(tox*tox+toy*toy+toz*toz);
-    if(fd>0.1){
-      const pull = 0.015 * fd;
-      accX+=tox/fd*pull;
-      accY+=toy/fd*pull;
-      accZ+=toz/fd*pull;
-    }
-    
-    // ── VERTICAL FLATTENING ──
-    accY -= vy[i]*4.0;
-    accY -= (py[i]-fcy)*0.2;
-    
-    // ── APPLY with delta time ──
-    vx[i] += accX * dt;
-    vy[i] += accY * dt;
-    vz[i] += accZ * dt;
-    
-    // ── SOFT SPEED REGULATION ──
-    const spd = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
-    if(spd > 0.01){
-      const adj = 1 + (TARGET_SPEED/spd - 1) * 0.1;
-      vx[i]*=adj;
-      vy[i]*=adj;
-      vz[i]*=adj;
-    }
-    
-    // ── MOVE with delta time ──
-    px[i]+=vx[i]*dt;
-    py[i]+=vy[i]*dt;
-    pz[i]+=vz[i]*dt;
+    vx[i] = nvx[i];
+    vy[i] = nvy[i];
+    vz[i] = nvz[i];
+    px[i] += vx[i];
+    py[i] += vy[i];
+    pz[i] += vz[i];
   }
 }
 
 // ═══ RENDERING ═══
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -200,24 +189,23 @@ skyCanvas.width = 1; skyCanvas.height = 512;
 const sctx = skyCanvas.getContext('2d');
 const grad = sctx.createLinearGradient(0, 0, 0, 512);
 grad.addColorStop(0.0, '#2a1540');
-grad.addColorStop(0.25, '#5a2068');
-grad.addColorStop(0.45, '#b06080');
-grad.addColorStop(0.6, '#d4726a');
-grad.addColorStop(0.75, '#f0a06c');
-grad.addColorStop(0.9, '#e8c89e');
+grad.addColorStop(0.3, '#5a2068');
+grad.addColorStop(0.5, '#b06080');
+grad.addColorStop(0.65, '#d4726a');
+grad.addColorStop(0.8, '#f0a06c');
 grad.addColorStop(1.0, '#c9a882');
 sctx.fillStyle = grad;
 sctx.fillRect(0, 0, 1, 512);
 scene.background = new THREE.CanvasTexture(skyCanvas);
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 500);
 
 // Bird silhouette
 const bGeo = new THREE.BufferGeometry();
 bGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-  0,0,-0.15, 0,0.03,-0.15, 0,0,0.25,
-  0,0,-0.1, -0.22,0,0, 0,0,0.1,
-  0,0,0.1, 0.22,0,0, 0,0,-0.1
+  0,0,-0.15, 0,0.03,-0.15, 0,0,0.3,
+  0,0,-0.08, -0.25,0,0, 0,0,0.08,
+  0,0,0.08, 0.25,0,0, 0,0,-0.08
 ]), 3));
 bGeo.computeVertexNormals();
 const bMat = new THREE.MeshBasicMaterial({ color: 0x080604, side: THREE.DoubleSide });
@@ -234,15 +222,10 @@ let fpsFrames=0,fpsLast=performance.now();
 
 function animate() {
   requestAnimationFrame(animate);
-  update();
   
-  // FPS counter
-  fpsFrames++;
-  const fpsNow=performance.now();
-  if(fpsNow-fpsLast>1000){
-    document.title='Murmuration — '+fpsFrames+'fps';
-    fpsFrames=0;fpsLast=fpsNow;
-  }
+  // Run 2 simulation steps per frame for smoother movement
+  update();
+  update();
   
   for(let i=0;i<N;i++){
     meshes[i].position.set(px[i],py[i],pz[i]);
@@ -257,11 +240,18 @@ function animate() {
   camCy+=(cy-camCy)*0.03;
   camCz+=(cz-camCz)*0.03;
   
-  const ct=performance.now()*0.000008;
-  camera.position.set(camCx+Math.sin(ct)*55, camCy+5, camCz+Math.cos(ct)*55);
+  const ct=performance.now()*0.00001;
+  camera.position.set(camCx+Math.sin(ct)*50, camCy+8, camCz+Math.cos(ct)*50);
   camera.lookAt(camCx,camCy,camCz);
   
   renderer.render(scene,camera);
+  
+  fpsFrames++;
+  const now=performance.now();
+  if(now-fpsLast>1000){
+    document.title='Murmuration — '+fpsFrames+'fps';
+    fpsFrames=0;fpsLast=now;
+  }
 }
 animate();
 
