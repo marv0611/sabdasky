@@ -1,212 +1,182 @@
 <!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>Murmuration Test</title>
+<title>Murmuration v3</title>
 <style>body{margin:0;overflow:hidden;background:#000}canvas{display:block}</style>
 </head><body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// ═══════════════════════════════════════════
-// MURMURATION — Topological 7-neighbor model
-// with flight inertia and roost orbit
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// STARLING MURMURATION
+// No external forces. Shape changes emerge from internal
+// perturbation waves propagating through 7-neighbor network.
+// ═══════════════════════════════════════════════════════
 
-const N = 500;
-const K = 7; // topological neighbors
+const N = 600;
+const K = 7;
 
-// State arrays
+// State
 const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
 const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
-// Desired velocity (birds steer TOWARD this, not teleport)
-const dvx = new Float32Array(N), dvy = new Float32Array(N), dvz = new Float32Array(N);
 
-// Waypoint — drifts slowly in long sweeping lines, flock follows
-let waypointX = 0, waypointY = 0, waypointZ = 0;
-let wpVelX = 0.15, wpVelY = 0, wpVelZ = 0.1;
-
-// Init — tight cluster with shared initial direction
-const initAngle = Math.random() * Math.PI * 2;
-const initSpeed = 0.3;
+// Init — flock drifting in one direction
+const initDir = Math.random() * Math.PI * 2;
 for (let i = 0; i < N; i++) {
-  px[i] = (Math.random() - 0.5) * 8;
-  py[i] = (Math.random() - 0.5) * 4;
-  pz[i] = (Math.random() - 0.5) * 8;
-  vx[i] = Math.cos(initAngle) * initSpeed + (Math.random() - 0.5) * 0.1;
-  vy[i] = (Math.random() - 0.5) * 0.05;
-  vz[i] = Math.sin(initAngle) * initSpeed + (Math.random() - 0.5) * 0.1;
-  dvx[i] = vx[i]; dvy[i] = vy[i]; dvz[i] = vz[i];
+  px[i] = (Math.random() - 0.5) * 12;
+  py[i] = (Math.random() - 0.5) * 5;
+  pz[i] = (Math.random() - 0.5) * 12;
+  const spd = 0.15 + Math.random() * 0.05;
+  vx[i] = Math.cos(initDir) * spd + (Math.random() - 0.5) * 0.03;
+  vy[i] = (Math.random() - 0.5) * 0.01;
+  vz[i] = Math.sin(initDir) * spd + (Math.random() - 0.5) * 0.03;
 }
 
-// Temp arrays for neighbor finding
-const neighborDists = new Float32Array(N);
-const neighborIdxs = new Int32Array(K);
+// Neighbor scratch space
+const _dist = new Float32Array(N);
+const _nbs = new Int32Array(K);
 
 function findKNearest(i) {
-  // Find K nearest neighbors of bird i
   for (let j = 0; j < N; j++) {
-    if (j === i) { neighborDists[j] = 1e20; continue; }
+    if (j === i) { _dist[j] = 1e20; continue; }
     const dx = px[i]-px[j], dy = py[i]-py[j], dz = pz[i]-pz[j];
-    neighborDists[j] = dx*dx + dy*dy + dz*dz;
+    _dist[j] = dx*dx + dy*dy + dz*dz;
   }
-  // Partial sort — find K smallest
   for (let k = 0; k < K; k++) {
-    let minVal = 1e20, minIdx = 0;
+    let minV = 1e20, minI = 0;
     for (let j = 0; j < N; j++) {
-      if (neighborDists[j] < minVal) { minVal = neighborDists[j]; minIdx = j; }
+      if (_dist[j] < minV) { minV = _dist[j]; minI = j; }
     }
-    neighborIdxs[k] = minIdx;
-    neighborDists[minIdx] = 1e20; // mark as used
+    _nbs[k] = minI;
+    _dist[minI] = 1e20;
   }
-  return neighborIdxs;
+  return _nbs;
 }
 
-const SEPARATION_DIST = 1.5;
-const SEPARATION_DIST_SQ = SEPARATION_DIST * SEPARATION_DIST;
-const ALIGNMENT_WEIGHT = 0.08;
-const COHESION_WEIGHT = 0.005;
-const SEPARATION_WEIGHT = 0.12;
-const WAYPOINT_WEIGHT = 0.004;
-const NOISE_WEIGHT = 0.01;
-const INERTIA = 0.95; // higher = smoother turns, more sweeping
-const MIN_SPEED = 0.2;
-const MAX_SPEED = 0.6;
-const VERTICAL_DAMPING = 0.96;
+// ── PERTURBATION SYSTEM ──
+// Random birds suddenly change direction.
+// This propagates through the neighbor network = organic shape-shifting.
+let perturbTimer = 0;
+let nextPerturb = 60 + Math.random() * 120;
 
-function updateBoids() {
-  // Update waypoint — drifts in long gentle curves, never circles
-  const t = performance.now() / 1000;
-  // Slowly rotating direction with irrational frequencies = never repeats
-  wpVelX += (Math.sin(t * 0.0031) * 0.002 + Math.sin(t * 0.0071 + 2.1) * 0.001);
-  wpVelZ += (Math.cos(t * 0.0043) * 0.002 + Math.cos(t * 0.0059 + 1.3) * 0.001);
-  wpVelY += (Math.sin(t * 0.0023 + 0.7) * 0.0005);
-  // Dampen waypoint speed so it doesn't accelerate forever
-  const wpSpeed = Math.sqrt(wpVelX*wpVelX + wpVelY*wpVelY + wpVelZ*wpVelZ);
-  if (wpSpeed > 0.12) { const s = 0.12/wpSpeed; wpVelX*=s; wpVelY*=s; wpVelZ*=s; }
-  wpVelY *= 0.95; // keep waypoint mostly level
-  waypointX += wpVelX;
-  waypointY += wpVelY;
-  waypointZ += wpVelZ;
-  // Soft boundary — nudge waypoint back if it drifts too far
-  const wpDist = Math.sqrt(waypointX*waypointX + waypointY*waypointY + waypointZ*waypointZ);
-  if (wpDist > 40) {
-    const pull = 0.002;
-    wpVelX -= waypointX * pull;
-    wpVelY -= waypointY * pull;
-    wpVelZ -= waypointZ * pull;
+function triggerPerturbation() {
+  // Pick a random bird as epicenter
+  const center = Math.floor(Math.random() * N);
+  const cx = px[center], cy = py[center], cz = pz[center];
+  const radius = 3 + Math.random() * 5;
+  const radiusSq = radius * radius;
+  
+  // Random impulse direction
+  const angle = Math.random() * Math.PI * 2;
+  const elev = (Math.random() - 0.5) * 0.3;
+  const strength = 0.02 + Math.random() * 0.03;
+  const ix = Math.cos(angle) * Math.cos(elev) * strength;
+  const iy = Math.sin(elev) * strength * 0.3;
+  const iz = Math.sin(angle) * Math.cos(elev) * strength;
+  
+  for (let i = 0; i < N; i++) {
+    const dx = px[i]-cx, dy = py[i]-cy, dz = pz[i]-cz;
+    const dSq = dx*dx + dy*dy + dz*dz;
+    if (dSq < radiusSq) {
+      const falloff = 1.0 - Math.sqrt(dSq) / radius;
+      vx[i] += ix * falloff;
+      vy[i] += iy * falloff;
+      vz[i] += iz * falloff;
+    }
   }
+}
+
+// ── PARAMETERS ──
+const SEP_DIST = 1.2;
+const SEP_DIST_SQ = SEP_DIST * SEP_DIST;
+const INERTIA = 0.96;
+const MIN_SPEED = 0.10;
+const MAX_SPEED = 0.30;
+const VERT_DAMP = 0.95;
+const W_SEP = 0.08;
+const W_ALIGN = 0.06;
+const W_COH = 0.003;
+const W_NOISE = 0.004;
+const W_BOUNDARY = 0.0005;
+const BOUNDARY_DIST = 50;
+
+function update() {
+  // Perturbations
+  perturbTimer++;
+  if (perturbTimer >= nextPerturb) {
+    triggerPerturbation();
+    perturbTimer = 0;
+    nextPerturb = 40 + Math.random() * 100;
+  }
+  
+  // Flock center for soft boundary
+  let fcx=0, fcy=0, fcz=0;
+  for (let i=0;i<N;i++) { fcx+=px[i]; fcy+=py[i]; fcz+=pz[i]; }
+  fcx/=N; fcy/=N; fcz/=N;
 
   for (let i = 0; i < N; i++) {
     const nbs = findKNearest(i);
-    
-    // Accumulate forces from 7 nearest neighbors
-    let sepX = 0, sepY = 0, sepZ = 0;
-    let alignX = 0, alignY = 0, alignZ = 0;
-    let cohX = 0, cohY = 0, cohZ = 0;
-    let sepCount = 0;
+    let sepX=0, sepY=0, sepZ=0;
+    let aliX=0, aliY=0, aliZ=0;
+    let cohX=0, cohY=0, cohZ=0;
     
     for (let k = 0; k < K; k++) {
       const j = nbs[k];
-      const dx = px[i] - px[j], dy = py[i] - py[j], dz = pz[i] - pz[j];
-      const distSq = dx*dx + dy*dy + dz*dz;
-      
-      // Separation — only from very close neighbors
-      if (distSq < SEPARATION_DIST_SQ && distSq > 0.0001) {
-        const dist = Math.sqrt(distSq);
-        const force = (SEPARATION_DIST - dist) / SEPARATION_DIST;
-        sepX += (dx / dist) * force;
-        sepY += (dy / dist) * force;
-        sepZ += (dz / dist) * force;
-        sepCount++;
+      const dx=px[i]-px[j], dy=py[i]-py[j], dz=pz[i]-pz[j];
+      const dSq = dx*dx + dy*dy + dz*dz;
+      if (dSq < SEP_DIST_SQ && dSq > 0.0001) {
+        const d = Math.sqrt(dSq);
+        const f = (SEP_DIST - d) / SEP_DIST;
+        sepX += (dx/d)*f; sepY += (dy/d)*f; sepZ += (dz/d)*f;
       }
-      
-      // Alignment — match velocity of neighbors
-      alignX += vx[j];
-      alignY += vy[j];
-      alignZ += vz[j];
-      
-      // Cohesion — move toward center of neighbors
-      cohX += px[j];
-      cohY += py[j];
-      cohZ += pz[j];
+      aliX += vx[j]; aliY += vy[j]; aliZ += vz[j];
+      cohX += px[j]; cohY += py[j]; cohZ += pz[j];
+    }
+    aliX/=K; aliY/=K; aliZ/=K;
+    cohX/=K; cohY/=K; cohZ/=K;
+    
+    let ax=0, ay=0, az=0;
+    ax += sepX * W_SEP;
+    ay += sepY * W_SEP;
+    az += sepZ * W_SEP;
+    ax += (aliX - vx[i]) * W_ALIGN;
+    ay += (aliY - vy[i]) * W_ALIGN;
+    az += (aliZ - vz[i]) * W_ALIGN;
+    ax += (cohX - px[i]) * W_COH;
+    ay += (cohY - py[i]) * W_COH;
+    az += (cohZ - pz[i]) * W_COH;
+    ax += (Math.random()-0.5) * W_NOISE;
+    ay += (Math.random()-0.5) * W_NOISE * 0.2;
+    az += (Math.random()-0.5) * W_NOISE;
+    
+    // Soft boundary relative to flock center
+    const tfx=fcx-px[i], tfy=fcy-py[i], tfz=fcz-pz[i];
+    const fd = Math.sqrt(tfx*tfx+tfy*tfy+tfz*tfz);
+    if (fd > BOUNDARY_DIST) {
+      const pull = (fd-BOUNDARY_DIST) * W_BOUNDARY;
+      ax += (tfx/fd)*pull; ay += (tfy/fd)*pull; az += (tfz/fd)*pull;
     }
     
-    // Average alignment and cohesion
-    alignX /= K; alignY /= K; alignZ /= K;
-    cohX /= K; cohY /= K; cohZ /= K;
+    ay -= vy[i] * (1-VERT_DAMP);
     
-    // Compute desired velocity
-    let desX = vx[i], desY = vy[i], desZ = vz[i];
+    vx[i] = vx[i]*INERTIA + (vx[i]+ax)*(1-INERTIA);
+    vy[i] = vy[i]*INERTIA + (vy[i]+ay)*(1-INERTIA);
+    vz[i] = vz[i]*INERTIA + (vz[i]+az)*(1-INERTIA);
     
-    // Separation
-    desX += sepX * SEPARATION_WEIGHT;
-    desY += sepY * SEPARATION_WEIGHT;
-    desZ += sepZ * SEPARATION_WEIGHT;
+    const speed = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
+    if (speed > MAX_SPEED) { const s=MAX_SPEED/speed; vx[i]*=s; vy[i]*=s; vz[i]*=s; }
+    else if (speed < MIN_SPEED && speed > 0.001) { const s=MIN_SPEED/speed; vx[i]*=s; vy[i]*=s; vz[i]*=s; }
     
-    // Alignment — steer toward average neighbor velocity
-    desX += (alignX - vx[i]) * ALIGNMENT_WEIGHT;
-    desY += (alignY - vy[i]) * ALIGNMENT_WEIGHT;
-    desZ += (alignZ - vz[i]) * ALIGNMENT_WEIGHT;
-    
-    // Cohesion — steer toward center of neighbors
-    desX += (cohX - px[i]) * COHESION_WEIGHT;
-    desY += (cohY - py[i]) * COHESION_WEIGHT;
-    desZ += (cohZ - pz[i]) * COHESION_WEIGHT;
-    
-    // Waypoint follow — gentle pull toward drifting point (not fixed = no circles)
-    const toWpX = waypointX - px[i], toWpY = waypointY - py[i], toWpZ = waypointZ - pz[i];
-    const wpDist2 = Math.sqrt(toWpX*toWpX + toWpY*toWpY + toWpZ*toWpZ);
-    if (wpDist2 > 8) {
-      const pull = (wpDist2 - 8) * WAYPOINT_WEIGHT;
-      desX += (toWpX / wpDist2) * pull;
-      desY += (toWpY / wpDist2) * pull;
-      desZ += (toWpZ / wpDist2) * pull;
-    }
-    
-    // Noise — organic irregularity
-    desX += (Math.random() - 0.5) * NOISE_WEIGHT;
-    desY += (Math.random() - 0.5) * NOISE_WEIGHT * 0.3;
-    desZ += (Math.random() - 0.5) * NOISE_WEIGHT;
-    
-    // Vertical damping — murmurations stay mostly level
-    desY *= VERTICAL_DAMPING;
-    
-    dvx[i] = desX;
-    dvy[i] = desY;
-    dvz[i] = desZ;
-  }
-  
-  // Apply with inertia — birds can't instantly change direction
-  for (let i = 0; i < N; i++) {
-    vx[i] = vx[i] * INERTIA + dvx[i] * (1 - INERTIA);
-    vy[i] = vy[i] * INERTIA + dvy[i] * (1 - INERTIA);
-    vz[i] = vz[i] * INERTIA + dvz[i] * (1 - INERTIA);
-    
-    // Speed limits
-    const speed = Math.sqrt(vx[i]*vx[i] + vy[i]*vy[i] + vz[i]*vz[i]);
-    if (speed > MAX_SPEED) {
-      const s = MAX_SPEED / speed;
-      vx[i] *= s; vy[i] *= s; vz[i] *= s;
-    } else if (speed < MIN_SPEED && speed > 0.001) {
-      const s = MIN_SPEED / speed;
-      vx[i] *= s; vy[i] *= s; vz[i] *= s;
-    }
-    
-    // Update position
-    px[i] += vx[i];
-    py[i] += vy[i];
-    pz[i] += vz[i];
+    px[i] += vx[i]; py[i] += vy[i]; pz[i] += vz[i];
   }
 }
 
-// ═══ THREE.JS RENDERING ═══
+// ═══ RENDERING ═══
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-
-// Gradient sky
 const skyCanvas = document.createElement('canvas');
 skyCanvas.width = 1; skyCanvas.height = 512;
 const skyCtx = skyCanvas.getContext('2d');
@@ -220,59 +190,44 @@ skyCtx.fillStyle = grad;
 skyCtx.fillRect(0, 0, 1, 512);
 scene.background = new THREE.CanvasTexture(skyCanvas);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 500);
-camera.position.set(0, -5, 80);
-camera.lookAt(0, 5, 0);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 500);
 
-// Bird mesh — tiny dark triangles
-const birdGeo = new THREE.BufferGeometry();
-const bv = new Float32Array([
-  0, 0, -0.3,  0, 0.06, -0.3,  0, 0, 0.5,  // body
-  0, 0, -0.2,  -0.4, 0, 0,  0, 0, 0.2,      // left wing
-  0, 0, 0.2,   0.4, 0, 0,   0, 0, -0.2       // right wing
-]);
-birdGeo.setAttribute('position', new THREE.BufferAttribute(bv, 3));
-birdGeo.computeVertexNormals();
-const birdMat = new THREE.MeshBasicMaterial({ color: 0x0c0a08, side: THREE.DoubleSide });
+const bGeo = new THREE.BufferGeometry();
+bGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+  0,0,-0.25, 0,0.05,-0.25, 0,0,0.4,
+  0,0,-0.15, -0.35,0,0, 0,0,0.15,
+  0,0,0.15, 0.35,0,0, 0,0,-0.15
+]), 3));
+bGeo.computeVertexNormals();
+const bMat = new THREE.MeshBasicMaterial({ color: 0x0c0a08, side: THREE.DoubleSide });
 
 const meshes = [];
 for (let i = 0; i < N; i++) {
-  const m = new THREE.Mesh(birdGeo, birdMat);
+  const m = new THREE.Mesh(bGeo, bMat);
   m.frustumCulled = false;
   scene.add(m);
   meshes.push(m);
 }
 
-// Slow camera orbit
 function animate() {
   requestAnimationFrame(animate);
-  
-  updateBoids();
-  
-  // Update mesh positions and orientations
+  update();
   for (let i = 0; i < N; i++) {
     meshes[i].position.set(px[i], py[i], pz[i]);
-    const speed = Math.sqrt(vx[i]*vx[i] + vy[i]*vy[i] + vz[i]*vz[i]);
-    if (speed > 0.001) {
-      meshes[i].lookAt(px[i] + vx[i], py[i] + vy[i], pz[i] + vz[i]);
-    }
+    const sp = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
+    if (sp > 0.001) meshes[i].lookAt(px[i]+vx[i], py[i]+vy[i], pz[i]+vz[i]);
   }
-  
-  // Camera follows the flock
-  let avgX=0, avgY=0, avgZ=0;
-  for (let i = 0; i < N; i++) { avgX+=px[i]; avgY+=py[i]; avgZ+=pz[i]; }
-  avgX/=N; avgY/=N; avgZ/=N;
-  const ct = performance.now() * 0.00003;
-  camera.position.set(avgX + Math.sin(ct) * 60, avgY + 10, avgZ + Math.cos(ct) * 60);
-  camera.lookAt(avgX, avgY, avgZ);
-  
+  let cx=0,cy=0,cz=0;
+  for (let i=0;i<N;i++){cx+=px[i];cy+=py[i];cz+=pz[i];}
+  cx/=N;cy/=N;cz/=N;
+  const ct = performance.now() * 0.000025;
+  camera.position.set(cx+Math.sin(ct)*70, cy+15, cz+Math.cos(ct)*70);
+  camera.lookAt(cx,cy,cz);
   renderer.render(scene, camera);
 }
-
 animate();
-
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.aspect = window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
