@@ -1007,6 +1007,7 @@ function updateMurmuration(simTime, speedMult) {
       
       let ax=0,ay=0,az=0;
       const resp = f.responsiveness[i];
+      const fd=Math.sqrt(f.px[i]*f.px[i]+f.pz[i]*f.pz[i])+0.01; // distance from flock center
       
       if(nc>0){
         // ── 1. COHESION — pull toward centroid of 7 nearest neighbors ──
@@ -1025,7 +1026,9 @@ function updateMurmuration(simTime, speedMult) {
         let cohDiff = cohHdg - myHdg;
         if(cohDiff > 3.14159) cohDiff -= 6.28318;
         if(cohDiff < -3.14159) cohDiff += 6.28318;
-        const cohTurn = cohDiff * 0.030 * resp * Math.min(cod, 3) * (f.cohesionMult||1.0);
+        // Cohesion STRONGER for edge birds (fd > 1) — sucks them into core
+        const edgeBoost = fd > 1.0 ? 1.0 + (fd-1.0)*0.8 : 1.0;
+        const cohTurn = cohDiff * 0.030 * resp * Math.min(cod, 3) * (f.cohesionMult||1.0) * edgeBoost;
         const ccs=Math.cos(cohTurn), csn=Math.sin(cohTurn);
         const cv1=f.vx[i]*ccs+f.vz[i]*csn, cv2=-f.vx[i]*csn+f.vz[i]*ccs;
         f.vx[i]=cv1; f.vz[i]=cv2;
@@ -1059,16 +1062,20 @@ function updateMurmuration(simTime, speedMult) {
         }
       }
       
-      // ── NO ANCHOR FORCE — zero center-point attraction ──
-      // Any force toward a center = orbital mechanics = circles.
-      // Instead: flock holds together through COHESION alone.
-      // Re-centering (below the bird loop) keeps local coords near origin.
-      
-      // Hard leash at 6 — emergency only, should rarely trigger
-      const fd=Math.sqrt(f.px[i]*f.px[i]+f.pz[i]*f.pz[i])+0.01;
-      if(fd>6){
-        ax+=(-f.px[i]/fd)*(fd-6)*0.04;
-        az+=(-f.pz[i]/fd)*(fd-6)*0.04;
+      // ── GRAVITY WELL — edge birds get sucked into the dense core ──
+      // After re-centering, origin = flock centroid. So pull toward origin
+      // IS pull toward the mass center. Can't create orbits because
+      // re-centering resets centroid to origin every frame.
+      // 
+      // Core birds (fd < 0.5): ZERO force — they're already packed
+      // Mid birds (0.5 < fd < 2): gentle pull — keeps mass cohesive
+      // Edge birds (fd > 2): STRONG pull — sucks stragglers back in
+      // Like gravity: force grows with distance from mass center.
+      if(fd > 0.5) {
+        // Quadratic pull — gets MUCH stronger for edge birds
+        const gravStr = (fd - 0.5) * (fd - 0.5) * 0.008 * resp;
+        ax += (-f.px[i]/fd) * gravStr;
+        az += (-f.pz[i]/fd) * gravStr;
       }
       
       // ── LANGEVIN NOISE — smooth per-bird ──
