@@ -785,26 +785,22 @@ const M_MAX_SPEED = 0.14;
 const M_SEPARATION_R2 = 0.09;  // 0.3^2 — very tight collision zone for dense packing
 const M_ALIGNMENT_R2 = 9.0;    // 3.0^2 — tighter neighbor interaction
 
-// Starling speck — tiny 5-tri silhouette. Visible as dark dot at distance.
+// Bird = dark speck. NOT individually visible. Just dots forming a mass.
 const birdShape = new THREE.BufferGeometry();
 birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-  // Body — elongated diamond
-  0,0.006,0.12,  0.02,0,0,  -0.02,0,0,
-  0.02,0,0,  0,-0.005,-0.08,  -0.02,0,0,
-  // Wings — swept
-  -0.02,0,0,  -0.10,0.003,-0.015,  0,0,-0.03,
-  0.02,0,0,  0,0,-0.03,  0.10,0.003,-0.015,
-  // Tail
-  0,-0.005,-0.08,  -0.012,-0.006,-0.11,  0.012,-0.006,-0.11,
+  0,0.004,0.08,  0.012,0,0,  -0.012,0,0,
+  0.012,0,0,  0,-0.003,-0.05,  -0.012,0,0,
+  -0.012,0,0,  -0.06,0.002,-0.01,  0,0,-0.015,
+  0.012,0,0,  0,0,-0.015,  0.06,0.002,-0.01,
+  0,-0.003,-0.05,  -0.007,-0.003,-0.06,  0.007,-0.003,-0.06,
 ]), 3));
 birdShape.computeVertexNormals();
-const birdMat = new THREE.MeshBasicMaterial({ color: 0x060404, side: THREE.DoubleSide });
+const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.DoubleSide });
 
-// 2 flocks — mid-distance background, orbiting between the planets
-// Planet at 229°, Saturn at 49°. Flocks centered at ~140° and ~320°.
+// 2 flocks — FAR BACK. Always tiny. Always a mass. Never close to camera.
 const flockOrbits = [
-  { radius: 22, y: 7, speed: 0.008, offset: 2.44 },      // ~140°
-  { radius: 22, y: 8, speed: 0.007, offset: 5.58 },      // ~320°
+  { radius: 35, y: 5, speed: 0.005, offset: 2.44 },
+  { radius: 35, y: 6, speed: 0.004, offset: 5.58 },
 ];
 
 const allFlocks = [];
@@ -856,12 +852,12 @@ function updateMurmuration(simTime, speedMult) {
     const f = allFlocks[fi];
     const N = FLOCK_SIZE;
     
-    // ── Orbiting center — flock travels an organic path across the sky ──
+    // ── Orbiting center — far back, gentle wandering ──
     const orb = f.orbit;
     const orbAngle = t * orb.speed * 10 + orb.offset;
-    // Organic wobble — radius and height vary slowly
-    const wobbleR = orb.radius + Math.sin(orbAngle * 1.3) * 3 + Math.sin(orbAngle * 0.4) * 2;
-    const orbY = orb.y + Math.sin(orbAngle * 0.7) * 1.2 + Math.cos(orbAngle * 0.3) * 0.8;
+    // Minimal wobble — radius stays 33.5-36.5, never approaches camera
+    const wobbleR = orb.radius + Math.sin(orbAngle * 1.3) * 1 + Math.abs(Math.sin(orbAngle * 0.4)) * 0.5;
+    const orbY = orb.y + Math.sin(orbAngle * 0.7) * 0.5;
     const orbX = Math.sin(orbAngle) * wobbleR;
     const orbZ = Math.cos(orbAngle) * wobbleR;
     
@@ -1088,11 +1084,7 @@ function updateMurmuration(simTime, speedMult) {
       m.position.x=wx; m.position.y=wy; m.position.z=wz;
       m.rotation.y=Math.atan2(f.vx[i],f.vz[i]);
       m.rotation.x=-Math.asin(f.vy[i]/Math.max(0.01,Math.sqrt(f.vx[i]*f.vx[i]+f.vy[i]*f.vy[i]+f.vz[i]*f.vz[i])));
-      // Distance-based scaling — consistent apparent size across all 4 walls
-      // Same approach as existing scene birds (BIRD_REF_DIST = 23)
-      const distFromCam = Math.sqrt(wx*wx + (wy-EYE_H)*(wy-EYE_H) + wz*wz);
-      const distScale = 22 / Math.max(10, distFromCam);
-      m.scale.setScalar(distScale);
+      // Fixed tiny scale — no distance compensation. They must always be specks.
     }
   }
 }
