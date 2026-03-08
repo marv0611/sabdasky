@@ -26,11 +26,11 @@ const INERTIA = 0.985;
 const NUDGE = 1 - INERTIA; // 0.015
 
 // Nudge weights (these get multiplied by NUDGE, so effective is small)
-const W_ALIGN = 1.0;     // steer toward avg neighbor direction
-const W_CENTER = 0.15;   // toward flock center
-const W_REPEL = 0.8;     // collision avoidance
+const W_ALIGN = 0.5;     // very gentle nudge toward neighbors
+const W_CENTER = 0.008;  // barely there — just enough to prevent infinite spread
+const W_REPEL = 0.8;
 const REPEL_DIST = 0.7;
-const W_NOISE = 0.3;
+const W_NOISE = 0.2;
 
 const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
 const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N);
