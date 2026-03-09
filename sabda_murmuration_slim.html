@@ -877,30 +877,24 @@ contentScene.add(balloonGroup);
 const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 0.86;
 
-const BH_CLUSTER_H = 14.0;  // taller — increased vertical scale
-const BH_MAX_R = 2.2;       // narrower — taller than wide
-const BH_WIDE_AT = 0.75;    // widest at 75% up
+const BH_CLUSTER_H = 14.0;
+const BH_MAX_R = 2.2;
+const BH_WIDE_AT = 0.72;    // shoulders at 72%
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
-const BH_N_INTERIOR = 350;  // more for denser overlap
+const BH_N_INTERIOR = 350;
 const BH_N_STRAYS = 6;
-const BH_EACH_SCALE = 0.026; // slightly smaller for tighter packing
+const BH_EACH_SCALE = 0.026;
 
-// Inverted teardrop: tight pinch at base, tall body, round dome
+// UNIMODAL profile — one single convex mass, no neck/constriction
+// Bottom→Shoulders: power curve (exponent < 1 = convex, outward-curving edges)
+// Shoulders→Top: cosine dome
 function bhClusterR(y01) {
   if (y01 < 0 || y01 > 1) return 0;
-  if (y01 < 0.40) {
-    // Long pinched base — quartic for very tight start
-    const t = y01 / 0.40;
-    return 0.08 + t * t * t * t * (BH_MAX_R * 0.55 - 0.08);
-  }
   if (y01 < BH_WIDE_AT) {
-    // Expanding body
-    const t = (y01 - 0.40) / (BH_WIDE_AT - 0.40);
-    const eased = Math.sin(t * Math.PI / 2);
-    return BH_MAX_R * 0.55 + eased * (BH_MAX_R - BH_MAX_R * 0.55);
+    const t = y01 / BH_WIDE_AT;
+    return BH_MAX_R * Math.pow(t, 0.55);
   }
-  // Dome top — smooth cosine
   const t = (y01 - BH_WIDE_AT) / (1 - BH_WIDE_AT);
   return BH_MAX_R * Math.cos(t * Math.PI / 2);
 }
@@ -910,25 +904,7 @@ const bhGlintLight = new THREE.PointLight(0xFCF5E5, 3.0, 35);
 bhGlintLight.position.set(-3, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.85, 3);
 balloonGroup.add(bhGlintLight);
 
-// String network — fan of thin lines from chimney to convergence zone
-const bhStringMat = new THREE.MeshBasicMaterial({
-  color: 0xe0d8c8, transparent: true, opacity: 0.08, depthWrite: false,
-});
-const fanR = bhClusterR(0.08) + 0.3; // radius at bottom of cluster
-const fanH = BH_GAP + BH_CLUSTER_H * 0.08;
-for (let si = 0; si < 10; si++) {
-  const a = si * Math.PI * 2 / 10;
-  const geo = new THREE.BufferGeometry();
-  const verts = new Float32Array([
-    0, BH_CHIMNEY_Y, 0,
-    Math.cos(a)*fanR, BH_CHIMNEY_Y + fanH, Math.sin(a)*fanR,
-    Math.cos(a+0.15)*fanR, BH_CHIMNEY_Y + fanH, Math.sin(a+0.15)*fanR,
-  ]);
-  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-  const tri = new THREE.Mesh(geo, bhStringMat);
-  tri.frustumCulled = false;
-  balloonGroup.add(tri);
-}
+// No separate string network needed — cluster tapers to point at chimney
 
 let _bseed = 42;
 function brand() { _bseed = (_bseed * 16807) % 2147483647; return _bseed / 2147483647; }
