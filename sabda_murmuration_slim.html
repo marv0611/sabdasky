@@ -864,49 +864,47 @@ const BH_X0 = Math.cos(BH_ANGLE) * BH_DIST;
 const BH_Z0 = Math.sin(BH_ANGLE) * BH_DIST;
 
 // Colors: deep blue, salmon pink, mint green
-const BH_COLORS = [0x203999, 0xF8A6A3, 0x02F3C5];
+// 8-color palette
+const BH_COLORS = [
+  0xFF0000, 0xFFD700, 0x0000FF, 0x00FF00,
+  0xFF8C00, 0x9400D3, 0x00FFFF, 0xFF69B4,
+];
 
 const balloonGroup = new THREE.Group();
 balloonGroup.position.set(BH_X0, BH_Y_START, BH_Z0);
 contentScene.add(balloonGroup);
 
-// House chimney top in group-local coords
-const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE; // ~3.3 units
-const BH_GAP = 0.86; // strings height — ratio 70 of 271/70/950
+const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
+const BH_GAP = 0.86;
 
-// ── STRING BUNDLE (cone from chimney to balloon cluster bottom) ──
-// Teardrop shape matching reference: tall, narrow, widest at ~70% up
-const BH_CLUSTER_H = 11.66; // balloon height — ratio 950 of 271/70/950
-const BH_MAX_R = 2.77;      // height:width ≈ 2.1:1
-const BH_WIDE_AT = 0.70;    // widest point at 70% up (reference)
+const BH_CLUSTER_H = 11.66;
+const BH_MAX_R = 2.77;
+const BH_WIDE_AT = 0.70;
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
-const BH_N_BALLOONS = 300;
+const BH_N_INTERIOR = 250;
+const BH_N_SHELL = 120;
 const BH_EACH_SCALE = 0.028;
 
-// Teardrop radius: long funnel taper at bottom, wide upper body, rounded top
 function bhClusterR(y01) {
   if (y01 < 0 || y01 > 1) return 0;
   if (y01 < 0.25) {
-    // Long funnel: narrow at bottom, gradually widens (25% of height)
     const t = y01 / 0.25;
-    return 0.2 + t * t * (BH_MAX_R * 0.55 - 0.2); // quadratic — slow start
+    return 0.2 + t * t * (BH_MAX_R * 0.55 - 0.2);
   }
   if (y01 < BH_WIDE_AT) {
-    // Widen smoothly to max
     const t = (y01 - 0.25) / (BH_WIDE_AT - 0.25);
     return BH_MAX_R * 0.55 + t * (BH_MAX_R - BH_MAX_R * 0.55);
   }
-  // Round off top — cosine curve
   const t = (y01 - BH_WIDE_AT) / (1 - BH_WIDE_AT);
   return BH_MAX_R * Math.cos(t * Math.PI / 2);
 }
 
-// Subtle cone net between funnel bottom and chimney (like reference)
+// Subtle string cone
 const bhConeH = BH_GAP;
 const bhConeGeo = new THREE.ConeGeometry(0.5, bhConeH, 12, 1, true);
 const bhConeMat = new THREE.MeshBasicMaterial({
-  color: 0xe8dcc8, transparent: true, opacity: 0.12,
+  color: 0xe8dcc8, transparent: true, opacity: 0.10,
   side: THREE.DoubleSide, depthWrite: false,
 });
 const bhCone = new THREE.Mesh(bhConeGeo, bhConeMat);
@@ -914,31 +912,60 @@ bhCone.position.set(0, BH_CHIMNEY_Y + bhConeH / 2, 0);
 bhCone.frustumCulled = false;
 balloonGroup.add(bhCone);
 
-// Seeded PRNG for deterministic placement
 let _bseed = 42;
 function brand() { _bseed = (_bseed * 16807) % 2147483647; return _bseed / 2147483647; }
 
-// Pre-compute positions in ellipsoid volume
 const bhPositions = [];
-for (let i = 0; i < BH_N_BALLOONS; i++) {
-  // Pick random Y in cluster, then place within radius at that height
+
+// Interior volume fill
+for (let i = 0; i < BH_N_INTERIOR; i++) {
   for (let tries = 0; tries < 100; tries++) {
     const y01 = brand();
     const maxR = bhClusterR(y01);
     if (maxR < 0.1) continue;
     const angle = brand() * Math.PI * 2;
-    const r = Math.sqrt(brand()) * maxR; // sqrt for uniform disk
-    const bx = Math.cos(angle) * r;
-    const bz = Math.sin(angle) * r;
-    const by = BH_CLUSTER_BOT + y01 * BH_CLUSTER_H;
+    const r = Math.sqrt(brand()) * maxR;
     bhPositions.push({
-      x: bx, y: by, z: bz,
-      rotY: brand() * Math.PI * 2,
-      scale: BH_EACH_SCALE * (0.85 + brand() * 0.3),
-      colorIdx: Math.floor(brand() * 3),
+      x: Math.cos(angle) * r, y: BH_CLUSTER_BOT + y01 * BH_CLUSTER_H,
+      z: Math.sin(angle) * r, rotY: brand() * Math.PI * 2,
+      scale: BH_EACH_SCALE * (0.85 + brand() * 0.3), colorIdx: -1,
     });
     break;
   }
+}
+
+// Shell surface — fills the outline smooth
+for (let i = 0; i < BH_N_SHELL; i++) {
+  for (let tries = 0; tries < 100; tries++) {
+    const y01 = brand();
+    const maxR = bhClusterR(y01);
+    if (maxR < 0.2) continue;
+    const angle = brand() * Math.PI * 2;
+    const r = maxR * (0.88 + brand() * 0.15);
+    bhPositions.push({
+      x: Math.cos(angle) * r, y: BH_CLUSTER_BOT + y01 * BH_CLUSTER_H,
+      z: Math.sin(angle) * r, rotY: brand() * Math.PI * 2,
+      scale: BH_EACH_SCALE * (0.90 + brand() * 0.2), colorIdx: -1,
+    });
+    break;
+  }
+}
+
+// Assign colors: avoid same-color direct neighbors
+for (let i = 0; i < bhPositions.length; i++) {
+  const p = bhPositions[i];
+  const nearColors = new Set();
+  for (let j = Math.max(0, i - 25); j < i; j++) {
+    const q = bhPositions[j];
+    const dx = p.x-q.x, dy = p.y-q.y, dz = p.z-q.z;
+    if (dx*dx+dy*dy+dz*dz < 3*3) nearColors.add(q.colorIdx);
+  }
+  let ci;
+  for (let t = 0; t < 30; t++) {
+    ci = Math.floor(brand() * BH_COLORS.length);
+    if (!nearColors.has(ci)) break;
+  }
+  p.colorIdx = ci;
 }
 
 // ── LOAD BALLOON GLB → create many small copies in ellipsoid ──
@@ -960,12 +987,14 @@ loader.load(balloonGlbUrl, gltf => {
   
   console.log('SABDA: Balloon geo verts:', balloonGeo.attributes.position.count);
   
-  // Pre-create one material per color
+  // One material per color — latex look with sheen
   const bhMats = BH_COLORS.map(c => {
     const col = new THREE.Color(c);
     return new THREE.MeshStandardMaterial({
-      color: col, roughness: 0.4, metalness: 0,
-      emissive: col.clone().multiplyScalar(0.1),
+      color: col,
+      roughness: 0.32,   // slightly glossy for latex sheen
+      metalness: 0.05,    // tiny metalness for specular highlight
+      emissive: col.clone().multiplyScalar(0.12),
     });
   });
   
@@ -980,7 +1009,7 @@ loader.load(balloonGlbUrl, gltf => {
     balloonGroup.add(mesh);
   }
   
-  console.log('SABDA: Balloon cluster —', BH_N_BALLOONS, 'copies in ellipsoid, group children:', balloonGroup.children.length);
+  console.log('SABDA: Balloon cluster —', bhPositions.length, 'copies, group children:', balloonGroup.children.length);
   checkReady();
 }, undefined, err => {
   console.error('SABDA: Balloon GLB FAILED:', err);
