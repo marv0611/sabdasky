@@ -878,25 +878,23 @@ const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 0.86;
 
 const BH_CLUSTER_H = 11.66;
-const BH_MAX_R = 7.86 * BH_HOUSE_SCALE; // 2× house width (radius = house width)
+const BH_MAX_R = 7.86 * BH_HOUSE_SCALE * 0.85; // 1.7× house width
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
 const BH_N_INTERIOR = 400;
 const BH_EACH_SCALE = 0.026;
 
 // ICE CREAM SCOOP on a CONE
-// Bottom 40%: sharp V taper (linear — straight diagonal to point)
-// Top 60%: bulging semicircle (cosine dome)
-// Widest at 40% (where cone meets scoop)
+// Bottom 40%: sharp V taper
+// Top 60%: round hemisphere (circular arc, not cosine — stays wider longer)
 function bhClusterR(y01) {
   if (y01 < 0 || y01 > 1) return 0;
   if (y01 < 0.40) {
-    // Sharp cone: straight line from point to full width
     return BH_MAX_R * (y01 / 0.40);
   }
-  // Bulging semicircle scoop
+  // Hemisphere: circular arc (sqrt gives rounder profile than cosine)
   const t = (y01 - 0.40) / 0.60;
-  return BH_MAX_R * Math.cos(t * Math.PI / 2);
+  return BH_MAX_R * Math.sqrt(1 - t * t);
 }
 
 // Specular highlight light
