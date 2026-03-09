@@ -29,6 +29,7 @@ canvas{position:absolute;top:0;left:0}
 <script id="planetdata" type="text/plain">ASSET_PLACEHOLDER</script>
 <script id="saturndata" type="text/plain">ASSET_PLACEHOLDER</script>
 <script id="balloonhousedata" type="text/plain">ASSET_PLACEHOLDER</script>
+<script id="balloonglbdata" type="text/plain">ASSET_PLACEHOLDER</script>
 
 
 <script type="importmap">{"imports":{
@@ -772,7 +773,7 @@ function b64ToUrl(id, mime) {
 const loader = new GLTFLoader();
 const birdFlocks = [];
 let readyCount = 0;
-function checkReady() { if (++readyCount >= 4) { document.getElementById('loading').classList.add('done'); window.SABDA_READY = true; console.log('SABDA: All assets loaded, ready for rendering'); } }
+function checkReady() { if (++readyCount >= 5) { document.getElementById('loading').classList.add('done'); window.SABDA_READY = true; console.log('SABDA: All assets loaded, ready for rendering'); } }
 
 // ── BIRDS ──
 const BIRD_REF_DIST = 23;  // reference distance for consistent apparent size
@@ -846,104 +847,92 @@ saturnLoader1.load(saturnUrl1, gltf => {
   checkReady(); // still count it so scene starts
 });
 
-// ── BALLOON HOUSE (3D house + balloon cluster — 1-minute bottom-to-top crossing) ──
-// Single event: appears from below horizon, rises at constant speed, exits top.
+// ── BALLOON HOUSE (3D house + 3D balloon cluster GLB — 1-minute crossing) ──
+// Rises from below the horizon, crosses the sky, exits above.
 // Balloons appear first, then strings, then house — pure geometric emergence.
-const BALLOON_ANGLE = Math.PI;       // center of left wall
-const BALLOON_HDIST = 100;           // distance for background depth
-const BALLOON_SCALE = 0.7;           // house scale (smaller — balloons dominate)
+// Three copies of balloon GLB, each with one of the 3 brand colors, rotated 120° apart.
+const BH_ANGLE = Math.PI;            // center of left wall
+const BH_DIST = 65;                  // closer for real perspective depth
+const BH_HOUSE_SCALE = 0.35;         // small house — balloons dominate
+const BH_BALLOON_SCALE = 0.18;       // balloon GLB is ~87 units tall → ~15.7 units at this scale
+const BH_EVENT_START = 600;           // starts at t=10min
+const BH_EVENT_DUR = 60;             // 60 seconds to cross
+const BH_Y_START = -25;              // below horizon at start
+const BH_Y_END = 70;                 // above projection at end
+const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_EVENT_DUR; // ~1.58 u/s
 
-// 1-minute crossing timing
-const BALLOON_EVENT_START = 600;     // begins at t=10min (within the 30-min loop)
-const BALLOON_EVENT_DUR = 60;        // 60 seconds to cross from bottom to top
-const BALLOON_Y_START = -60;         // well below horizon at event start
-const BALLOON_Y_END = 100;           // well above scene at event end
-const BALLOON_SPEED = (BALLOON_Y_END - BALLOON_Y_START) / BALLOON_EVENT_DUR; // ~2.67 u/s
+const BH_X0 = Math.cos(BH_ANGLE) * BH_DIST;
+const BH_Z0 = Math.sin(BH_ANGLE) * BH_DIST;
 
-const BALLOON_X0 = Math.cos(BALLOON_ANGLE) * BALLOON_HDIST;
-const BALLOON_Z0 = Math.sin(BALLOON_ANGLE) * BALLOON_HDIST;
+// Colors: deep blue, salmon pink, mint green
+const BH_COLORS = [0x203999, 0xF8A6A3, 0x02F3C5];
 
 const balloonGroup = new THREE.Group();
-balloonGroup.position.set(BALLOON_X0, BALLOON_Y_START, BALLOON_Z0);
+balloonGroup.position.set(BH_X0, BH_Y_START, BH_Z0);
 balloonGroup.visible = false;
 contentScene.add(balloonGroup);
 
-// ── CHIMNEY TOP in group-local coords ──
-const CHIMNEY_Y = 9.5 * BALLOON_SCALE;
-const CHIMNEY_X = 0, CHIMNEY_Z = 0;
+// House chimney top in group-local coords
+const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE; // ~3.3 units
+const BH_GAP = 1.0; // gap between chimney and balloon bottom
+const BH_BALLOON_Y = BH_CHIMNEY_Y + BH_GAP; // ~4.3 — where balloon cluster starts
 
-// ── PROCEDURAL BALLOON CLUSTER ──
-// Ellipsoid much taller than the house (3:1 ratio)
-const B_COLORS = [
-  0x1a3fc7, 0x4a9aed, 0xd41920, 0xe8358a, 0xf28c1e,
-  0x1a8a3a, 0x6abf2a, 0x6b1fa3, 0xedcc1c, 0x22b5c4
-];
-const B_RAD = 0.45 * BALLOON_SCALE;
-const B_COUNT = 280;
-const B_EA = 15 * BALLOON_SCALE;          // semi-major (vertical) — much taller than house
-const B_EB = 8.5 * BALLOON_SCALE;         // semi-minor (horizontal)
-const B_CENTER_Y = CHIMNEY_Y + 2.5 * BALLOON_SCALE + B_EA;
-const B_FUNNEL_Y = CHIMNEY_Y + 2 * BALLOON_SCALE;
-const B_FUNNEL_R = 0.8 * BALLOON_SCALE;
-
-const balloonGeo = new THREE.SphereGeometry(B_RAD, 8, 6);
-const balloonMats = B_COLORS.map(c => new THREE.MeshStandardMaterial({
-  color: c, roughness: 0.38, metalness: 0, transparent: true,
-}));
-
-let _bseed = 42;
-function brand() { _bseed = (_bseed * 16807 + 0) % 2147483647; return _bseed / 2147483647; }
-
-function getMaxRadius(y) {
-  if (y < CHIMNEY_Y) return 0;
-  if (y < B_FUNNEL_Y) {
-    const t = (y - CHIMNEY_Y) / (B_FUNNEL_Y - CHIMNEY_Y);
-    return B_FUNNEL_R + t * (B_EB * 0.3 - B_FUNNEL_R);
-  }
-  const dy = (y - B_CENTER_Y) / B_EA;
-  if (Math.abs(dy) > 1) return 0;
-  return B_EB * Math.sqrt(1 - dy * dy);
-}
-
-for (let i = 0; i < B_COUNT; i++) {
-  const minY = CHIMNEY_Y + 0.3 * BALLOON_SCALE;
-  const maxY = B_CENTER_Y + B_EA - B_RAD;
-  const rawT = brand();
-  const biasT = 0.1 + rawT * 0.9;
-  const by = minY + biasT * (maxY - minY);
-  const maxR = getMaxRadius(by);
-  if (maxR < B_RAD) continue;
-  const angle = brand() * Math.PI * 2;
-  const r = Math.sqrt(brand()) * (maxR - B_RAD);
-  const bx = CHIMNEY_X + Math.cos(angle) * r;
-  const bz = CHIMNEY_Z + Math.sin(angle) * r;
-  const mesh = new THREE.Mesh(balloonGeo, balloonMats[i % B_COLORS.length]);
-  mesh.position.set(bx, by, bz);
-  mesh.scale.setScalar(0.85 + brand() * 0.3);
-  mesh.frustumCulled = false;
-  balloonGroup.add(mesh);
-}
-
-// String bundle
-const stringH = (B_FUNNEL_Y - CHIMNEY_Y);
-const stringGeo = new THREE.CylinderGeometry(B_FUNNEL_R * 0.7, 0.1 * BALLOON_SCALE, stringH, 8, 1, true);
-const stringMat = new THREE.MeshBasicMaterial({
-  color: 0xf0e8d0, transparent: true, opacity: 0.45, side: THREE.DoubleSide,
+// ── STRING BUNDLE (cone from chimney to balloon bottom) ──
+const bhStringH = BH_GAP + 0.5;
+const bhStringGeo = new THREE.CylinderGeometry(1.2, 0.15, bhStringH, 8, 1, true);
+const bhStringMat = new THREE.MeshBasicMaterial({
+  color: 0xf0e8d0, transparent: true, opacity: 0.4, side: THREE.DoubleSide,
 });
-const stringMesh = new THREE.Mesh(stringGeo, stringMat);
-stringMesh.position.set(CHIMNEY_X, CHIMNEY_Y + stringH / 2, CHIMNEY_Z);
-stringMesh.frustumCulled = false;
-balloonGroup.add(stringMesh);
+const bhStringMesh = new THREE.Mesh(bhStringGeo, bhStringMat);
+bhStringMesh.position.set(0, BH_CHIMNEY_Y + bhStringH / 2, 0);
+bhStringMesh.frustumCulled = false;
+balloonGroup.add(bhStringMesh);
 
-console.log('SABDA: Balloon cluster —', balloonGroup.children.length, 'objects');
+// ── LOAD BALLOON CLUSTER GLB (×3 colored copies) ──
+let balloonLoadDone = false;
+const balloonGlbUrl = b64ToUrl('balloonglbdata', 'model/gltf-binary');
+loader.load(balloonGlbUrl, gltf => {
+  URL.revokeObjectURL(balloonGlbUrl);
+  const orig = gltf.scene;
+  
+  for (let ci = 0; ci < 3; ci++) {
+    const clone = SkeletonUtils.clone(orig);
+    clone.scale.setScalar(BH_BALLOON_SCALE);
+    clone.position.set(0, BH_BALLOON_Y, 0);
+    clone.rotation.y = ci * (Math.PI * 2 / 3); // 0°, 120°, 240°
+    
+    // Override all materials to the brand color
+    const color = new THREE.Color(BH_COLORS[ci]);
+    clone.traverse(c => {
+      if (c.isMesh) {
+        c.frustumCulled = false;
+        c.material = new THREE.MeshStandardMaterial({
+          color: color,
+          roughness: 0.4,
+          metalness: 0,
+          transparent: true,
+          emissive: color.clone().multiplyScalar(0.08),
+        });
+      }
+    });
+    balloonGroup.add(clone);
+  }
+  
+  balloonLoadDone = true;
+  console.log('SABDA: Balloon cluster GLB loaded — 3 copies ×', BH_BALLOON_SCALE.toFixed(2));
+  checkReady();
+}, undefined, err => {
+  console.error('SABDA: Balloon GLB FAILED:', err);
+  checkReady();
+});
 
 // ── LOAD 3D HOUSE GLB ──
 const houseUrl = b64ToUrl('balloonhousedata', 'model/gltf-binary');
 loader.load(houseUrl, gltf => {
   URL.revokeObjectURL(houseUrl);
   const model = gltf.scene;
-  model.scale.setScalar(BALLOON_SCALE);
-  model.position.set(-0.4 * BALLOON_SCALE, 0, 0.2 * BALLOON_SCALE);
+  model.scale.setScalar(BH_HOUSE_SCALE);
+  model.position.set(-0.4 * BH_HOUSE_SCALE, 0, 0.2 * BH_HOUSE_SCALE);
   model.traverse(c => {
     if (c.isMesh) {
       c.frustumCulled = false;
@@ -955,10 +944,10 @@ loader.load(houseUrl, gltf => {
     }
   });
   balloonGroup.add(model);
-  console.log('SABDA: Balloon house GLB loaded, scale:', BALLOON_SCALE);
+  console.log('SABDA: House GLB loaded, scale:', BH_HOUSE_SCALE);
   checkReady();
 }, undefined, err => {
-  console.error('SABDA: Balloon house FAILED to load:', err);
+  console.error('SABDA: House GLB FAILED:', err);
   checkReady();
 });
 
@@ -1270,31 +1259,25 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   // Constant speed bottom→top. Visible only during the event window.
   {
     const t = time % 1800;
-    const eventT = t - BALLOON_EVENT_START;
+    const eventT = t - BH_EVENT_START;
     
-    if (eventT < 0 || eventT > BALLOON_EVENT_DUR) {
-      // Outside event window — hide and park below
+    if (eventT < 0 || eventT > BH_EVENT_DUR) {
       balloonGroup.visible = false;
-      balloonGroup.position.y = BALLOON_Y_START;
+      balloonGroup.position.y = BH_Y_START;
     } else {
-      // Active: constant speed rise
       balloonGroup.visible = true;
-      const y = BALLOON_Y_START + BALLOON_SPEED * eventT;
+      const y = BH_Y_START + BH_SPEED * eventT;
       
-      // Very subtle horizontal drift (not enough to leave the wall center)
-      const driftX = 1.5 * Math.sin(eventT * 0.05);
-      const driftZ = 1.0 * Math.cos(eventT * 0.07);
+      // Subtle horizontal drift
+      const driftX = 1.2 * Math.sin(eventT * 0.05);
+      const driftZ = 0.8 * Math.cos(eventT * 0.07);
       
-      balloonGroup.position.set(
-        BALLOON_X0 + driftX,
-        y,
-        BALLOON_Z0 + driftZ
-      );
+      balloonGroup.position.set(BH_X0 + driftX, y, BH_Z0 + driftZ);
       
-      // Face camera + gentle sway
-      balloonGroup.rotation.y = BALLOON_ANGLE + Math.PI + eventT * 0.003;
-      balloonGroup.rotation.z = Math.sin(eventT * 0.2) * 0.008;
-      balloonGroup.rotation.x = Math.sin(eventT * 0.15 + 1.0) * 0.005;
+      // Face toward camera center + gentle sway
+      balloonGroup.rotation.y = BH_ANGLE + Math.PI + eventT * 0.003;
+      balloonGroup.rotation.z = Math.sin(eventT * 0.2) * 0.006;
+      balloonGroup.rotation.x = Math.sin(eventT * 0.15 + 1.0) * 0.004;
     }
   }
 

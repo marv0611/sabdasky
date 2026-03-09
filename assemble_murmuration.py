@@ -9,13 +9,15 @@ output = 'sabda_murmuration_full.html'
 with open(slim, 'r') as f:
     html = f.read()
 
-for aid in ['skydata', 'skydata_b', 'birdsdata', 'planetdata', 'saturndata', 'balloonhousedata']:
+for aid in ['skydata', 'skydata_b', 'birdsdata', 'planetdata', 'saturndata', 'balloonhousedata', 'balloonglbdata']:
     if aid == 'saturndata':
         b64_path = os.path.join('assets_shared', f'{aid}.b64')
     elif aid == 'skydata_b':
         b64_path = os.path.join('assets_belfast', 'skydata.b64')
     elif aid == 'balloonhousedata':
         b64_path = os.path.join('assets', 'house_balloon.b64')
+    elif aid == 'balloonglbdata':
+        b64_path = os.path.join('assets', 'group_of_balloons.b64')
     else:
         b64_path = os.path.join(assets_dir, f'{aid}.b64')
     with open(b64_path, 'r') as f:
