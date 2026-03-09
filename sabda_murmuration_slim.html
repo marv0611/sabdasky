@@ -878,35 +878,32 @@ const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 0.86;
 
 const BH_CLUSTER_H = 11.66;
-const BH_MAX_R = BH_CLUSTER_H / 2; // 1:1 height-to-width ratio → r=5.83
+const BH_MAX_R = BH_CLUSTER_H / 4; // 2:1 height:width → r=2.92, diameter=5.83
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
 const BH_N_INTERIOR = 400;
 const BH_N_STRAYS = 6;
 const BH_EACH_SCALE = 0.026;
 
-// SPHERE on top of CONE — "buoyant teardrop"
-// Bottom 45%: convex cone taper (power 0.6 = outward-bowing shoulder)
-// Top 55%: hemisphere dome (cosine curve = smooth rounded top)
-// Widest at 45% (equator where cone meets sphere)
-const BH_CONE_FRAC = 0.45;
-const BH_SPHERE_FRAC = 0.55;
-
+// Heavy canopy on top of sharp V — mass shifted upward
+// Bottom 70%: sharp V taper (power 1.8 = concave-then-convex, mostly narrow)
+// Top 30%: wide rounded canopy (cosine dome)
+// Widest point at 70% = top of the V, start of canopy
 function bhClusterR(y01) {
   if (y01 < 0 || y01 > 1) return 0;
-  if (y01 < BH_CONE_FRAC) {
-    // Cone section: convex taper from point to equator
-    const t = y01 / BH_CONE_FRAC;
-    return BH_MAX_R * Math.pow(t, 0.6); // power < 1 = convex shoulder
+  if (y01 < 0.70) {
+    // Sharp V: power 1.8 — stays narrow most of the way, widens fast near top
+    const t = y01 / 0.70;
+    return BH_MAX_R * Math.pow(t, 1.8);
   }
-  // Sphere section: hemisphere dome
-  const t = (y01 - BH_CONE_FRAC) / BH_SPHERE_FRAC;
+  // Heavy rounded canopy dome
+  const t = (y01 - 0.70) / 0.30;
   return BH_MAX_R * Math.cos(t * Math.PI / 2);
 }
 
 // Specular highlight light — warm off-white at 45° upper-left
-const bhGlintLight = new THREE.PointLight(0xFCF5E5, 4.0, 50);
-bhGlintLight.position.set(-6, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.8, 6);
+const bhGlintLight = new THREE.PointLight(0xFCF5E5, 3.5, 40);
+bhGlintLight.position.set(-4, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.8, 4);
 balloonGroup.add(bhGlintLight);
 
 // No separate string network needed — cluster tapers to point at chimney
