@@ -1357,18 +1357,40 @@ function updateMurmuration(simTime, speedMult) {
         az += (-perpPull * cosA - alongPull * sinA);
       }
       
-      // ── CENTRAL DENSITY — keeps flock together but not a black mass ──
+      // ── RETURN TO CORE — angular steering, not linear pull ──
+      // Old: direct force toward origin = "vacuum suction" effect.
+      // New: gently STEER velocity direction toward origin = smooth arc back.
+      // Bird curves home like a bird banking into a turn, not a ball on a string.
       const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
       if(fd > 2.5) {
-        const centralStr = (fd - 2.5) * 0.0015;
-        ax += (-f.px[i]/fd) * centralStr;
-        az += (-f.pz[i]/fd) * centralStr;
+        const towardCore = Math.atan2(-f.px[i], -f.pz[i]);
+        const myHdgC = Math.atan2(f.vx[i], f.vz[i]);
+        let hdgDiffC = towardCore - myHdgC;
+        if(hdgDiffC > 3.14159) hdgDiffC -= 6.28318;
+        if(hdgDiffC < -3.14159) hdgDiffC += 6.28318;
+        // Gentle curve — strength grows slowly with distance
+        // resp-dependent: sluggish birds take longer to curve back = organic
+        const curveStr = Math.min(0.04, (fd - 2.5) * 0.003 * resp);
+        const cTurn = hdgDiffC * curveStr;
+        if(Math.abs(cTurn) > 0.0001) {
+          const ccs = Math.cos(cTurn), csn = Math.sin(cTurn);
+          const cv = f.vx[i], cz = f.vz[i];
+          f.vx[i] = cv*ccs + cz*csn;
+          f.vz[i] = -cv*csn + cz*ccs;
+        }
       }
-      // Hard tether — prevents escape
+      // Hard leash — only emergency, still angular not linear
       if(fd > 7) {
-        const leashStr = (fd - 7) * 0.015;
-        ax += (-f.px[i]/fd) * leashStr;
-        az += (-f.pz[i]/fd) * leashStr;
+        const towardCore = Math.atan2(-f.px[i], -f.pz[i]);
+        const myHdgC = Math.atan2(f.vx[i], f.vz[i]);
+        let hdgDiffC = towardCore - myHdgC;
+        if(hdgDiffC > 3.14159) hdgDiffC -= 6.28318;
+        if(hdgDiffC < -3.14159) hdgDiffC += 6.28318;
+        const leashTurn = hdgDiffC * Math.min(0.12, (fd - 7) * 0.02);
+        const lcs = Math.cos(leashTurn), lsn = Math.sin(leashTurn);
+        const lv = f.vx[i], lz = f.vz[i];
+        f.vx[i] = lv*lcs + lz*lsn;
+        f.vz[i] = -lv*lsn + lz*lcs;
       }
       
       // ── LANGEVIN NOISE — smooth per-bird ──
