@@ -878,7 +878,7 @@ const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 0.86;
 
 const BH_CLUSTER_H = 11.66;
-const BH_MAX_R = 3.5;       // wider — ~2.8x house width per diagram
+const BH_MAX_R = 2.45;       // 30% narrower
 const BH_WIDE_AT = 0.78;    // widest at 78% up (dome top)
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
@@ -905,7 +905,7 @@ function bhClusterR(y01) {
   }
   // Dome top — cosine curve, stays wide longer then rounds off
   const t = (y01 - BH_WIDE_AT) / (1 - BH_WIDE_AT);
-  return BH_MAX_R * Math.cos(t * t * Math.PI / 2); // t² = stays wide, then drops fast
+  return BH_MAX_R * Math.cos(t * Math.PI / 2); // smooth round dome
 }
 
 // String network — fan of thin lines from chimney to convergence zone
