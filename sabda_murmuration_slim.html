@@ -1280,13 +1280,13 @@ function updateMurmuration(simTime, speedMult) {
         // Cosine blend at close range to prevent jitter (lesson 124)
         const cohDist = Math.min(cod, 4.0);
         const cohBlend = cohDist < 0.5 ? (0.5 - Math.cos(cohDist/0.5 * 3.14159)*0.5) : 1.0;
-        const cohStr = 0.018 * resp * cohBlend * cohDist * (f.cohesionMult||1.0);
+        const cohStr = 0.038 * resp * cohBlend * cohDist * (f.cohesionMult||1.0);
         const cohTurn = cohDiff * cohStr;
         const ccs=Math.cos(cohTurn), csn=Math.sin(cohTurn);
         const cv1=f.vx[i]*ccs+f.vz[i]*csn, cv2=-f.vx[i]*csn+f.vz[i]*ccs;
         f.vx[i]=cv1; f.vz[i]=cv2;
         // Y cohesion — gentle vertical pull toward neighbor centroid
-        ay += (cpy - f.py[i]) * 0.008 * (f.cohesionMult||1.0);
+        ay += (cpy - f.py[i]) * 0.015 * (f.cohesionMult||1.0);
         
         // ── 2. ALIGNMENT — steer toward avg heading of 7 nearest (Reynolds Rule 2) ──
         // REDUCED (not suppressed) during wave response delay (lesson 123)
@@ -1351,14 +1351,14 @@ function updateMurmuration(simTime, speedMult) {
       // Birds roam freely within 4 units. Beyond that, the tiniest
       // curve steers them back over many seconds. Never visible as "pulling".
       const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
-      if(fd > 4.0) {
+      if(fd > 3.5) {
         const towardCore = Math.atan2(-f.px[i], -f.pz[i]);
         const myHdgC = Math.atan2(f.vx[i], f.vz[i]);
         let hdgDiffC = towardCore - myHdgC;
         if(hdgDiffC > 3.14159) hdgDiffC -= 6.28318;
         if(hdgDiffC < -3.14159) hdgDiffC += 6.28318;
-        // Very gentle: 0.001 per unit beyond 4, capped at 0.02 (~1° per frame)
-        const curveStr = Math.min(0.02, (fd - 4.0) * 0.001 * resp);
+        // Gentle but present — 0.002 per unit (was 0.001 = too weak)
+        const curveStr = Math.min(0.025, (fd - 3.5) * 0.002 * resp);
         const cTurn = hdgDiffC * curveStr;
         if(Math.abs(cTurn) > 0.0001) {
           const ccs = Math.cos(cTurn), csn = Math.sin(cTurn);
