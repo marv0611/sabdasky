@@ -2,26 +2,23 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>SABDA — Balloon House v4</title>
+<title>SABDA — Balloon House v5 (Sprite)</title>
 <style>*{margin:0;padding:0}body{overflow:hidden;background:#000}canvas{display:block}
 #info{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,220,180,0.5);font:11px Georgia,serif;text-align:center;pointer-events:none}</style>
 </head>
 <body>
-<div id="info">drag to orbit · scroll to zoom</div>
+<div id="info">drag to orbit · scroll to zoom · house drifts on wind</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 
-// ── RENDERER ──
 const R = new THREE.WebGLRenderer({ antialias:true });
 R.setSize(innerWidth, innerHeight);
 R.setPixelRatio(Math.min(devicePixelRatio, 2));
-R.toneMapping = THREE.ACESFilmicToneMapping;
-R.toneMappingExposure = 0.85; // lower = more saturated, less washed out
+R.toneMapping = THREE.LinearToneMapping;
+R.toneMappingExposure = 1.0;
 R.outputEncoding = THREE.sRGBEncoding;
 document.body.appendChild(R.domElement);
 
-// ── SCENE ──
 const scene = new THREE.Scene();
 
 // Evening sky
@@ -35,12 +32,12 @@ sg.addColorStop(0.68,'#783858'); sg.addColorStop(0.78,'#a85838');
 sg.addColorStop(0.88,'#c88028'); sg.addColorStop(1.0,'#d8a830');
 sk.fillStyle=sg; sk.fillRect(0,0,512,512);
 scene.background = new THREE.CanvasTexture(skC);
-scene.fog = new THREE.FogExp2(0x100630, 0.003);
+scene.fog = new THREE.FogExp2(0x100630, 0.002);
 
-// ── CAMERA + ORBIT ──
-const cam = new THREE.PerspectiveCamera(42, innerWidth/innerHeight, 0.1, 800);
-let drag=false, mx=0, my=0, oT=0.2, oP=1.15, oRad=50;
-const oC = new THREE.Vector3(0, 18, 0);
+// Camera + orbit
+const cam = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 800);
+let drag=false, mx=0, my=0, oT=0.15, oP=1.15, oRad=35;
+const oC = new THREE.Vector3(0, 8, 0);
 function uc(){
   cam.position.set(
     oC.x+oRad*Math.sin(oP)*Math.sin(oT),
@@ -53,280 +50,86 @@ const cv=R.domElement;
 cv.onpointerdown=e=>{drag=true;mx=e.clientX;my=e.clientY};
 cv.onpointerup=cv.onpointerleave=()=>drag=false;
 cv.onpointermove=e=>{if(!drag)return;oT-=(e.clientX-mx)*0.005;oP=Math.max(0.3,Math.min(2.5,oP+(e.clientY-my)*0.005));mx=e.clientX;my=e.clientY;uc()};
-cv.onwheel=e=>{oRad=Math.max(15,Math.min(120,oRad+e.deltaY*0.05));uc()};
+cv.onwheel=e=>{oRad=Math.max(8,Math.min(100,oRad+e.deltaY*0.04));uc()};
 
-// ── LIGHTING — careful balance: specular highlights WITHOUT washing out color ──
-// Low ambient so base colors stay deep and saturated
-scene.add(new THREE.AmbientLight(0xffeedd, 0.18));
-// Key light — warm sun, creates specular on glossy balloons
-const sun = new THREE.DirectionalLight(0xfff4e0, 1.3);
-sun.position.set(-6, 25, 15); scene.add(sun);
-// Secondary fill from opposite side
-const key2 = new THREE.DirectionalLight(0xffe8c0, 0.5);
-key2.position.set(12, 18, -5); scene.add(key2);
-// Subtle warm rim
-const rim = new THREE.DirectionalLight(0xffaa60, 0.25);
-rim.position.set(5, 2, -12); scene.add(rim);
-// Cool fill from below — very subtle
-const fill = new THREE.DirectionalLight(0x6050a0, 0.1);
-fill.position.set(0, -10, 0); scene.add(fill);
+// Lighting
+scene.add(new THREE.AmbientLight(0xfff8f0, 0.6));
+const sun = new THREE.DirectionalLight(0xfff0d0, 0.6);
+sun.position.set(-5, 15, 10); scene.add(sun);
 
-// ── ASSEMBLY ──
-const asm = new THREE.Group();
-scene.add(asm);
-
-// ── HOUSE GLB ──
-new THREE.GLTFLoader().load('assets/house_balloon.glb', g=>{
-  const h=g.scene; h.scale.setScalar(1.0);
-  h.traverse(c=>{if(c.isMesh)c.frustumCulled=false});
-  asm.add(h);
-}, undefined, ()=>{
-  const b=new THREE.Mesh(new THREE.BoxGeometry(4,4,4),new THREE.MeshStandardMaterial({color:0xd4a030,roughness:0.7}));
-  b.position.y=2; asm.add(b);
-  const r=new THREE.Mesh(new THREE.ConeGeometry(3.5,2.5,4),new THREE.MeshStandardMaterial({color:0x8b4020,roughness:0.6}));
-  r.position.y=5.5;r.rotation.y=Math.PI/4; asm.add(r);
+// ── BALLOON HOUSE SPRITE ──
+// Load the reference image as a texture on a Sprite
+// Sprite always faces camera = looks correct from any angle in 360° room
+const tex = new THREE.TextureLoader().load('assets/balloon_house_sprite.png', t => {
+  t.encoding = THREE.sRGBEncoding;
+  // Image is 1024 x 1329 → aspect ratio 1024/1329 ≈ 0.77
+  const aspect = 1024 / 1329;
+  const height = 18; // world units tall
+  const width = height * aspect;
+  sprite.scale.set(width, height, 1);
+  console.log('Sprite loaded:', width.toFixed(1), '×', height, 'units');
 });
 
-// ════════════════════════════════════════════════════════════
-// BALLOONS — 800, DEEP SATURATED colors, correct teardrop
-// ════════════════════════════════════════════════════════════
+const spriteMat = new THREE.SpriteMaterial({
+  map: tex,
+  transparent: true,
+  alphaTest: 0.05,  // clean edges
+  fog: true,
+  sizeAttenuation: true,
+});
 
-// EXACT colors sampled from reference images — DEEP and SATURATED
-// No pastels. These are real helium balloon colors.
-const COLORS = [
-  // Royal / Cobalt Blue (prominent)
-  0x0044cc, 0x0038b8, 0x0050dd, 0x0040c8, 0x003ab0, 0x1050d0,
-  0x0048d8, 0x0055d0, 0x0030a0, 0x0842a0,
-  // Sky / Bright Blue
-  0x0099ee, 0x00aaff, 0x0088dd, 0x1090e0, 0x0080d0, 0x20a0f0,
-  // Vivid Red / Scarlet
-  0xdd0015, 0xcc0010, 0xe80020, 0xbb0008, 0xd41020, 0xc00015,
-  0xe01030, 0xb80010,
-  // Hot Pink / Magenta / Fuchsia
-  0xe8008a, 0xdd0078, 0xf00090, 0xcc0068, 0xd80080, 0xff1098,
-  0xee0088, 0xc80070,
-  // Bright Orange
-  0xf06800, 0xe87000, 0xf57800, 0xdd6000, 0xf08010, 0xe06800,
-  // Emerald / Kelly Green
-  0x009930, 0x00aa38, 0x00882a, 0x10a040, 0x008828, 0x00bb40,
-  // Lime / Bright Green
-  0x50b800, 0x60c800, 0x48a800, 0x58c010, 0x40a000,
-  // Deep Purple / Violet
-  0x7800bb, 0x6600aa, 0x8800cc, 0x7000b0, 0x8010c0, 0x6008a0,
-  // Yellow / Golden
-  0xe8c800, 0xddb800, 0xf0d000, 0xccaa00, 0xe0c010, 0xd8b800,
-  // Cyan / Turquoise
-  0x00b0b8, 0x00c8c0, 0x009898, 0x00a8b0, 0x10b8c0,
-];
+const sprite = new THREE.Sprite(spriteMat);
+sprite.position.set(0, 8, 0);
+sprite.frustumCulled = false;
+scene.add(sprite);
 
-function rC() { return COLORS[Math.floor(Math.random() * COLORS.length)]; }
-
-// Balloon geometry — teardrop
-const bGeo = new THREE.SphereGeometry(1, 14, 11);
-const bp = bGeo.getAttribute('position');
-for(let i=0; i<bp.count; i++) {
-  let x=bp.getX(i), y=bp.getY(i), z=bp.getZ(i);
-  if(y < 0) {
-    const t = -y;
-    const pinch = Math.max(0.06, 1.0 - t*t*0.9);
-    bp.setX(i, x*pinch); bp.setZ(i, z*pinch);
-    bp.setY(i, y*1.35);
-  } else {
-    bp.setY(i, y*0.92);
-  }
-}
-bGeo.computeVertexNormals();
-
-const kGeo = new THREE.ConeGeometry(0.055, 0.1, 4);
-
-const BN = 800;
-const bGrp = new THREE.Group();
-const bMs = [];
-const bDs = [];
-
-// Material cache — glossy latex, NO emissive (emissive washes out saturation)
-const mC = new Map();
-function gM(c) {
-  if(mC.has(c)) return mC.get(c);
-  const m = new THREE.MeshStandardMaterial({
-    color:c,
-    roughness: 0.18,  // glossy latex
-    metalness: 0.02,  // not metallic, just shiny plastic
-    // NO emissive — it washes out the deep colors
-  });
-  mC.set(c,m); return m;
-}
-
-// ── CLUSTER SHAPE ──
-// Reference shape (from image 2 — front view):
-// Fat rounded mass at top (widest around 55-65% height)
-// Stays wide from ~40% to ~85% 
-// Narrows sharply below 30% into funnel
-// Gently rounds at very top
-//
-// House top ≈ y:9.5, chimney ≈ y:10
-// Cluster: y:10 (chimney) to y:30 (top) = 20 units tall
-// Max radius ≈ 7 (diameter 14) → height:width ≈ 1.43:1
-
-const CY = 10.0;   // chimney
-const CT = 30.0;    // cluster top
-const CH = CT - CY; // 20 units
-
-function cR(y) {
-  const t = (y - CY) / CH; // 0=chimney, 1=top
-  
-  if(t < 0.10) {
-    // Tight funnel — strings converge to chimney
-    return 0.3 + (t/0.10) * 1.2; // 0.3 → 1.5
-  }
-  if(t < 0.30) {
-    // Rapid widening 
-    const u = (t-0.10)/0.20;
-    return 1.5 + u * u * 5.5; // 1.5 → 7.0 (accelerating)
-  }
-  if(t < 0.85) {
-    // THE MAIN FAT BULGE — stays wide, widest at ~60%
-    const u = (t-0.30)/0.55;
-    // Slight sine shape: peaks at center of this zone
-    return 6.5 + Math.sin(u * Math.PI) * 1.2; // 6.5 → 7.7 → 6.5
-  }
-  // Top dome — gentle round-off (NOT steep)
-  const u = (t-0.85)/0.15;
-  return 6.5 * (1.0 - u*u*0.75); // smooth from 6.5 down to ~1.6
-}
-
-// Place balloons using layered rings
-const SC = 0.60;
-const layers = 65;
-
-for(let L = 0; L < layers; L++) {
-  const t = L / (layers-1);
-  const y = CY + t * CH;
-  const maxR = cR(y);
-  if(maxR < 0.25) continue;
-  
-  const bd = SC * 1.5; // balloon diameter with overlap
-  const maxRings = Math.max(1, Math.round(maxR / bd));
-  
-  for(let ring = 0; ring < maxRings; ring++) {
-    const rr = maxRings === 1 ? 0 : (ring+0.5)/maxRings * maxR;
-    const nR = rr < 0.1 ? 1 : Math.max(1, Math.round(2*Math.PI*rr / bd));
-    
-    for(let j=0; j<nR; j++) {
-      if(bMs.length >= BN) break;
-      
-      const a = (j/nR)*6.2832 + ring*0.5 + L*0.37;
-      const aR = a + (Math.random()-0.5)*0.35;
-      const rR = rr + (Math.random()-0.5)*bd*0.25;
-      const bx = Math.cos(aR) * Math.max(0, rR);
-      const bz = Math.sin(aR) * Math.max(0, rR);
-      const by = y + (Math.random()-0.5)*0.25;
-      
-      const sc = SC + (Math.random()-0.5)*0.06;
-      const color = rC();
-      const mat = gM(color);
-      
-      const balloon = new THREE.Mesh(bGeo, mat);
-      balloon.position.set(bx, by, bz);
-      balloon.scale.setScalar(sc);
-      balloon.rotation.y = Math.random()*6.28;
-      balloon.frustumCulled = false;
-      bGrp.add(balloon);
-      bMs.push(balloon);
-      
-      const knot = new THREE.Mesh(kGeo, mat);
-      knot.position.set(bx, by-sc*1.3, bz);
-      knot.rotation.x = Math.PI;
-      bGrp.add(knot);
-      
-      bDs.push({
-        ox:bx, oy:by, oz:bz, ph:Math.random()*6.28,
-        fx:0.1+Math.random()*0.18, fz:0.1+Math.random()*0.18, fy:0.2+Math.random()*0.18,
-        ax:0.008+Math.random()*0.018, az:0.008+Math.random()*0.018, ay:0.004+Math.random()*0.012,
-        knot, sc,
-      });
-    }
-    if(bMs.length>=BN) break;
-  }
-  if(bMs.length>=BN) break;
-}
-console.log('Balloons:', bMs.length);
-
-// ── STRINGS — white/cream, from funnel balloons to chimney ──
-const sMat = new THREE.LineBasicMaterial({ color:0xeeeadd, transparent:true, opacity:0.55 });
-const chimPt = new THREE.Vector3(0.2, CY-0.5, 0);
-
-for(let i=0; i<bMs.length; i++){
-  const d=bDs[i];
-  if(d.oy > CY+CH*0.25) continue; // bottom 25% get strings
-  const start = new THREE.Vector3(d.ox, d.oy-d.sc*1.3, d.oz);
-  const mid = new THREE.Vector3(
-    (start.x+chimPt.x)*0.5+(Math.random()-0.5)*0.12,
-    (start.y+chimPt.y)*0.5,
-    (start.z+chimPt.z)*0.5+(Math.random()-0.5)*0.12
-  );
-  bGrp.add(new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints(
-      new THREE.QuadraticBezierCurve3(chimPt.clone(),mid,start).getPoints(8)
-    ), sMat
-  ));
-}
-
-asm.add(bGrp);
-
-// ── DUST ──
-const dN=80, dG=new THREE.BufferGeometry(), dP=new Float32Array(dN*3);
-for(let i=0;i<dN;i++){dP[i*3]=(Math.random()-0.5)*80;dP[i*3+1]=Math.random()*50;dP[i*3+2]=(Math.random()-0.5)*80;}
+// ── FLOATING DUST ──
+const dN=100, dG=new THREE.BufferGeometry(), dP=new Float32Array(dN*3);
+for(let i=0;i<dN;i++){dP[i*3]=(Math.random()-0.5)*60;dP[i*3+1]=Math.random()*40-5;dP[i*3+2]=(Math.random()-0.5)*60;}
 dG.setAttribute('position',new THREE.BufferAttribute(dP,3));
 const dtx=document.createElement('canvas');dtx.width=32;dtx.height=32;
 const dc=dtx.getContext('2d'),dg=dc.createRadialGradient(16,16,0,16,16,16);
 dg.addColorStop(0,'rgba(255,230,180,1)');dg.addColorStop(0.4,'rgba(255,200,140,0.3)');dg.addColorStop(1,'rgba(255,180,100,0)');
 dc.fillStyle=dg;dc.fillRect(0,0,32,32);
 scene.add(new THREE.Points(dG,new THREE.PointsMaterial({
-  map:new THREE.CanvasTexture(dtx),size:0.45,transparent:true,opacity:0.25,
+  map:new THREE.CanvasTexture(dtx),size:0.4,transparent:true,opacity:0.25,
   blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true
 })));
 
 // ════════════════════════════════════════════════════
-// WIND & MOVEMENT
+// WIND & HOT AIR BALLOON MOVEMENT
 // ════════════════════════════════════════════════════
-let wA=Math.random()*6.28, wS=0.2, wTA=wA, wTS=0.2, wTm=0, thPh=Math.random()*6.28;
+let wA=Math.random()*6.28, wS=0.2, wTA=wA, wTS=0.2, wTm=0;
+let thPh=Math.random()*6.28;
 const clk=new THREE.Clock(); let el=0;
 
-function animate() {
+function animate(){
   requestAnimationFrame(animate);
   const dt=Math.min(clk.getDelta(),0.05); el+=dt;
   
+  // Wind changes direction/strength slowly
   wTm-=dt;
   if(wTm<=0){wTA+=(Math.random()-0.5)*0.8;wTS=0.08+Math.random()*0.3;wTm=6+Math.random()*12;}
   wA+=(wTA-wA)*0.003; wS+=(wTS-wS)*0.006;
-  const wx=Math.cos(wA)*wS*dt, wz=Math.sin(wA)*wS*dt;
   
+  // Thermals — gentle vertical bobbing
   thPh+=dt*0.1;
-  asm.position.x+=wx*0.6;
-  asm.position.z+=wz*0.6;
-  asm.position.y+=(0.005+Math.sin(thPh)*0.0012)*dt*60;
+  const thermal = Math.sin(thPh)*0.0015;
   
-  const tl=wS*0.018;
-  asm.rotation.z+=(Math.sin(wA)*tl-asm.rotation.z)*0.01;
-  asm.rotation.x+=(Math.cos(wA)*tl-asm.rotation.x)*0.01;
-  asm.rotation.y+=dt*0.005;
+  // Apply wind + rise to sprite
+  sprite.position.x += Math.cos(wA)*wS*dt*0.6;
+  sprite.position.z += Math.sin(wA)*wS*dt*0.6;
+  sprite.position.y += (0.005+thermal)*dt*60;
   
-  for(let i=0;i<bMs.length;i++){
-    const d=bDs[i],m=bMs[i],t=el*d.fx+d.ph;
-    m.position.x=d.ox+Math.sin(t)*d.ax;
-    m.position.z=d.oz+Math.cos(t*0.85+0.6)*d.az;
-    m.position.y=d.oy+Math.sin(t*d.fy+d.ph*2)*d.ay;
-    d.knot.position.set(m.position.x, m.position.y-d.sc*1.3, m.position.z);
-  }
-  
+  // Dust
   const dp=dG.getAttribute('position');
-  for(let i=0;i<dN;i++){dp.setY(i,dp.getY(i)+0.002);if(dp.getY(i)>50)dp.setY(i,-2);}
+  for(let i=0;i<dN;i++){dp.setY(i,dp.getY(i)+0.002);if(dp.getY(i)>35)dp.setY(i,-5);}
   dp.needsUpdate=true;
   
-  oC.x+=(asm.position.x-oC.x)*0.01;
-  oC.y+=((asm.position.y+17)-oC.y)*0.01;
-  oC.z+=(asm.position.z-oC.z)*0.01;
+  // Camera gently follows
+  oC.x+=(sprite.position.x-oC.x)*0.012;
+  oC.y+=((sprite.position.y)-oC.y)*0.012;
+  oC.z+=(sprite.position.z-oC.z)*0.012;
   uc();
   
   R.render(scene,cam);
