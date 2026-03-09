@@ -699,7 +699,7 @@ contentScene.add(planetGroup);
     const aspect = 3.13;
     const logoArcH = logoArc / aspect;
     
-    const R = 0.995; // slightly below surface — engraved
+    const R = 1.015; // just above all planet meshes
     const phiLen = logoArc / R;
     const thetaLen = logoArcH / R;
     const phiStart = Math.PI/2 - phiLen/2;
@@ -710,8 +710,8 @@ contentScene.add(planetGroup);
     const logoMat = new THREE.MeshBasicMaterial({
       map: logoTex,
       transparent: true,
-      opacity: 0.4,
-      color: 0xffffff,  // white — maximum contrast on purple
+      opacity: 0.18,
+      color: 0xd8c0f0,  // soft lavender
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
