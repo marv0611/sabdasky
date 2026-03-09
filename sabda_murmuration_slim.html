@@ -877,29 +877,32 @@ contentScene.add(balloonGroup);
 const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 0.86;
 
-const BH_CLUSTER_H = 11.66;
-const BH_MAX_R = 7.86 * BH_HOUSE_SCALE * 0.85; // 1.7× house width
+const BH_GAP = 1.06; // strings — ratio 48/385 of cluster height
+// From reference: balloon:house width = 2.04x, balloon H:W = 1.51:1
+const BH_CLUSTER_H = 7.86 * BH_HOUSE_SCALE * 2.04 * 1.51; // ~8.5 units
+const BH_MAX_R = BH_CLUSTER_H / (2 * 1.51); // maintains 1.51:1 aspect
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
 const BH_N_INTERIOR = 400;
-const BH_EACH_SCALE = 0.026;
+const BH_EACH_SCALE = 0.024;
 
-// ICE CREAM SCOOP on a CONE
-// Bottom 40%: sharp V taper
-// Top 60%: round hemisphere (circular arc, not cosine — stays wider longer)
+// Exact profile from reference image analysis
+// Bottom 65%: smooth taper (power 0.75 = slightly convex)
+// Top 35%: rounded dome (sqrt(1 - t^1.5) = stays wide then rounds off)
+// Widest at 65% up
 function bhClusterR(y01) {
   if (y01 < 0 || y01 > 1) return 0;
-  if (y01 < 0.40) {
-    return BH_MAX_R * (y01 / 0.40);
+  if (y01 < 0.65) {
+    const t = y01 / 0.65;
+    return BH_MAX_R * Math.pow(t, 0.75);
   }
-  // Hemisphere: circular arc (sqrt gives rounder profile than cosine)
-  const t = (y01 - 0.40) / 0.60;
-  return BH_MAX_R * Math.sqrt(1 - t * t);
+  const t = (y01 - 0.65) / 0.35;
+  return BH_MAX_R * Math.sqrt(Math.max(0, 1 - Math.pow(t, 1.5)));
 }
 
 // Specular highlight light
-const bhGlintLight = new THREE.PointLight(0xFCF5E5, 3.5, 45);
-bhGlintLight.position.set(-5, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.7, 5);
+const bhGlintLight = new THREE.PointLight(0xFCF5E5, 3.5, 35);
+bhGlintLight.position.set(-3, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.75, 3);
 balloonGroup.add(bhGlintLight);
 
 let _bseed = 42;
