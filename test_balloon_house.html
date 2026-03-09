@@ -2,514 +2,362 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>SABDA — Balloon House Test</title>
+<title>SABDA — Balloon House Test v2</title>
 <style>
   * { margin:0; padding:0; }
   body { overflow:hidden; background:#0a0612; }
   canvas { display:block; }
   #info {
     position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
-    color:rgba(255,220,180,0.7); font:13px/1.4 'Georgia',serif;
+    color:rgba(255,220,180,0.6); font:12px/1.4 'Georgia',serif;
     text-align:center; pointer-events:none; letter-spacing:0.5px;
   }
 </style>
 </head>
 <body>
-<div id="info">drag to orbit · scroll to zoom · the house drifts on wind</div>
+<div id="info">drag to orbit · scroll to zoom</div>
 
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js"
-  }
-}
-</script>
-
-<script type="module">
-import * as THREE from 'three';
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
 
 // ── RENDERER ──
-const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
+const renderer = new THREE.WebGLRenderer({ antialias:true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.9;
+renderer.toneMappingExposure = 1.0;
 renderer.outputEncoding = THREE.sRGBEncoding;
 document.body.appendChild(renderer.domElement);
 
 // ── SCENE ──
 const scene = new THREE.Scene();
 
-// Dreamy evening gradient sky
+// Dreamy evening sky
 const skyCanvas = document.createElement('canvas');
 skyCanvas.width = 512; skyCanvas.height = 512;
 const skyCtx = skyCanvas.getContext('2d');
 const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 512);
-skyGrad.addColorStop(0.0, '#0a0620');    // deep night top
-skyGrad.addColorStop(0.15, '#1a1040');   // deep purple
-skyGrad.addColorStop(0.3, '#2d1855');    // rich purple
-skyGrad.addColorStop(0.45, '#4a2060');   // warm purple
-skyGrad.addColorStop(0.55, '#8b3050');   // magenta horizon
-skyGrad.addColorStop(0.65, '#c85030');   // deep orange
-skyGrad.addColorStop(0.75, '#e87830');   // warm orange
-skyGrad.addColorStop(0.85, '#f0a848');   // golden
-skyGrad.addColorStop(1.0, '#f8d088');    // pale gold bottom
+skyGrad.addColorStop(0.0,  '#050215');
+skyGrad.addColorStop(0.15, '#0f0830');
+skyGrad.addColorStop(0.30, '#1e1050');
+skyGrad.addColorStop(0.45, '#3a1868');
+skyGrad.addColorStop(0.55, '#602878');
+skyGrad.addColorStop(0.65, '#884060');
+skyGrad.addColorStop(0.75, '#b86040');
+skyGrad.addColorStop(0.85, '#d88838');
+skyGrad.addColorStop(0.95, '#e8b050');
+skyGrad.addColorStop(1.0,  '#f0cc70');
 skyCtx.fillStyle = skyGrad;
 skyCtx.fillRect(0, 0, 512, 512);
-const skyTex = new THREE.CanvasTexture(skyCanvas);
-scene.background = skyTex;
-
-// Fog for depth
-scene.fog = new THREE.FogExp2(0x1a1040, 0.008);
+scene.background = new THREE.CanvasTexture(skyCanvas);
+scene.fog = new THREE.FogExp2(0x1a0840, 0.004);
 
 // ── CAMERA ──
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 500);
-camera.position.set(20, 12, 25);
-camera.lookAt(0, 8, 0);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 800);
 
-// ── ORBIT CONTROLS (manual) ──
-let isDragging = false, prevX = 0, prevY = 0;
-let orbitTheta = Math.atan2(camera.position.x, camera.position.z);
-let orbitPhi = Math.acos(camera.position.y / camera.position.length());
-let orbitRadius = camera.position.length();
-const orbitTarget = new THREE.Vector3(0, 8, 0);
+// ── ORBIT ──
+let isDrag = false, mpx = 0, mpy = 0;
+let oTheta = 0, oPhi = 1.2, oR = 42;
+const oTgt = new THREE.Vector3(0, 14, 0);
 
-function updateCamera() {
-  camera.position.x = orbitTarget.x + orbitRadius * Math.sin(orbitPhi) * Math.sin(orbitTheta);
-  camera.position.y = orbitTarget.y + orbitRadius * Math.cos(orbitPhi);
-  camera.position.z = orbitTarget.z + orbitRadius * Math.sin(orbitPhi) * Math.cos(orbitTheta);
-  camera.lookAt(orbitTarget);
+function updCam() {
+  camera.position.x = oTgt.x + oR * Math.sin(oPhi) * Math.sin(oTheta);
+  camera.position.y = oTgt.y + oR * Math.cos(oPhi);
+  camera.position.z = oTgt.z + oR * Math.sin(oPhi) * Math.cos(oTheta);
+  camera.lookAt(oTgt);
 }
+updCam();
 
-renderer.domElement.addEventListener('pointerdown', e => { isDragging=true; prevX=e.clientX; prevY=e.clientY; });
-renderer.domElement.addEventListener('pointerup', () => isDragging=false);
-renderer.domElement.addEventListener('pointerleave', () => isDragging=false);
-renderer.domElement.addEventListener('pointermove', e => {
-  if(!isDragging) return;
-  orbitTheta -= (e.clientX - prevX) * 0.005;
-  orbitPhi = Math.max(0.3, Math.min(2.8, orbitPhi + (e.clientY - prevY) * 0.005));
-  prevX = e.clientX; prevY = e.clientY;
-  updateCamera();
+const cv = renderer.domElement;
+cv.addEventListener('pointerdown', e => { isDrag=true; mpx=e.clientX; mpy=e.clientY; });
+cv.addEventListener('pointerup', () => isDrag=false);
+cv.addEventListener('pointerleave', () => isDrag=false);
+cv.addEventListener('pointermove', e => {
+  if(!isDrag) return;
+  oTheta -= (e.clientX-mpx)*0.005;
+  oPhi = Math.max(0.3, Math.min(2.5, oPhi+(e.clientY-mpy)*0.005));
+  mpx=e.clientX; mpy=e.clientY; updCam();
 });
-renderer.domElement.addEventListener('wheel', e => {
-  orbitRadius = Math.max(8, Math.min(80, orbitRadius + e.deltaY * 0.05));
-  updateCamera();
-});
-updateCamera();
+cv.addEventListener('wheel', e => { oR=Math.max(12,Math.min(100,oR+e.deltaY*0.06)); updCam(); });
 
 // ── LIGHTING — warm sunset ──
-const ambLight = new THREE.AmbientLight(0xf0d0a0, 0.4);
-scene.add(ambLight);
+scene.add(new THREE.AmbientLight(0xffeedd, 0.5));
+const sun = new THREE.DirectionalLight(0xffd080, 1.4);
+sun.position.set(-10, 25, 15); scene.add(sun);
+const rim = new THREE.DirectionalLight(0xff8050, 0.6);
+rim.position.set(12, 8, -10); scene.add(rim);
+const fill = new THREE.DirectionalLight(0x6040a0, 0.25);
+fill.position.set(0, -8, 0); scene.add(fill);
 
-const sunLight = new THREE.DirectionalLight(0xffd080, 1.2);
-sunLight.position.set(-15, 20, 10);
-sunLight.castShadow = false;
-scene.add(sunLight);
-
-const rimLight = new THREE.DirectionalLight(0xff6040, 0.5);
-rimLight.position.set(10, 5, -15);
-scene.add(rimLight);
-
-const bottomFill = new THREE.DirectionalLight(0x8060ff, 0.2);
-bottomFill.position.set(0, -10, 0);
-scene.add(bottomFill);
-
-// ── THE ASSEMBLY ──
+// ── ASSEMBLY ──
 const assembly = new THREE.Group();
 scene.add(assembly);
 
-// ── LOAD HOUSE GLB ──
-// Use Three.js GLTFLoader from CDN
-const gltfScript = document.createElement('script');
-gltfScript.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js';
-gltfScript.onload = () => {
-  const loader = new THREE.GLTFLoader();
-  loader.load('assets/house_balloon.glb', gltf => {
-    const house = gltf.scene;
-    house.position.set(0, 0, 0);
-    house.scale.setScalar(1.0);
-    // Warm up house materials slightly for sunset light
-    house.traverse(c => {
-      if(c.isMesh) {
-        c.frustumCulled = false;
-        if(c.material) {
-          c.material.envMapIntensity = 0.3;
-        }
-      }
-    });
-    assembly.add(house);
-    console.log('House loaded — bbox:', new THREE.Box3().setFromObject(house));
-  }, undefined, err => {
-    console.warn('GLB load failed, using placeholder house');
-    // Fallback: simple house shape
-    const houseGeo = new THREE.BoxGeometry(4, 4, 4);
-    const houseMat = new THREE.MeshStandardMaterial({ color:0xd4a030, roughness:0.7 });
-    const houseMesh = new THREE.Mesh(houseGeo, houseMat);
-    houseMesh.position.y = 2;
-    assembly.add(houseMesh);
-    // Roof
-    const roofGeo = new THREE.ConeGeometry(3.5, 2.5, 4);
-    const roofMat = new THREE.MeshStandardMaterial({ color:0x8b4020, roughness:0.6 });
-    const roof = new THREE.Mesh(roofGeo, roofMat);
-    roof.position.y = 5.5; roof.rotation.y = Math.PI/4;
-    assembly.add(roof);
-  });
-};
-document.head.appendChild(gltfScript);
+// ── HOUSE GLB ──
+const loader = new THREE.GLTFLoader();
+loader.load('assets/house_balloon.glb', gltf => {
+  const house = gltf.scene;
+  house.scale.setScalar(1.0);
+  house.traverse(c => { if(c.isMesh) c.frustumCulled = false; });
+  assembly.add(house);
+}, undefined, () => {
+  // Placeholder
+  const box = new THREE.Mesh(
+    new THREE.BoxGeometry(4, 4, 4),
+    new THREE.MeshStandardMaterial({ color:0xd4a030, roughness:0.7 })
+  );
+  box.position.y = 2; assembly.add(box);
+  const roof = new THREE.Mesh(
+    new THREE.ConeGeometry(3.5, 2.5, 4),
+    new THREE.MeshStandardMaterial({ color:0x8b4020, roughness:0.6 })
+  );
+  roof.position.y = 5.5; roof.rotation.y = Math.PI/4; assembly.add(roof);
+});
 
-// ── BALLOON CLUSTER ──
-// Reference: dense inverted teardrop shape, wide top narrowing to chimney
-// Colors from reference: heavy on blues/purples, accents of red/pink/green/yellow/orange
-const BALLOON_COUNT = 300;
-const balloonColors = [
-  // Blues (dominant in reference ~40%)
-  0x1a6bcc, 0x2080e0, 0x3498db, 0x1555a0, 0x0d47a1, 0x2196f3, 0x1976d2, 0x0288d1,
-  0x40c4ff, 0x29b6f6, 0x039be5, 0x0277bd, 0x01579b, 0x4fc3f7, 0x81d4fa, 0x64b5f6,
-  // Purples/Violets (~20%)
-  0x7b1fa2, 0x9c27b0, 0x6a1b9a, 0x8e24aa, 0x5e35b1, 0x4527a0, 0xab47bc, 0x7c4dff,
-  // Reds/Pinks (~15%)
-  0xe53935, 0xd32f2f, 0xc62828, 0xf44336, 0xef5350, 0xff1744, 0xe91e63, 0xf06292,
-  // Greens (~10%)
-  0x2e7d32, 0x43a047, 0x1b5e20, 0x388e3c, 0x4caf50, 0x00c853,
-  // Oranges/Yellows (~10%)
-  0xff6d00, 0xf57c00, 0xef6c00, 0xffa726, 0xffca28, 0xfdd835, 0xfbc02d,
-  // Hot pink / Magenta accents (~5%)
-  0xff0080, 0xff4081, 0xf50057, 0xe040fb,
-];
+// ════════════════════════════════════════════════════
+// BALLOON CLUSTER — 500 dense-packed, vivid, saturated
+// Matches reference: inverted teardrop, ALL touching
+// ════════════════════════════════════════════════════
 
-const balloonGroup = new THREE.Group();
-const balloonMeshes = [];
-const balloonData = []; // per-balloon animation data
+// Weighted color pool matching reference analysis:
+// Heavy blue/cobalt, strong red, hot pink, purple, green, yellow, orange
+const CP = [];
+function addC(hex, n) { for(let i=0;i<n;i++) CP.push(hex); }
+// Blues — 35%: royal, cobalt, bright, deep
+addC(0x0050d0, 4); addC(0x0060e8, 4); addC(0x0070ff, 3); addC(0x1565c0, 3);
+addC(0x0d47a1, 3); addC(0x2979ff, 3); addC(0x0055c0, 3); addC(0x003da8, 2);
+addC(0x1e88e5, 2); addC(0x0288d1, 2); addC(0x039be5, 2); addC(0x2962ff, 2);
+addC(0x00b0ff, 2);
+// Reds — 20%: vivid scarlet, crimson
+addC(0xe01020, 4); addC(0xd50000, 3); addC(0xc62828, 3); addC(0xff1744, 3);
+addC(0xe53935, 3); addC(0xcc0000, 2); addC(0xff0000, 2);
+// Hot pink / magenta — 15%
+addC(0xff0080, 3); addC(0xf50057, 3); addC(0xc51162, 2); addC(0xff4081, 2);
+addC(0xe91e63, 2); addC(0xd81b60, 2); addC(0xff006e, 1);
+// Purple — 10%
+addC(0x7b1fa2, 2); addC(0x6a1b9a, 2); addC(0x8e24aa, 2); addC(0x9c27b0, 2);
+addC(0xaa00ff, 2);
+// Green — 8%: emerald, kelly
+addC(0x1b8a30, 2); addC(0x2e7d32, 2); addC(0x00c853, 2); addC(0x00b020, 2);
+// Yellow — 7%
+addC(0xffd600, 2); addC(0xffea00, 2); addC(0xf9a825, 2); addC(0xfdd835, 1);
+// Orange — 5%
+addC(0xff6d00, 2); addC(0xf57c00, 2); addC(0xff3d00, 1);
 
-// Balloon geometry — slightly elongated sphere (real balloon shape)
-const balloonGeo = new THREE.SphereGeometry(1, 12, 10);
-// Stretch vertically for teardrop balloon shape
-const posAttr = balloonGeo.getAttribute('position');
-for(let i = 0; i < posAttr.count; i++) {
-  const y = posAttr.getY(i);
-  // Elongate bottom, round top — like a real balloon
+function rC() { return CP[Math.floor(Math.random() * CP.length)]; }
+
+// Balloon geometry — teardrop shaped
+const bGeo = new THREE.SphereGeometry(1, 12, 10);
+const bp = bGeo.getAttribute('position');
+for(let i = 0; i < bp.count; i++) {
+  let x = bp.getX(i), y = bp.getY(i), z = bp.getZ(i);
   if(y < 0) {
-    posAttr.setY(i, y * 1.3); // stretch bottom
-    const factor = 1.0 - Math.abs(y) * 0.15;
-    posAttr.setX(i, posAttr.getX(i) * factor);
-    posAttr.setZ(i, posAttr.getZ(i) * factor);
+    const f = Math.max(0.12, 1.0 + y * 0.35);
+    bp.setX(i, x * f);
+    bp.setZ(i, z * f);
+    bp.setY(i, y * 1.4);
+  } else {
+    bp.setY(i, y * 0.92);
   }
 }
-balloonGeo.computeVertexNormals();
+bGeo.computeVertexNormals();
 
-// Tie knot at bottom of each balloon
-const knotGeo = new THREE.SphereGeometry(0.12, 6, 4);
+const kGeo = new THREE.ConeGeometry(0.07, 0.12, 4);
 
-// Build the cluster shape: inverted teardrop
-// Dense sphere at top, narrowing cone toward chimney at y~9.5
-for(let i = 0; i < BALLOON_COUNT; i++) {
-  // Distribution: mostly in the upper bulge, fewer in the neck
-  const t = Math.random(); // 0=bottom(chimney), 1=top of cloud
-  
-  let bx, by, bz, radius;
-  
-  if(t > 0.15) {
-    // Upper bulge (85% of balloons) — sphere shape
-    const u = (t - 0.15) / 0.85; // 0-1 within bulge
-    const bulgeY = 14 + u * 10; // y from 14 to 24
-    // Radius varies: smaller at bottom of bulge, max in middle, smaller at top
-    const yNorm = (bulgeY - 14) / 10; // 0-1
-    const baseR = Math.sin(yNorm * Math.PI) * 7.5 + 1.5; // max ~9 in middle
-    // Some randomness
-    const angle = Math.random() * Math.PI * 2;
-    const r = Math.sqrt(Math.random()) * baseR;
-    bx = Math.cos(angle) * r;
-    by = bulgeY;
-    bz = Math.sin(angle) * r;
+const BALLOON_N = 500;
+const balloonGroup = new THREE.Group();
+const bMeshes = [];
+const bData = [];
+
+// Cluster shape parameters
+const CHIMNEY_Y = 10.0;
+const CLUSTER_TOP = 29.0;
+const CH = CLUSTER_TOP - CHIMNEY_Y; // 19 units tall
+
+function clusterR(y) {
+  const t = (y - CHIMNEY_Y) / CH; // 0=chimney, 1=top
+  if(t < 0.15) {
+    // Tight funnel
+    return 0.5 + (t / 0.15) * 3.0;
+  } else if(t < 0.8) {
+    // Main bulge — fat sphere
+    const bt = (t - 0.15) / 0.65;
+    return 3.5 + Math.sin(bt * Math.PI) * 5.5;
   } else {
-    // Neck/funnel (15% of balloons) — cone narrowing to chimney
-    const u = t / 0.15; // 0=chimney, 1=start of bulge
-    by = 10 + u * 4; // y from 10 to 14
-    const neckR = 0.8 + u * 4; // narrow at bottom, wider at top
-    const angle = Math.random() * Math.PI * 2;
-    const r = Math.sqrt(Math.random()) * neckR;
-    bx = Math.cos(angle) * r;
-    bz = Math.sin(angle) * r;
+    // Top dome rounds off
+    const dt = (t - 0.8) / 0.2;
+    const r80 = 3.5 + Math.sin(((0.8-0.15)/0.65) * Math.PI) * 5.5;
+    return r80 * Math.cos(dt * Math.PI * 0.5);
   }
-  
-  // Random size variation (0.55–0.95)
-  const scale = 0.55 + Math.random() * 0.4;
-  
-  // Pick color — weighted toward blues
-  const colorIdx = Math.floor(Math.random() * balloonColors.length);
-  const color = balloonColors[colorIdx];
-  
-  const mat = new THREE.MeshStandardMaterial({
-    color: color,
-    roughness: 0.25 + Math.random() * 0.15,
-    metalness: 0.02,
-    emissive: new THREE.Color(color).multiplyScalar(0.08), // subtle self-glow
+}
+
+// Pre-compute materials for reuse (batches of same color)
+const matCache = new Map();
+function getMat(color) {
+  if(matCache.has(color)) return matCache.get(color);
+  const m = new THREE.MeshStandardMaterial({
+    color, roughness:0.2, metalness:0.05,
+    emissive: new THREE.Color(color), emissiveIntensity:0.05,
   });
+  matCache.set(color, m);
+  return m;
+}
+
+for(let i = 0; i < BALLOON_N; i++) {
+  // Y distribution — heavily weighted toward the bulge
+  let y;
+  const r = Math.random();
+  if(r < 0.08) y = CHIMNEY_Y + Math.random() * CH * 0.15;           // funnel 8%
+  else if(r < 0.82) y = CHIMNEY_Y + CH*0.15 + Math.random()*CH*0.65; // bulge 74%
+  else y = CHIMNEY_Y + CH*0.8 + Math.random() * CH * 0.2;            // dome 18%
   
-  const balloon = new THREE.Mesh(balloonGeo, mat);
-  balloon.position.set(bx, by, bz);
-  balloon.scale.setScalar(scale);
-  // Slight random rotation for variety
-  balloon.rotation.set(
-    (Math.random()-0.5)*0.3,
-    Math.random()*Math.PI*2,
-    (Math.random()-0.5)*0.3
-  );
+  const maxR = clusterR(y);
+  const angle = Math.random() * Math.PI * 2;
+  // Dense packing: bias toward filling the full radius
+  const dist = Math.pow(Math.random(), 0.5) * maxR;
+  
+  const bx = Math.cos(angle) * dist;
+  const bz = Math.sin(angle) * dist;
+  
+  // Scale: 0.5–0.85 so they pack tightly
+  const tN = (y - CHIMNEY_Y) / CH;
+  const sc = tN < 0.15 ? (0.35 + tN * 2.0) : (0.5 + Math.random() * 0.35);
+  
+  const color = rC();
+  const mat = getMat(color);
+  
+  const balloon = new THREE.Mesh(bGeo, mat);
+  balloon.position.set(bx, y, bz);
+  balloon.scale.setScalar(sc);
+  balloon.rotation.y = Math.random() * 6.28;
   balloon.frustumCulled = false;
   balloonGroup.add(balloon);
-  balloonMeshes.push(balloon);
+  bMeshes.push(balloon);
   
-  // Knot at bottom
-  const knot = new THREE.Mesh(knotGeo, mat);
-  knot.position.set(bx, by - scale * 1.25, bz);
+  // Knot
+  const knot = new THREE.Mesh(kGeo, mat);
+  knot.position.set(bx, y - sc * 1.3, bz);
+  knot.rotation.x = Math.PI;
   balloonGroup.add(knot);
   
-  // Animation data
-  balloonData.push({
-    origX: bx, origY: by, origZ: bz,
-    phase: Math.random() * Math.PI * 2,
-    freq: 0.3 + Math.random() * 0.5,     // sway frequency
-    ampX: 0.05 + Math.random() * 0.15,   // sway amplitude
-    ampZ: 0.05 + Math.random() * 0.15,
-    ampY: 0.02 + Math.random() * 0.08,   // bob amplitude
-    freqY: 0.5 + Math.random() * 0.4,
-    knot: knot,
-    scale: scale,
+  bData.push({
+    ox:bx, oy:y, oz:bz, ph:Math.random()*6.28,
+    fx:0.15+Math.random()*0.25, fz:0.15+Math.random()*0.25, fy:0.3+Math.random()*0.25,
+    ax:0.015+Math.random()*0.04, az:0.015+Math.random()*0.04, ay:0.008+Math.random()*0.025,
+    knot, sc,
   });
 }
 
-// ── STRING LINES — from neck balloons down to chimney point ──
-const stringGroup = new THREE.Group();
-const chimneyTop = new THREE.Vector3(0.4, 9.5, 0); // approximate chimney position
-const stringMat = new THREE.LineBasicMaterial({ color: 0xccbbaa, transparent: true, opacity: 0.4 });
+// Strings from funnel balloons to chimney
+const strMat = new THREE.LineBasicMaterial({ color:0xddccbb, transparent:true, opacity:0.3 });
+const chimPt = new THREE.Vector3(0.3, CHIMNEY_Y - 0.5, 0);
 
-// Create strings from bottom balloons to chimney
-for(let i = 0; i < BALLOON_COUNT; i++) {
-  const bd = balloonData[i];
-  if(bd.origY < 16) { // neck + lower bulge balloons get strings
-    const points = [];
-    const start = new THREE.Vector3(bd.origX, bd.origY - bd.scale * 1.25, bd.origZ);
-    // Slight curve via midpoint
-    const mid = new THREE.Vector3(
-      (start.x + chimneyTop.x) * 0.5 + (Math.random()-0.5)*0.5,
-      (start.y + chimneyTop.y) * 0.5,
-      (start.z + chimneyTop.z) * 0.5 + (Math.random()-0.5)*0.5
-    );
-    // Simple 3-point line
-    points.push(chimneyTop.clone(), mid, start);
-    const curve = new THREE.QuadraticBezierCurve3(chimneyTop.clone(), mid, start);
-    const curvePoints = curve.getPoints(8);
-    const lineGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
-    const line = new THREE.Line(lineGeo, stringMat);
-    stringGroup.add(line);
-  }
+for(let i = 0; i < BALLOON_N; i++) {
+  const d = bData[i];
+  if(d.oy > CHIMNEY_Y + CH * 0.35) continue;
+  const start = new THREE.Vector3(d.ox, d.oy - d.sc * 1.3, d.oz);
+  const mid = new THREE.Vector3(
+    (start.x+chimPt.x)*0.5+(Math.random()-0.5)*0.2,
+    (start.y+chimPt.y)*0.5,
+    (start.z+chimPt.z)*0.5+(Math.random()-0.5)*0.2
+  );
+  const crv = new THREE.QuadraticBezierCurve3(chimPt.clone(), mid, start);
+  balloonGroup.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(crv.getPoints(6)), strMat
+  ));
 }
 
-balloonGroup.add(stringGroup);
 assembly.add(balloonGroup);
 
-// ── STRAY BALLOONS — a few drifting away from the cluster ──
-const strayGroup = new THREE.Group();
-const strayData = [];
-for(let i = 0; i < 12; i++) {
-  const color = balloonColors[Math.floor(Math.random() * balloonColors.length)];
-  const mat = new THREE.MeshStandardMaterial({
-    color, roughness: 0.3, metalness: 0.02,
-    emissive: new THREE.Color(color).multiplyScalar(0.08),
-  });
-  const balloon = new THREE.Mesh(balloonGeo, mat);
-  const scale = 0.4 + Math.random() * 0.35;
-  // Position: near edges and slightly away from main cluster
-  const angle = Math.random() * Math.PI * 2;
-  const dist = 8 + Math.random() * 6;
-  const sy = 16 + Math.random() * 12;
-  balloon.position.set(Math.cos(angle)*dist, sy, Math.sin(angle)*dist);
-  balloon.scale.setScalar(scale);
-  balloon.frustumCulled = false;
-  strayGroup.add(balloon);
-  
-  strayData.push({
-    mesh: balloon,
-    driftX: (Math.random()-0.5) * 0.003,
-    driftY: 0.002 + Math.random() * 0.004,
-    driftZ: (Math.random()-0.5) * 0.003,
-    phase: Math.random() * Math.PI * 2,
-    wobble: 0.3 + Math.random() * 0.5,
-    origX: balloon.position.x,
-    origY: balloon.position.y,
-    origZ: balloon.position.z,
-  });
-}
-assembly.add(strayGroup);
+// ── FLOATING DUST ──
+const dustN = 120;
+const dGeo = new THREE.BufferGeometry();
+const dP = new Float32Array(dustN*3);
+for(let i=0;i<dustN;i++){dP[i*3]=(Math.random()-0.5)*80;dP[i*3+1]=Math.random()*50;dP[i*3+2]=(Math.random()-0.5)*80;}
+dGeo.setAttribute('position', new THREE.BufferAttribute(dP, 3));
 
-// ── DREAMY PARTICLES — tiny floating dust/sparkles ──
-const particleCount = 200;
-const particleGeo = new THREE.BufferGeometry();
-const particlePositions = new Float32Array(particleCount * 3);
-const particleSizes = new Float32Array(particleCount);
-for(let i = 0; i < particleCount; i++) {
-  particlePositions[i*3] = (Math.random()-0.5) * 60;
-  particlePositions[i*3+1] = Math.random() * 40;
-  particlePositions[i*3+2] = (Math.random()-0.5) * 60;
-  particleSizes[i] = 0.5 + Math.random() * 1.5;
-}
-particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+const dtx = document.createElement('canvas'); dtx.width=32; dtx.height=32;
+const dc = dtx.getContext('2d');
+const dg = dc.createRadialGradient(16,16,0,16,16,16);
+dg.addColorStop(0,'rgba(255,230,180,1)'); dg.addColorStop(0.4,'rgba(255,200,140,0.4)'); dg.addColorStop(1,'rgba(255,180,100,0)');
+dc.fillStyle=dg; dc.fillRect(0,0,32,32);
 
-const particleTexCanvas = document.createElement('canvas');
-particleTexCanvas.width = 32; particleTexCanvas.height = 32;
-const ptx = particleTexCanvas.getContext('2d');
-const pgrd = ptx.createRadialGradient(16,16,0,16,16,16);
-pgrd.addColorStop(0, 'rgba(255,240,200,0.8)');
-pgrd.addColorStop(0.5, 'rgba(255,200,150,0.3)');
-pgrd.addColorStop(1, 'rgba(255,180,120,0)');
-ptx.fillStyle = pgrd;
-ptx.fillRect(0,0,32,32);
-const particleTex = new THREE.CanvasTexture(particleTexCanvas);
+scene.add(new THREE.Points(dGeo, new THREE.PointsMaterial({
+  map:new THREE.CanvasTexture(dtx), size:0.5, transparent:true, opacity:0.35,
+  blending:THREE.AdditiveBlending, depthWrite:false, sizeAttenuation:true,
+})));
 
-const particleMat = new THREE.PointsMaterial({
-  map: particleTex,
-  size: 0.8,
-  transparent: true,
-  opacity: 0.5,
-  blending: THREE.AdditiveBlending,
-  depthWrite: false,
-  sizeAttenuation: true,
-});
-const particles = new THREE.Points(particleGeo, particleMat);
-scene.add(particles);
+// ════════════════════════════════════════════════════
+// WIND & MOVEMENT
+// ════════════════════════════════════════════════════
+let windAngle = Math.random()*6.28, windStr = 0.25;
+let windTA = windAngle, windTS = 0.25, windTmr = 0;
+let thermalPh = Math.random()*6.28;
 
-// ── SOFT CLOUDS (distant) ──
-const cloudMat = new THREE.SpriteMaterial({
-  color: 0xf8d0a0,
-  transparent: true,
-  opacity: 0.15,
-  blending: THREE.AdditiveBlending,
-});
-for(let i = 0; i < 8; i++) {
-  const cloud = new THREE.Sprite(cloudMat.clone());
-  const angle = Math.random() * Math.PI * 2;
-  const dist = 40 + Math.random() * 40;
-  cloud.position.set(Math.cos(angle)*dist, 5 + Math.random()*20, Math.sin(angle)*dist);
-  cloud.scale.setScalar(15 + Math.random() * 20);
-  cloud.material.opacity = 0.06 + Math.random() * 0.12;
-  scene.add(cloud);
-}
-
-// ═══════════════════════════════════════════════
-// WIND & MOVEMENT — hot air balloon physics
-// ═══════════════════════════════════════════════
-// Wind: slowly changing direction and strength
-// The assembly drifts with the wind, rising gently
-// Gentle oscillation (thermal bobbing)
-let windAngle = Math.random() * Math.PI * 2;
-let windStrength = 0.3;
-let windTargetAngle = windAngle;
-let windTargetStrength = 0.3;
-let windChangeTimer = 0;
-
-// Assembly movement state
-const assemblyVel = { x: 0, y: 0.008, z: 0 }; // slow upward drift
-let thermalPhase = Math.random() * Math.PI * 2;
-
-// ── ANIMATION LOOP ──
 const clock = new THREE.Clock();
 let elapsed = 0;
 
 function animate() {
   requestAnimationFrame(animate);
-  const dt = clock.getDelta();
+  const dt = Math.min(clock.getDelta(), 0.05);
   elapsed += dt;
   
-  // ── WIND SYSTEM ──
-  windChangeTimer -= dt;
-  if(windChangeTimer <= 0) {
-    windTargetAngle += (Math.random()-0.5) * 1.2;
-    windTargetStrength = 0.15 + Math.random() * 0.5;
-    windChangeTimer = 4 + Math.random() * 8;
-  }
-  windAngle += (windTargetAngle - windAngle) * 0.005;
-  windStrength += (windTargetStrength - windStrength) * 0.01;
+  // Wind
+  windTmr -= dt;
+  if(windTmr<=0) { windTA+=(Math.random()-0.5)*1.0; windTS=0.1+Math.random()*0.4; windTmr=5+Math.random()*10; }
+  windAngle += (windTA-windAngle)*0.004;
+  windStr += (windTS-windStr)*0.008;
+  const wx = Math.cos(windAngle)*windStr*dt;
+  const wz = Math.sin(windAngle)*windStr*dt;
   
-  const windX = Math.cos(windAngle) * windStrength * dt;
-  const windZ = Math.sin(windAngle) * windStrength * dt;
+  // Thermals
+  thermalPh += dt*0.12;
+  const thermal = Math.sin(thermalPh)*0.002;
   
-  // ── ASSEMBLY DRIFT — like a real hot air balloon ──
-  // Thermals: slow vertical oscillation
-  thermalPhase += dt * 0.15;
-  const thermalLift = Math.sin(thermalPhase) * 0.003;
+  // Assembly drift
+  assembly.position.x += wx*0.7;
+  assembly.position.z += wz*0.7;
+  assembly.position.y += (0.008+thermal)*dt*60;
   
-  // Apply wind + thermal + gentle rise
-  assembly.position.x += windX * 0.8;
-  assembly.position.z += windZ * 0.8;
-  assembly.position.y += (0.012 + thermalLift) * dt * 60; // slow rise
+  // Tilt
+  const tilt = windStr*0.025;
+  assembly.rotation.z += (Math.sin(windAngle)*tilt - assembly.rotation.z)*0.015;
+  assembly.rotation.x += (Math.cos(windAngle)*tilt - assembly.rotation.x)*0.015;
+  assembly.rotation.y += dt*0.008;
   
-  // Very gentle tilt into wind direction (like a real balloon basket)
-  const tiltTarget = windStrength * 0.03;
-  assembly.rotation.z += (Math.sin(windAngle) * tiltTarget - assembly.rotation.z) * 0.02;
-  assembly.rotation.x += (Math.cos(windAngle) * tiltTarget - assembly.rotation.x) * 0.02;
-  
-  // Slow rotation — balloon assemblies slowly turn
-  assembly.rotation.y += dt * 0.01;
-  
-  // ── INDIVIDUAL BALLOON SWAY ──
-  for(let i = 0; i < BALLOON_COUNT; i++) {
-    const bd = balloonData[i];
-    const mesh = balloonMeshes[i];
-    const t = elapsed * bd.freq + bd.phase;
-    
-    mesh.position.x = bd.origX + Math.sin(t) * bd.ampX + Math.sin(t*0.7+1.3) * bd.ampX * 0.5;
-    mesh.position.z = bd.origZ + Math.cos(t*0.8+0.5) * bd.ampZ + Math.sin(t*0.6+2.1) * bd.ampZ * 0.5;
-    mesh.position.y = bd.origY + Math.sin(t * bd.freqY + bd.phase) * bd.ampY;
-    
-    // Knot follows
-    bd.knot.position.x = mesh.position.x;
-    bd.knot.position.y = mesh.position.y - bd.scale * 1.25;
-    bd.knot.position.z = mesh.position.z;
+  // Per-balloon micro-sway (very subtle — packed tight)
+  for(let i=0;i<BALLOON_N;i++){
+    const d=bData[i], m=bMeshes[i], t=elapsed*d.fx+d.ph;
+    m.position.x = d.ox + Math.sin(t)*d.ax;
+    m.position.z = d.oz + Math.cos(t*0.9+0.7)*d.az;
+    m.position.y = d.oy + Math.sin(t*d.fy+d.ph*2)*d.ay;
+    d.knot.position.x=m.position.x; d.knot.position.y=m.position.y-d.sc*1.3; d.knot.position.z=m.position.z;
   }
   
-  // ── STRAY BALLOONS — drift away slowly ──
-  for(const s of strayData) {
-    s.mesh.position.x += s.driftX + windX * 0.3;
-    s.mesh.position.y += s.driftY;
-    s.mesh.position.z += s.driftZ + windZ * 0.3;
-    // Gentle wobble
-    s.mesh.rotation.x = Math.sin(elapsed * s.wobble + s.phase) * 0.1;
-    s.mesh.rotation.z = Math.cos(elapsed * s.wobble * 0.7 + s.phase) * 0.1;
-    // Reset if too far
-    if(s.mesh.position.y > 45) {
-      s.mesh.position.set(s.origX, s.origY, s.origZ);
-    }
-  }
+  // Dust
+  const dp=dGeo.getAttribute('position');
+  for(let i=0;i<dustN;i++){dp.setY(i,dp.getY(i)+0.003);if(dp.getY(i)>50)dp.setY(i,-2);}
+  dp.needsUpdate=true;
   
-  // ── PARTICLES float ──
-  const ppos = particles.geometry.getAttribute('position');
-  for(let i = 0; i < particleCount; i++) {
-    ppos.setY(i, ppos.getY(i) + 0.005);
-    if(ppos.getY(i) > 40) ppos.setY(i, -2);
-  }
-  ppos.needsUpdate = true;
+  // Camera follows gently
+  oTgt.x += (assembly.position.x-oTgt.x)*0.015;
+  oTgt.y += ((assembly.position.y+16)-oTgt.y)*0.015;
+  oTgt.z += (assembly.position.z-oTgt.z)*0.015;
+  updCam();
   
-  // ── CAMERA follows assembly gently ──
-  orbitTarget.x += (assembly.position.x - orbitTarget.x) * 0.02;
-  orbitTarget.y += ((assembly.position.y + 15) - orbitTarget.y) * 0.02;
-  orbitTarget.z += (assembly.position.z - orbitTarget.z) * 0.02;
-  updateCamera();
-  
-  // ── SUNSET LIGHT shift ──
-  const lightPhase = elapsed * 0.02;
-  sunLight.color.setHSL(0.08 + Math.sin(lightPhase)*0.02, 0.7, 0.7);
-  sunLight.intensity = 1.1 + Math.sin(lightPhase * 0.5) * 0.15;
+  // Light pulse
+  sun.intensity = 1.3+Math.sin(elapsed*0.015)*0.15;
   
   renderer.render(scene, camera);
 }
 
 animate();
 
-// ── RESIZE ──
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.aspect=window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth,window.innerHeight);
 });
 
 </script>
