@@ -15,7 +15,7 @@ for aid in ['skydata', 'skydata_b', 'birdsdata', 'planetdata', 'saturndata', 'ba
     elif aid == 'skydata_b':
         b64_path = os.path.join('assets_belfast', 'skydata.b64')
     elif aid == 'balloonhousedata':
-        b64_path = os.path.join('assets', 'balloon_house_sprite.b64')
+        b64_path = os.path.join('assets', 'house_balloon.b64')
     else:
         b64_path = os.path.join(assets_dir, f'{aid}.b64')
     with open(b64_path, 'r') as f:
