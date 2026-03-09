@@ -877,31 +877,36 @@ contentScene.add(balloonGroup);
 const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 0.86;
 
-const BH_CLUSTER_H = 14.0;
-const BH_MAX_R = 2.2;
-const BH_WIDE_AT = 0.72;    // shoulders at 72%
+const BH_CLUSTER_H = 11.66;
+const BH_MAX_R = BH_CLUSTER_H / 2; // 1:1 height-to-width ratio → r=5.83
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
-const BH_N_INTERIOR = 350;
+const BH_N_INTERIOR = 400;
 const BH_N_STRAYS = 6;
 const BH_EACH_SCALE = 0.026;
 
-// UNIMODAL profile — one single convex mass, no neck/constriction
-// Bottom→Shoulders: power curve (exponent < 1 = convex, outward-curving edges)
-// Shoulders→Top: cosine dome
+// SPHERE on top of CONE — "buoyant teardrop"
+// Bottom 45%: convex cone taper (power 0.6 = outward-bowing shoulder)
+// Top 55%: hemisphere dome (cosine curve = smooth rounded top)
+// Widest at 45% (equator where cone meets sphere)
+const BH_CONE_FRAC = 0.45;
+const BH_SPHERE_FRAC = 0.55;
+
 function bhClusterR(y01) {
   if (y01 < 0 || y01 > 1) return 0;
-  if (y01 < BH_WIDE_AT) {
-    const t = y01 / BH_WIDE_AT;
-    return BH_MAX_R * Math.pow(t, 0.55);
+  if (y01 < BH_CONE_FRAC) {
+    // Cone section: convex taper from point to equator
+    const t = y01 / BH_CONE_FRAC;
+    return BH_MAX_R * Math.pow(t, 0.6); // power < 1 = convex shoulder
   }
-  const t = (y01 - BH_WIDE_AT) / (1 - BH_WIDE_AT);
+  // Sphere section: hemisphere dome
+  const t = (y01 - BH_CONE_FRAC) / BH_SPHERE_FRAC;
   return BH_MAX_R * Math.cos(t * Math.PI / 2);
 }
 
-// Specular highlight light — warm off-white (#FCF5E5) at 45° upper-left
-const bhGlintLight = new THREE.PointLight(0xFCF5E5, 3.0, 35);
-bhGlintLight.position.set(-3, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.85, 3);
+// Specular highlight light — warm off-white at 45° upper-left
+const bhGlintLight = new THREE.PointLight(0xFCF5E5, 4.0, 50);
+bhGlintLight.position.set(-6, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.8, 6);
 balloonGroup.add(bhGlintLight);
 
 // No separate string network needed — cluster tapers to point at chimney
@@ -930,7 +935,7 @@ for (let i = 0; i < BH_N_INTERIOR; i++) {
 
 // Shell surface — systematic rings, extra dense
 let shellCount = 0;
-const SHELL_LAYERS = 40;
+const SHELL_LAYERS = 50;
 for (let li = 0; li < SHELL_LAYERS; li++) {
   const y01 = (li + 0.5) / SHELL_LAYERS;
   const maxR = bhClusterR(y01);
