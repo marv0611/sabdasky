@@ -846,30 +846,107 @@ saturnLoader1.load(saturnUrl1, gltf => {
   checkReady(); // still count it so scene starts
 });
 
-// ── BALLOON HOUSE (3D house model — rises from below) ──
-// Thermodynamic model: buoyancy with drag → exponential terminal velocity
-// Plus thermal oscillations and wind drift — all deterministic for clean loop
-const BALLOON_ANGLE = 2.5;          // radians from center (away from planets)
-const BALLOON_HDIST = 75;           // horizontal distance — visible but atmospheric
-const BALLOON_START_Y = -25;        // below floor, invisible at t=0
-const BALLOON_SCALE = 2.5;          // house model scale (original ~10 units tall)
-const BALLOON_VTERM = 0.048;        // terminal rise velocity (units/sec)
-const BALLOON_TAU = 35;             // velocity buildup time constant (seconds)
+// ── BALLOON HOUSE (3D house + procedural balloon cluster — rises from below) ──
+// The house starts deep below the visible horizon and physically rises into view.
+// First the balloon tops peek above the horizon, then the cluster, then the house.
+// No opacity fade-in — pure physical emergence. Fade-out at loop end only.
+const BALLOON_ANGLE = Math.PI;       // center of left wall (away from planets at 0.85 and 3.99)
+const BALLOON_HDIST = 100;           // far enough for background depth
+const BALLOON_SCALE = 1.5;           // house model scale (original ~10 units tall)
+const BALLOON_START_Y = -50;         // deep below horizon — invisible at t=0
+const BALLOON_VTERM = 0.035;         // terminal rise velocity (units/sec) — slow, dreamy
+const BALLOON_TAU = 40;              // velocity buildup time constant (seconds)
 const BALLOON_X0 = Math.cos(BALLOON_ANGLE) * BALLOON_HDIST;
 const BALLOON_Z0 = Math.sin(BALLOON_ANGLE) * BALLOON_HDIST;
 
 const balloonGroup = new THREE.Group();
 balloonGroup.position.set(BALLOON_X0, BALLOON_START_Y, BALLOON_Z0);
-balloonGroup.visible = false;
 contentScene.add(balloonGroup);
 
-// Load 3D house GLB from embedded base64
+// ── CHIMNEY TOP in group-local coords ──
+const CHIMNEY_Y = 9.5 * BALLOON_SCALE;   // house chimney top ≈ y=14.25
+const CHIMNEY_X = 0;
+const CHIMNEY_Z = 0;
+
+// ── PROCEDURAL BALLOON CLUSTER ──
+// Ellipsoid body + funnel bottom converging to chimney strings
+// Deeply saturated rainbow colors — real latex balloon look
+const B_COLORS = [
+  0x1a3fc7, 0x4a9aed, 0xd41920, 0xe8358a, 0xf28c1e,
+  0x1a8a3a, 0x6abf2a, 0x6b1fa3, 0xedcc1c, 0x22b5c4
+];
+const B_RAD = 0.6 * BALLOON_SCALE;        // individual balloon radius
+const B_COUNT = 220;                       // total balloons
+const B_EA = 8.5 * BALLOON_SCALE;         // ellipsoid semi-major (vertical)
+const B_EB = 5.5 * BALLOON_SCALE;         // ellipsoid semi-minor (horizontal)
+const B_CENTER_Y = CHIMNEY_Y + 3 * BALLOON_SCALE + B_EA;  // ellipsoid center
+const B_FUNNEL_Y = CHIMNEY_Y + 2.5 * BALLOON_SCALE;       // funnel starts here
+const B_FUNNEL_R = 1.0 * BALLOON_SCALE;   // funnel bottom radius (at chimney)
+
+const balloonGeo = new THREE.SphereGeometry(B_RAD, 8, 6);
+const balloonMats = B_COLORS.map(c => new THREE.MeshStandardMaterial({
+  color: c, roughness: 0.38, metalness: 0, transparent: true,
+}));
+
+// Seeded pseudo-random for deterministic placement
+let _bseed = 42;
+function brand() { _bseed = (_bseed * 16807 + 0) % 2147483647; return _bseed / 2147483647; }
+
+function getMaxRadius(y) {
+  if (y < CHIMNEY_Y) return 0;
+  if (y < B_FUNNEL_Y) {
+    // Funnel: linear taper from chimney radius to wider
+    const t = (y - CHIMNEY_Y) / (B_FUNNEL_Y - CHIMNEY_Y);
+    return B_FUNNEL_R + t * (B_EB * 0.35 - B_FUNNEL_R);
+  }
+  // Main ellipsoid body
+  const dy = (y - B_CENTER_Y) / B_EA;
+  if (Math.abs(dy) > 1) return 0;
+  return B_EB * Math.sqrt(1 - dy * dy);
+}
+
+for (let i = 0; i < B_COUNT; i++) {
+  const minY = CHIMNEY_Y + 0.5 * BALLOON_SCALE;
+  const maxY = B_CENTER_Y + B_EA - B_RAD;
+  // Bias placement toward the fat middle of the ellipsoid
+  const rawT = brand();
+  const biasT = 0.15 + rawT * 0.85;  // skip bottom 15% (funnel gets fewer)
+  const by = minY + biasT * (maxY - minY);
+  const maxR = getMaxRadius(by);
+  if (maxR < B_RAD) continue;
+  const angle = brand() * Math.PI * 2;
+  const r = Math.sqrt(brand()) * (maxR - B_RAD);
+  const bx = CHIMNEY_X + Math.cos(angle) * r;
+  const bz = CHIMNEY_Z + Math.sin(angle) * r;
+  const mesh = new THREE.Mesh(balloonGeo, balloonMats[i % B_COLORS.length]);
+  mesh.position.set(bx, by, bz);
+  // Random slight scale variation
+  const sv = 0.85 + brand() * 0.3;
+  mesh.scale.setScalar(sv);
+  mesh.frustumCulled = false;
+  balloonGroup.add(mesh);
+}
+
+// ── STRING BUNDLE (cone from funnel to chimney) ──
+const stringH = (B_FUNNEL_Y - CHIMNEY_Y);
+const stringGeo = new THREE.CylinderGeometry(B_FUNNEL_R * 0.8, 0.15 * BALLOON_SCALE, stringH, 8, 1, true);
+const stringMat = new THREE.MeshBasicMaterial({
+  color: 0xf0e8d0, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+});
+const stringMesh = new THREE.Mesh(stringGeo, stringMat);
+stringMesh.position.set(CHIMNEY_X, CHIMNEY_Y + stringH / 2, CHIMNEY_Z);
+stringMesh.frustumCulled = false;
+balloonGroup.add(stringMesh);
+
+console.log('SABDA: Balloon cluster created —', balloonGroup.children.length, 'objects');
+
+// ── LOAD 3D HOUSE GLB ──
 const houseUrl = b64ToUrl('balloonhousedata', 'model/gltf-binary');
 loader.load(houseUrl, gltf => {
   URL.revokeObjectURL(houseUrl);
   const model = gltf.scene;
   model.scale.setScalar(BALLOON_SCALE);
-  // Center the model horizontally (house bbox: x -3.53..4.33, z -4.11..3.71)
+  // Center model horizontally (bbox: x -3.53..4.33, z -4.11..3.71)
   model.position.set(-0.4 * BALLOON_SCALE, 0, 0.2 * BALLOON_SCALE);
   model.traverse(c => {
     if (c.isMesh) {
@@ -882,7 +959,6 @@ loader.load(houseUrl, gltf => {
     }
   });
   balloonGroup.add(model);
-  balloonGroup.visible = true;
   console.log('SABDA: Balloon house GLB loaded, scale:', BALLOON_SCALE);
   checkReady();
 }, undefined, err => {
@@ -1196,6 +1272,8 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   renderer.setRenderTarget(null);
   // ── BALLOON HOUSE THERMODYNAMICS ──
   // Deterministic position from time — clean loop, no accumulated state
+  // No fade-in: house physically rises from below the horizon.
+  // First balloon tops appear, then cluster, then strings, then house.
   {
     const t = time % 1800;
     
@@ -1221,28 +1299,27 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
       BALLOON_Z0 + driftZ
     );
     
-    // Face roughly toward camera + very slow rotation for visual interest
-    balloonGroup.rotation.y = BALLOON_ANGLE + Math.PI + t * 0.002;
-    // Gentle sway — as if buffeted by air currents
-    balloonGroup.rotation.z = Math.sin(t * 0.15) * 0.012 + Math.sin(t * 0.07) * 0.008;
-    balloonGroup.rotation.x = Math.sin(t * 0.11 + 1.0) * 0.006;
+    // Face roughly toward camera center + very slow rotation
+    balloonGroup.rotation.y = BALLOON_ANGLE + Math.PI + t * 0.0015;
+    // Gentle sway from air currents
+    balloonGroup.rotation.z = Math.sin(t * 0.15) * 0.010 + Math.sin(t * 0.07) * 0.006;
+    balloonGroup.rotation.x = Math.sin(t * 0.11 + 1.0) * 0.005;
     
-    // Opacity: fade in after start, fade out before loop end
-    let bOpacity = 1;
-    if (t < 120) bOpacity = 0;
-    else if (t < 300) bOpacity = (t - 120) / 180;
-    else if (t > 1740) bOpacity = 0;
-    else if (t > 1600) bOpacity = 1 - (t - 1600) / 140;
-    
-    balloonGroup.visible = bOpacity > 0;
-    if (bOpacity > 0 && bOpacity < 1) {
+    // Fade-OUT only at loop end (fade in is handled by physical rise from below)
+    if (t > 1680) {
+      const bOpacity = Math.max(0, 1 - (t - 1680) / 120);
+      balloonGroup.visible = bOpacity > 0;
       balloonGroup.traverse(c => {
         if (c.isMesh && c.material) c.material.opacity = bOpacity;
       });
-    } else if (bOpacity >= 1) {
-      balloonGroup.traverse(c => {
-        if (c.isMesh && c.material) c.material.opacity = 1;
-      });
+    } else {
+      balloonGroup.visible = true;
+      // Reset opacity to 1 after loop restart (was faded at end of previous loop)
+      if (t < 10) {
+        balloonGroup.traverse(c => {
+          if (c.isMesh && c.material) c.material.opacity = 1;
+        });
+      }
     }
   }
 
