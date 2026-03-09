@@ -1357,16 +1357,18 @@ function updateMurmuration(simTime, speedMult) {
         az += (-perpPull * cosA - alongPull * sinA);
       }
       
-      // ── CENTRAL DENSITY — keeps flock together but not a black mass ──
+      // ── CENTRAL DENSITY — softer, personality-dependent return ──
       const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
-      if(fd > 3.0) {
-        const centralStr = (fd - 3.0) * 0.001;
+      if(fd > 3.5) {
+        // Strength depends on personality: responsive birds return sooner,
+        // sluggish birds linger at the edges much longer = staggered return
+        const centralStr = (fd - 3.5) * 0.0006 * (0.5 + resp * 0.4);
         ax += (-f.px[i]/fd) * centralStr;
         az += (-f.pz[i]/fd) * centralStr;
       }
-      // Hard tether — prevents escape
-      if(fd > 7) {
-        const leashStr = (fd - 7) * 0.015;
+      // Hard tether — softer, further out
+      if(fd > 8) {
+        const leashStr = (fd - 8) * 0.008;
         ax += (-f.px[i]/fd) * leashStr;
         az += (-f.pz[i]/fd) * leashStr;
       }
