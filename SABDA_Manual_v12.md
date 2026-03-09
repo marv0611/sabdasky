@@ -2376,6 +2376,125 @@ Study these before any murmuration work:
 
 ---
 
+## 29. Room Hardware — Projectors, Lenses, and Layout
+
+### 29.1 Room Dimensions
+- **Length:** 15.0m (usable projection area) / 16.56m (total including entrance corridor)
+- **Width:** 5.63m
+- **Entrance:** Right side via PRO-04 (ENTRADA)
+- **Rack location:** Far right corner (RACK-01, 220VAC 16AMP)
+- **Installation company:** DITEC Comunicaciones, Barcelona
+- **Drawing reference:** DU_PROYECTORES Y TRAZADO_V3.DWG (18/09/2023, AS BUILT)
+
+### 29.2 Projectors (×8)
+**Model:** Panasonic PT-MZ682 (part of MZ882 Series)
+- **Type:** 3LCD Laser (SOLID SHINE)
+- **Brightness:** 6,500 lumens
+- **Resolution:** WUXGA (1920×1200)
+- **Dynamic Contrast:** 3,000,000:1 (native ~3,000:1 for 3LCD)
+- **Light source:** Multi-Laser Drive Engine, 20,000 hour maintenance-free
+- **Color:** Black (BU7 variant)
+- **Noise:** 25 dB in Quiet Mode
+- **Inputs:** 3× HDMI (4K signal compatible), CEC command support
+- **Features:** Dynamic Contrast, Daylight View Basic, Detail Clarity Processor 4, Contrast Sync (multi-projector), Shutter Sync, Geometric Adjustment
+- **Each projector connection:** 1× PWR 220V + 1× DATA CAT6 (RJ-45)
+
+### 29.3 Lenses (two types — CRITICAL for edge matching)
+
+**Type A — Ultra-Short Throw (×3, RIGHT SIDE of room):**
+- **Model:** Panasonic ET-ELU20
+- **Throw ratio:** 0.330–0.353:1 (WUXGA)
+- **Zoom:** 1.07× optical
+- **Aperture:** f/2.0
+- **Design:** All-glass (heat/scratch resistant, reduces focus aberration)
+- **Lens shift:** V: ±50%, H: ±24%
+- **Weight:** 4 kg
+- **Dimensions:** 170mm × 449mm × 170mm
+- **Min projection distance:** ~1.43m for 200" (16:10)
+- **Zero offset** — image starts at projector mounting surface (no gap)
+- **Mirrorless design** — no lens overhang
+
+**Type B — Short Throw Off-Axis (×5, LEFT SIDE + CENTER of room):**
+- **Type:** Panasonic short throw, 0.8:1 ratio
+- **Details:** Standard Panasonic interchangeable lens for PT-MZ series
+
+### 29.4 Projector Layout (ceiling-mounted, as-built)
+
+```
+                    FRONT WALL (speakers SPK-01, SPK-02, SPK-03)
+    ┌─────────────────────────────────────────────────────────────┐
+    │                                                             │
+    │   PRO-09    ←1.879m→    PRO-10         PRO-11              │
+    │   (floor)               (floor)    ←2.815m→ (floor)        │
+    │                                                             │
+    │←2.815m→                                          ←2.815m→  │
+    │                                                             │
+    │  PRO-01     PRO-06      PRO-02    PRO-05    PRO-03  PRO-08 │
+    │  (0.8:1)   (0.8:1)     (0.8:1)   (0.8:1)   (UST)  (UST)  │
+    │                                                             │
+    │  PRO-07                                     PRO-04          │
+    │  (0.8:1)                                    (UST)           │
+    │  SIDE LEFT                                  ENTRADA         │
+    │                                                             │
+    │←1.879m→ ←──────── 7.500m ────────→ ←2.815m→               │
+    │                                                             │
+    │   PRO-14               PRO-13              PRO-12           │
+    │   (floor)              (floor)             (floor)          │
+    │                                                             │
+    └─────────────────────────────────────────────────────────────┘
+                    REAR WALL (speakers SPK-09, SPK-04, SPK-05)
+    
+    ←────────────────── 15.000m ──────────────────→ ←1.560m→
+    ←────────────────── 16.560m total ────────────────────────→
+```
+
+**Ceiling projectors (the 8 that matter for visual output):**
+- LEFT GROUP (0.8:1 lenses): PRO-07, PRO-01, PRO-06, PRO-02, PRO-05
+- RIGHT GROUP (ET-ELU20 ultra-short): PRO-03, PRO-08, PRO-04
+
+**Floor projectors (PRO-09 through PRO-14):** Floor projection, separate from wall visual.
+
+### 29.5 Lens Boundary Implications
+
+⚠️ **The boundary where content transitions from a 0.8:1 lens projector to an ET-ELU20 ultra-short throw projector can show visible differences:**
+- Different brightness falloff patterns (UST spreads light very differently)
+- Different edge sharpness characteristics
+- Possible slight color temperature variation between lens types
+- Different vignetting profiles
+
+**This is a hardware reality that software cannot fully fix.** Watchout edge-blending calibration must account for the lens differences. However, the visual content can minimize visibility of these seams by:
+1. Avoiding high-contrast horizontal gradients near the lens boundary
+2. Keeping exposure and tint values conservative (never exceeding 1.0)
+3. Using HalfFloat cubemap render targets (16-bit) to prevent banding
+4. Adding subtle dithering to break up quantization artifacts
+
+### 29.6 Rendering Pipeline — Projector-Safe Values
+
+Values that work correctly on this projector setup (matched from evening scene):
+
+| Parameter | Safe Value | Unsafe Value (causes seams) |
+|-----------|-----------|---------------------------|
+| toneMappingExposure | 0.82 + b×0.14 (range 0.82–0.96) | 1.0 + b×0.18 (range 1.0–1.18) |
+| Tint R | 0.94 + warmth×0.11 (max 1.05) | 0.98 + warmth×0.20 (max 1.18) |
+| Tint G | 0.85 + warmth×0.10 (max 0.95) | 0.78 + warmth×0.15 (max 0.93) |
+| Tint B | 0.92 + (1-warmth)×0.10 (max 1.02) | 0.90 + (1-warmth)×0.18 (max 1.08) |
+| Sun intensity | 0.45 + warmth×0.40 + b×0.10 | 0.55 + warmth×0.50 + b×0.15 |
+| CubeRT type | THREE.HalfFloatType (16-bit) | THREE.UnsignedByteType (8-bit = banding) |
+| Dithering | 1.5/255 | 1.0/255 (may show banding) |
+
+**Rule: Never exceed the evening scene's proven values.** The evening visual works perfectly on this exact hardware. Any new scene should match or stay below those levels.
+
+### 29.7 3LCD-Specific Notes
+
+The PT-MZ682 uses 3LCD technology (not DLP):
+- **No color wheel** — no rainbow artifacts, good for immersive environments
+- **Native contrast ~3,000:1** — the 3,000,000:1 spec is Dynamic Contrast (laser modulation)
+- **Dark purple gradients are the hardest** — 3LCD's native contrast means very dark purples can band. This is why HalfFloat + dithering is critical.
+- **Color uniformity is generally good** — no DLP color breakup, consistent across the panel
+- **Laser source** means consistent brightness over time (no lamp degradation)
+
+---
+
 ### 28.12 Next Steps
 
 - [x] Tune density spread to match reference video — dramatic perturbations, asymmetric breathing, dual-edge splits (v16)
