@@ -894,33 +894,55 @@ loader.load(balloonGlbUrl, gltf => {
   URL.revokeObjectURL(balloonGlbUrl);
   const orig = gltf.scene;
   
-  // Debug: log what we got
+  // Debug: log structure
   let meshCount = 0;
-  orig.traverse(c => { if (c.isMesh) meshCount++; });
-  console.log('SABDA: Balloon GLB loaded — meshes:', meshCount, 'children:', orig.children.length);
+  orig.traverse(c => {
+    if (c.isMesh) {
+      meshCount++;
+      console.log('SABDA: Balloon mesh found:', c.name, 'geo verts:', c.geometry?.attributes?.position?.count, 'material:', c.material?.type);
+    }
+  });
+  console.log('SABDA: Balloon GLB — meshes:', meshCount);
   
+  // 3 copies: use original for first, clone for 2nd and 3rd
   for (let ci = 0; ci < 3; ci++) {
-    const clone = ci === 0 ? orig : orig.clone(true);
     const wrapper = new THREE.Group();
-    wrapper.add(clone);
     wrapper.scale.setScalar(BH_BALLOON_SCALE);
     wrapper.position.set(0, BH_BALLOON_Y, 0);
     wrapper.rotation.y = ci * (Math.PI * 2 / 3);
     
-    // Override ALL materials to brand color
     const color = new THREE.Color(BH_COLORS[ci]);
-    wrapper.traverse(c => {
-      if (c.isMesh) {
-        c.frustumCulled = false;
-        c.material = new THREE.MeshStandardMaterial({
-          color: color,
-          roughness: 0.4,
-          metalness: 0,
-          transparent: true,
-          emissive: color.clone().multiplyScalar(0.1),
-        });
-      }
-    });
+    
+    if (ci === 0) {
+      // Use original, recolor
+      orig.traverse(c => {
+        if (c.isMesh) {
+          c.frustumCulled = false;
+          c.material = new THREE.MeshStandardMaterial({
+            color: color, roughness: 0.4, metalness: 0,
+            emissive: color.clone().multiplyScalar(0.1),
+          });
+          console.log('SABDA: Set material on original, verts:', c.geometry.attributes.position.count);
+        }
+      });
+      wrapper.add(orig);
+    } else {
+      // Clone geometry+mesh manually for each copy
+      orig.traverse(c => {
+        if (c.isMesh) {
+          const newMesh = new THREE.Mesh(
+            c.geometry,
+            new THREE.MeshStandardMaterial({
+              color: color, roughness: 0.4, metalness: 0,
+              emissive: color.clone().multiplyScalar(0.1),
+            })
+          );
+          newMesh.frustumCulled = false;
+          wrapper.add(newMesh);
+        }
+      });
+    }
+    
     balloonGroup.add(wrapper);
     console.log('SABDA: Balloon copy', ci, 'color:', '#' + color.getHexString());
   }
