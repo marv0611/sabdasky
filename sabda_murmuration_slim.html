@@ -877,36 +877,38 @@ contentScene.add(balloonGroup);
 const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 0.86;
 
-const BH_CLUSTER_H = 11.66;
-const BH_MAX_R = 2.45;       // 30% narrower
-const BH_WIDE_AT = 0.78;    // widest at 78% up (dome top)
+const BH_CLUSTER_H = 14.0;  // taller — increased vertical scale
+const BH_MAX_R = 2.2;       // narrower — taller than wide
+const BH_WIDE_AT = 0.75;    // widest at 75% up
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
-const BH_N_INTERIOR = 300;
-const BH_N_STRAYS = 8;      // stray balloons drifting off edges
-const BH_EACH_SCALE = 0.028;
+const BH_N_INTERIOR = 350;  // more for denser overlap
+const BH_N_STRAYS = 6;
+const BH_EACH_SCALE = 0.026; // slightly smaller for tighter packing
 
-// Shape: convergent inverted teardrop (per diagram)
-// Bottom 0-35%: long convergence funnel from chimney point
-// 35-78%: expanding body filling out
-// 78-100%: rounded dome top
+// Inverted teardrop: tight pinch at base, tall body, round dome
 function bhClusterR(y01) {
   if (y01 < 0 || y01 > 1) return 0;
-  if (y01 < 0.35) {
-    // Long convergence funnel — cubic for slow start, accelerating widen
-    const t = y01 / 0.35;
-    return 0.15 + t * t * t * (BH_MAX_R * 0.6 - 0.15);
+  if (y01 < 0.40) {
+    // Long pinched base — quartic for very tight start
+    const t = y01 / 0.40;
+    return 0.08 + t * t * t * t * (BH_MAX_R * 0.55 - 0.08);
   }
   if (y01 < BH_WIDE_AT) {
-    // Expanding body — smooth sine curve to max width
-    const t = (y01 - 0.35) / (BH_WIDE_AT - 0.35);
-    const eased = Math.sin(t * Math.PI / 2); // sine ease-out
-    return BH_MAX_R * 0.6 + eased * (BH_MAX_R - BH_MAX_R * 0.6);
+    // Expanding body
+    const t = (y01 - 0.40) / (BH_WIDE_AT - 0.40);
+    const eased = Math.sin(t * Math.PI / 2);
+    return BH_MAX_R * 0.55 + eased * (BH_MAX_R - BH_MAX_R * 0.55);
   }
-  // Dome top — cosine curve, stays wide longer then rounds off
+  // Dome top — smooth cosine
   const t = (y01 - BH_WIDE_AT) / (1 - BH_WIDE_AT);
-  return BH_MAX_R * Math.cos(t * Math.PI / 2); // smooth round dome
+  return BH_MAX_R * Math.cos(t * Math.PI / 2);
 }
+
+// Specular glint light — positioned upper-left at 45° for white shoulder highlight
+const bhGlintLight = new THREE.PointLight(0xffffff, 2.5, 30);
+bhGlintLight.position.set(-3, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.85, 3);
+balloonGroup.add(bhGlintLight);
 
 // String network — fan of thin lines from chimney to convergence zone
 const bhStringMat = new THREE.MeshBasicMaterial({
@@ -1020,14 +1022,14 @@ loader.load(balloonGlbUrl, gltf => {
   
   console.log('SABDA: Balloon geo verts:', balloonGeo.attributes.position.count);
   
-  // One material per color — latex look with sheen
+  // One material per color — glossy latex with specular glint
   const bhMats = BH_COLORS.map(c => {
     const col = new THREE.Color(c);
     return new THREE.MeshStandardMaterial({
       color: col,
-      roughness: 0.32,   // slightly glossy for latex sheen
-      metalness: 0.05,    // tiny metalness for specular highlight
-      emissive: col.clone().multiplyScalar(0.12),
+      roughness: 0.22,   // glossy — picks up white specular from point light
+      metalness: 0.08,    // slight metalness for sharp highlight
+      emissive: col.clone().multiplyScalar(0.10),
     });
   });
   
