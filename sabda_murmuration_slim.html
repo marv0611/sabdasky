@@ -703,7 +703,7 @@ contentScene.add(planetGroup);
     const phiLen = logoArc / R;
     const thetaLen = logoArcH / R;
     const phiStart = Math.PI/2 - phiLen/2;
-    const thetaOffset = 0.35; // lower — subtle signature position
+    const thetaOffset = 0.0; // centered at equator
     const thetaStart = Math.PI/2 - thetaLen/2 + thetaOffset;
     
     const logoGeo = new THREE.SphereGeometry(R, 48, 12, phiStart, phiLen, thetaStart, thetaLen);
