@@ -881,8 +881,8 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     // Wind-drift system — flock travels with a slowly-turning wind
     windAngle: setup.startAngle,
     windTargetAngle: setup.startAngle,
-    anchorX: Math.sin(setup.startAngle) * 8,
-    anchorZ: Math.cos(setup.startAngle) * 8,
+    anchorX: Math.sin(setup.startAngle) * 25,
+    anchorZ: Math.cos(setup.startAngle) * 25,
     anchorY: setup.y,
     driftSpeed: setup.driftSpeed,
     zone: setup.zone,
@@ -958,44 +958,75 @@ function updateMurmuration(simTime, speedMult) {
     // No fixed orbit. Soft boundaries keep them visible.
     // They sweep from back to front and out again.
     // ═══════════════════════════════════════════════════════
+    
+    // ── LOOP SEAMLESS: fade out last 60s, fade in first 30s ──
+    // At the loop point (t=0/1800), flocks are far away and invisible.
+    // Last 60s: push flocks outward to distance 25+ (tiny specks → invisible)
+    // First 30s: flocks start at distance 25, drift inward naturally
+    const loopT = simTime % 1800;
+    const FADE_OUT_START = 1740; // last 60 seconds
+    const FADE_IN_END = 30;     // first 30 seconds
+    let loopPhase = 'normal';   // 'fadeout', 'fadein', or 'normal'
+    
+    if(loopT >= FADE_OUT_START) {
+      loopPhase = 'fadeout';
+      // How far through the fadeout (0 at start, 1 at loop point)
+      const fadeProgress = (loopT - FADE_OUT_START) / (1800 - FADE_OUT_START);
+      // Push flock outward — override normal distance limits
+      const targetDist = 12 + fadeProgress * 18; // 12 → 30
+      if(anchorDist < targetDist) {
+        // Steer outward along current heading
+        const outAngle = Math.atan2(f.anchorX, f.anchorZ);
+        needsRedirect = true;
+        redirectAngle = outAngle + (Math.random()-0.5)*0.3;
+      }
+      // Also spread birds apart — weaken cohesion during fadeout
+      f.cohesionMult = Math.max(0.1, 1.0 - fadeProgress * 1.5);
+    } else if(loopT < FADE_IN_END) {
+      loopPhase = 'fadein';
+      const fadeProgress = loopT / FADE_IN_END; // 0 at start, 1 at end
+      // Steer flock inward toward zone at comfortable distance
+      const targetDist = 25 - fadeProgress * 16; // 25 → 9
+      if(anchorDist > targetDist) {
+        needsRedirect = true;
+        redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.5;
+      }
+      // Gradually restore cohesion
+      f.cohesionMult = Math.min(1.0, 0.1 + fadeProgress * 0.9);
+    }
+    
     f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.003 * sm;
     f.anchorY = Math.max(2, Math.min(8, f.anchorY));
     
     const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
     
     let needsRedirect = false, redirectAngle = 0;
-    // Too far
-    if(anchorDist > 12) {
-      needsRedirect = true;
-      redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.0;
-    }
-    // Too close — keep flock at comfortable distance for meditation room
-    if(anchorDist < 7) {
-      needsRedirect = true;
-      redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.0;
+    // Normal distance limits — only apply during normal phase
+    if(loopPhase === 'normal') {
+      if(anchorDist > 12) {
+        needsRedirect = true;
+        redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*1.0;
+      }
+      if(anchorDist < 7) {
+        needsRedirect = true;
+        redirectAngle = Math.atan2(f.anchorX, f.anchorZ) + (Math.random()-0.5)*1.0;
+      }
     }
     
     // ── ZONE ENFORCEMENT — each flock stays on its 2-wall strip ──
-    // Top strip (flock 1) = Left+Front walls = zone center 225° (3.93 rad)
-    // Bottom strip (flock 2) = Right+Back walls = zone center 45° (0.79 rad)
-    // This guarantees BOTH screens always have at least one flock visible.
+    // Only during normal phase — fadeout/fadein need freedom to drift far
     const heading = Math.atan2(f.anchorX, f.anchorZ);
     const zoneCenter = f.zone === 'top' ? 3.93 : 0.79;
     let zoneDiff = heading - zoneCenter;
     if(zoneDiff > 3.14) zoneDiff -= 6.28;
     if(zoneDiff < -3.14) zoneDiff += 6.28;
-    // Soft redirect at 80° from zone center
-    if(Math.abs(zoneDiff) > 1.4) {
+    if(loopPhase === 'normal' && Math.abs(zoneDiff) > 1.4) {
       needsRedirect = true;
       redirectAngle = zoneCenter + (Math.random()-0.5)*1.2;
     }
     
-    // ── HARD BOUNDARY — steer ALL birds every frame when out of bounds ──
-    // The event-based nudge (20-40% of birds, 5-15% rotation) is too weak
-    // to overcome flock momentum. If the anchor drifts too far, the flock
-    // disappears and never returns. This applies a continuous correction
-    // to EVERY bird, every frame, growing stronger with distance.
-    if(needsRedirect && anchorDist > 0) {
+    // ── HARD BOUNDARY — only during normal phase ──
+    if(loopPhase === 'normal' && needsRedirect && anchorDist > 0) {
       const urgency = Math.max(0, (anchorDist - 10) * 0.03, (7 - anchorDist) * 0.04); // also corrects when too close
       const zoneUrgency = Math.max(0, (Math.abs(zoneDiff) - 1.2) * 0.02);
       const totalUrgency = Math.min(0.15, urgency + zoneUrgency); // cap at 15% rotation per frame
