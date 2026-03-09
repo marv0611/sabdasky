@@ -882,8 +882,8 @@ const BH_MAX_R = 2.77;
 const BH_WIDE_AT = 0.70;
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
-const BH_N_INTERIOR = 250;
-const BH_N_SHELL = 120;
+const BH_N_INTERIOR = 280;
+const BH_N_SHELL = 180;
 const BH_EACH_SCALE = 0.028;
 
 function bhClusterR(y01) {
@@ -934,34 +934,39 @@ for (let i = 0; i < BH_N_INTERIOR; i++) {
   }
 }
 
-// Shell surface — fills the outline smooth
-for (let i = 0; i < BH_N_SHELL; i++) {
-  for (let tries = 0; tries < 100; tries++) {
-    const y01 = brand();
-    const maxR = bhClusterR(y01);
-    if (maxR < 0.2) continue;
-    const angle = brand() * Math.PI * 2;
-    const r = maxR * (0.88 + brand() * 0.15);
+// Shell surface — systematic rings for clean smooth outline
+let shellCount = 0;
+const SHELL_LAYERS = 30; // vertical slices
+for (let li = 0; li < SHELL_LAYERS; li++) {
+  const y01 = (li + 0.5) / SHELL_LAYERS;
+  const maxR = bhClusterR(y01);
+  if (maxR < 0.15) continue;
+  // How many around this ring? Based on circumference
+  const circ = Math.PI * 2 * maxR;
+  const nRing = Math.max(3, Math.round(circ / 1.2)); // one every ~1.2 units
+  for (let ri = 0; ri < nRing; ri++) {
+    const angle = (ri / nRing) * Math.PI * 2 + (li % 2) * 0.3; // offset alternate layers
+    const r = maxR * (0.90 + brand() * 0.12); // tight to surface
     bhPositions.push({
       x: Math.cos(angle) * r, y: BH_CLUSTER_BOT + y01 * BH_CLUSTER_H,
       z: Math.sin(angle) * r, rotY: brand() * Math.PI * 2,
       scale: BH_EACH_SCALE * (0.90 + brand() * 0.2), colorIdx: -1,
     });
-    break;
+    shellCount++;
   }
 }
 
-// Assign colors: avoid same-color direct neighbors
+// Assign colors: check ALL neighbors within range — no same color touching
 for (let i = 0; i < bhPositions.length; i++) {
   const p = bhPositions[i];
   const nearColors = new Set();
-  for (let j = Math.max(0, i - 25); j < i; j++) {
+  for (let j = 0; j < i; j++) {
     const q = bhPositions[j];
     const dx = p.x-q.x, dy = p.y-q.y, dz = p.z-q.z;
-    if (dx*dx+dy*dy+dz*dz < 3*3) nearColors.add(q.colorIdx);
+    if (dx*dx+dy*dy+dz*dz < 2.2*2.2) nearColors.add(q.colorIdx);
   }
   let ci;
-  for (let t = 0; t < 30; t++) {
+  for (let t = 0; t < 50; t++) {
     ci = Math.floor(brand() * BH_COLORS.length);
     if (!nearColors.has(ci)) break;
   }
