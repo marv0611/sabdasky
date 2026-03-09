@@ -1084,7 +1084,7 @@ function updateMurmuration(simTime, speedMult) {
     // Shape smoothly transitions toward target
     // Also: squeeze DECAYS between events — flock naturally becomes amorphous
     // unless an event resets the shape. This prevents permanent ellipse.
-    f.targetSqueeze *= (1.0 - 0.001 * sm); // slow decay toward zero
+    f.targetSqueeze *= (1.0 - 0.002 * sm); // slightly faster decay toward zero (was 0.001)
     // targetFlatten drifts toward 0.4 (moderate — not too flat, not too tall)
     f.targetFlatten += (0.4 - f.targetFlatten) * 0.001 * sm;
     let axisDiff = f.targetShapeAxis - f.shapeAxis;
@@ -1280,13 +1280,13 @@ function updateMurmuration(simTime, speedMult) {
         // Cosine blend at close range to prevent jitter (lesson 124)
         const cohDist = Math.min(cod, 4.0);
         const cohBlend = cohDist < 0.5 ? (0.5 - Math.cos(cohDist/0.5 * 3.14159)*0.5) : 1.0;
-        const cohStr = 0.038 * resp * cohBlend * cohDist * (f.cohesionMult||1.0);
+        const cohStr = 0.018 * resp * cohBlend * cohDist * (f.cohesionMult||1.0);
         const cohTurn = cohDiff * cohStr;
         const ccs=Math.cos(cohTurn), csn=Math.sin(cohTurn);
         const cv1=f.vx[i]*ccs+f.vz[i]*csn, cv2=-f.vx[i]*csn+f.vz[i]*ccs;
         f.vx[i]=cv1; f.vz[i]=cv2;
         // Y cohesion — gentle vertical pull toward neighbor centroid
-        ay += (cpy - f.py[i]) * 0.015 * (f.cohesionMult||1.0);
+        ay += (cpy - f.py[i]) * 0.008 * (f.cohesionMult||1.0);
         
         // ── 2. ALIGNMENT — steer toward avg heading of 7 nearest (Reynolds Rule 2) ──
         // REDUCED (not suppressed) during wave response delay (lesson 123)
@@ -1339,46 +1339,36 @@ function updateMurmuration(simTime, speedMult) {
         }
       }
       
-      // Shape variety now comes ENTIRELY from physics:
-      // - Cohesion pulls toward 7 nearest neighbors (organic clustering)
-      // - Alignment propagates direction changes (waves create deformation)
-      // - Flonons amplify at back of flock (asymmetric shapes)
-      // - Wide personality creates sub-groups (internal structure)
-      // - Vertical impulses from events (3D forms)
-      // NO artificial shape squeeze — that was creating the persistent ellipse.
-      
-      // ── RETURN TO CORE — very gentle angular steering ──
-      // Birds roam freely within 4 units. Beyond that, the tiniest
-      // curve steers them back over many seconds. Never visible as "pulling".
-      const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
-      if(fd > 3.5) {
-        const towardCore = Math.atan2(-f.px[i], -f.pz[i]);
-        const myHdgC = Math.atan2(f.vx[i], f.vz[i]);
-        let hdgDiffC = towardCore - myHdgC;
-        if(hdgDiffC > 3.14159) hdgDiffC -= 6.28318;
-        if(hdgDiffC < -3.14159) hdgDiffC += 6.28318;
-        // Gentle but present — 0.002 per unit (was 0.001 = too weak)
-        const curveStr = Math.min(0.025, (fd - 3.5) * 0.002 * resp);
-        const cTurn = hdgDiffC * curveStr;
-        if(Math.abs(cTurn) > 0.0001) {
-          const ccs = Math.cos(cTurn), csn = Math.sin(cTurn);
-          const cv = f.vx[i], cz = f.vz[i];
-          f.vx[i] = cv*ccs + cz*csn;
-          f.vz[i] = -cv*csn + cz*ccs;
-        }
+      // ── SHAPE VARIETY — anisotropic compression creates varied forms ──
+      // Project bird position onto shape axis and perpendicular.
+      // Pull harder on the perpendicular = flock elongates along axis.
+      // shapeElongate controls aspect ratio: 0.2=very long, 1.0=circular
+      {
+        const sa = f.shapeAxis;
+        const cosA = Math.cos(sa), sinA = Math.sin(sa);
+        // Project bird position onto axis (along) and perpendicular
+        const along = f.px[i] * cosA + f.pz[i] * sinA;     // distance along preferred axis
+        const perp  = -f.px[i] * sinA + f.pz[i] * cosA;    // distance perpendicular
+        // Pull perpendicular component harder → flock narrows in that direction
+        const perpPull = perp * f.shapeSqueeze * (1.0 / (f.shapeElongate + 0.1));
+        const alongPull = along * f.shapeSqueeze * f.shapeElongate;
+        // Convert back to XZ
+        ax += (-perpPull * (-sinA) - alongPull * cosA);
+        az += (-perpPull * cosA - alongPull * sinA);
       }
-      // Hard leash — emergency at 8 units
-      if(fd > 8) {
-        const towardCore = Math.atan2(-f.px[i], -f.pz[i]);
-        const myHdgC = Math.atan2(f.vx[i], f.vz[i]);
-        let hdgDiffC = towardCore - myHdgC;
-        if(hdgDiffC > 3.14159) hdgDiffC -= 6.28318;
-        if(hdgDiffC < -3.14159) hdgDiffC += 6.28318;
-        const leashTurn = hdgDiffC * Math.min(0.08, (fd - 8) * 0.015);
-        const lcs = Math.cos(leashTurn), lsn = Math.sin(leashTurn);
-        const lv = f.vx[i], lz = f.vz[i];
-        f.vx[i] = lv*lcs + lz*lsn;
-        f.vz[i] = -lv*lsn + lz*lcs;
+      
+      // ── CENTRAL DENSITY — keeps flock together but not a black mass ──
+      const fd = Math.sqrt(f.px[i]*f.px[i] + f.pz[i]*f.pz[i]) + 0.01;
+      if(fd > 3.0) {
+        const centralStr = (fd - 3.0) * 0.001;
+        ax += (-f.px[i]/fd) * centralStr;
+        az += (-f.pz[i]/fd) * centralStr;
+      }
+      // Hard tether — prevents escape
+      if(fd > 7) {
+        const leashStr = (fd - 7) * 0.015;
+        ax += (-f.px[i]/fd) * leashStr;
+        az += (-f.pz[i]/fd) * leashStr;
       }
       
       // ── LANGEVIN NOISE — smooth per-bird ──
@@ -1417,7 +1407,10 @@ function updateMurmuration(simTime, speedMult) {
     }
     
     // ═══════════════════════════════════════════════════════
-    // GROUP TENSION — very gentle, high threshold, allows wide spread
+    // GROUP TENSION TETHER (Alex Scott NZ, lesson 126)
+    // Only outermost birds get gentle elastic pull — allows dramatic
+    // ribbons and funnels while ensuring the flock always reconnects.
+    // ═══════════════════════════════════════════════════════
     let maxExtX=f.px[0],minExtX=f.px[0],maxExtZ=f.pz[0],minExtZ=f.pz[0];
     for(let i=1;i<N;i++){
       if(f.px[i]>maxExtX) maxExtX=f.px[i];
@@ -1426,16 +1419,16 @@ function updateMurmuration(simTime, speedMult) {
       if(f.pz[i]<minExtZ) minExtZ=f.pz[i];
     }
     const maxExtent = Math.max(maxExtX-minExtX, maxExtZ-minExtZ);
-    const TENSION_THRESHOLD = 12; // was 8 — much more freedom
+    const TENSION_THRESHOLD = 8;
     if(maxExtent > TENSION_THRESHOLD){
-      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.002; // was 0.004
+      const tensionStr = (maxExtent - TENSION_THRESHOLD) * 0.004;
       for(let i=0;i<N;i++){
         const dx=f.px[i]-fcx, dz=f.pz[i]-fcz;
         const d=Math.sqrt(dx*dx+dz*dz);
-        if(d > maxExtent*0.45){ // was 0.35 — only the very outermost birds
-          const pull = tensionStr * (d - maxExtent*0.45) / (maxExtent*0.55 + 0.01);
-          f.vx[i] -= (dx/(d+0.01)) * pull * 0.5;
-          f.vz[i] -= (dz/(d+0.01)) * pull * 0.5;
+        if(d > maxExtent*0.35){
+          const pull = tensionStr * (d - maxExtent*0.35) / (maxExtent*0.65 + 0.01);
+          f.vx[i] -= (dx/(d+0.01)) * pull;
+          f.vz[i] -= (dz/(d+0.01)) * pull;
         }
       }
     }
