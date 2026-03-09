@@ -877,47 +877,42 @@ contentScene.add(balloonGroup);
 const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 0.86;
 
-const BH_CLUSTER_H = 14.0;
-const BH_MAX_R = 2.2;
-const BH_WIDE_AT = 0.72;
+const BH_CLUSTER_H = 11.66;
+const BH_MAX_R = BH_CLUSTER_H / 4; // 2:1 height:width → r=2.92, diameter=5.83
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
 const BH_N_INTERIOR = 400;
 const BH_EACH_SCALE = 0.026;
 
-// Convex V-shape: single continuous outward-curving mass
+// Heavy canopy on top of sharp V — mass shifted upward
 function bhClusterR(y01) {
   if (y01 < 0 || y01 > 1) return 0;
-  if (y01 < BH_WIDE_AT) {
-    const t = y01 / BH_WIDE_AT;
-    return BH_MAX_R * Math.pow(t, 0.55);
+  if (y01 < 0.70) {
+    const t = y01 / 0.70;
+    return BH_MAX_R * Math.pow(t, 1.8);
   }
-  const t = (y01 - BH_WIDE_AT) / (1 - BH_WIDE_AT);
+  const t = (y01 - 0.70) / 0.30;
   return BH_MAX_R * Math.cos(t * Math.PI / 2);
 }
 
-// Specular highlight light — warm off-white at 45° upper-left
-const bhGlintLight = new THREE.PointLight(0xFCF5E5, 3.0, 35);
-bhGlintLight.position.set(-3, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.8, 3);
+// Specular highlight light
+const bhGlintLight = new THREE.PointLight(0xFCF5E5, 3.5, 40);
+bhGlintLight.position.set(-4, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.8, 4);
 balloonGroup.add(bhGlintLight);
-
-// No separate string network needed — cluster tapers to point at chimney
 
 let _bseed = 42;
 function brand() { _bseed = (_bseed * 16807) % 2147483647; return _bseed / 2147483647; }
 
-const BH_BALLOON_RADIUS = BH_EACH_SCALE * 87 * 0.5; // half-size of one balloon mesh ~1.1
-
 const bhPositions = [];
 
-// Interior volume fill — skip narrow zones where balloons poke out
+// Interior volume fill
 for (let i = 0; i < BH_N_INTERIOR; i++) {
   for (let tries = 0; tries < 100; tries++) {
     const y01 = brand();
     const maxR = bhClusterR(y01);
-    if (maxR < BH_BALLOON_RADIUS * 1.5) continue; // skip where balloon would extend beyond silhouette
+    if (maxR < 0.1) continue;
     const angle = brand() * Math.PI * 2;
-    const r = Math.sqrt(brand()) * (maxR - BH_BALLOON_RADIUS * 0.5); // keep inside silhouette
+    const r = Math.sqrt(brand()) * maxR;
     bhPositions.push({
       x: Math.cos(angle) * r, y: BH_CLUSTER_BOT + y01 * BH_CLUSTER_H,
       z: Math.sin(angle) * r, rotY: brand() * Math.PI * 2,
@@ -927,18 +922,18 @@ for (let i = 0; i < BH_N_INTERIOR; i++) {
   }
 }
 
-// Shell surface — systematic rings, skip narrow sections
+// Shell surface — systematic rings
 let shellCount = 0;
 const SHELL_LAYERS = 50;
 for (let li = 0; li < SHELL_LAYERS; li++) {
   const y01 = (li + 0.5) / SHELL_LAYERS;
   const maxR = bhClusterR(y01);
-  if (maxR < BH_BALLOON_RADIUS * 2) continue; // skip where balloons would poke out
+  if (maxR < 0.15) continue;
   const circ = Math.PI * 2 * maxR;
   const nRing = Math.max(3, Math.round(circ / 1.0));
   for (let ri = 0; ri < nRing; ri++) {
     const angle = (ri / nRing) * Math.PI * 2 + (li % 2) * (Math.PI / nRing);
-    const r = maxR * (0.78 + brand() * 0.15); // all well inside silhouette
+    const r = maxR * (0.92 + brand() * 0.10);
     bhPositions.push({
       x: Math.cos(angle) * r, y: BH_CLUSTER_BOT + y01 * BH_CLUSTER_H,
       z: Math.sin(angle) * r, rotY: brand() * Math.PI * 2,
