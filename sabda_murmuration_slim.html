@@ -875,40 +875,44 @@ const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE; // ~3.3 units
 const BH_GAP = 1.0; // gap between chimney and balloon bottom
 
 // ── STRING BUNDLE (cone from chimney to balloon cluster bottom) ──
-// Teardrop/egg shape: tall, widest at 60% up, funnel taper to chimney
-const BH_CLUSTER_H = 14.0;  // total cluster height
-const BH_MAX_R = 4.5;       // max radius at widest point
-const BH_WIDE_AT = 0.60;    // widest point at 60% up
+// Teardrop shape matching reference: tall, narrow, widest at ~70% up
+const BH_CLUSTER_H = 18.0;  // much taller
+const BH_MAX_R = 4.2;       // narrower — height:width ~2.1:1
+const BH_WIDE_AT = 0.70;    // widest point at 70% up (reference)
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
-const BH_N_BALLOONS = 300;  // dense — no gaps
-const BH_EACH_SCALE = 0.028; // each copy: 87*0.028 = ~2.4 units — overlapping tight
+const BH_N_BALLOONS = 300;
+const BH_EACH_SCALE = 0.028;
 
-// Teardrop radius function
+// Teardrop radius: long funnel taper at bottom, wide upper body, rounded top
 function bhClusterR(y01) {
   if (y01 < 0 || y01 > 1) return 0;
-  if (y01 < 0.12) {
-    return 0.3 + (y01 / 0.12) * (BH_MAX_R * 0.35 - 0.3);
+  if (y01 < 0.25) {
+    // Long funnel: narrow at bottom, gradually widens (25% of height)
+    const t = y01 / 0.25;
+    return 0.2 + t * t * (BH_MAX_R * 0.55 - 0.2); // quadratic — slow start
   }
   if (y01 < BH_WIDE_AT) {
-    const t = (y01 - 0.12) / (BH_WIDE_AT - 0.12);
-    return BH_MAX_R * 0.35 + t * (BH_MAX_R - BH_MAX_R * 0.35);
+    // Widen smoothly to max
+    const t = (y01 - 0.25) / (BH_WIDE_AT - 0.25);
+    return BH_MAX_R * 0.55 + t * (BH_MAX_R - BH_MAX_R * 0.55);
   }
+  // Round off top — cosine curve
   const t = (y01 - BH_WIDE_AT) / (1 - BH_WIDE_AT);
   return BH_MAX_R * Math.cos(t * Math.PI / 2);
 }
 
-// Thin strings on each side (not a cone in the middle)
-const bhStringGeo = new THREE.CylinderGeometry(0.02, 0.02, BH_GAP + 0.3, 4);
-const bhStringMat = new THREE.MeshBasicMaterial({ color: 0xe8e0d0, transparent: true, opacity: 0.3 });
-for (let si = 0; si < 8; si++) {
-  const a = si * Math.PI * 2 / 8;
-  const sr = 0.4;
-  const s = new THREE.Mesh(bhStringGeo, bhStringMat);
-  s.position.set(Math.cos(a) * sr, BH_CHIMNEY_Y + (BH_GAP + 0.3) / 2, Math.sin(a) * sr);
-  s.frustumCulled = false;
-  balloonGroup.add(s);
-}
+// Subtle cone net between funnel bottom and chimney (like reference)
+const bhConeH = BH_GAP + 0.5;
+const bhConeGeo = new THREE.ConeGeometry(0.8, bhConeH, 12, 1, true);
+const bhConeMat = new THREE.MeshBasicMaterial({
+  color: 0xe8dcc8, transparent: true, opacity: 0.12,
+  side: THREE.DoubleSide, depthWrite: false,
+});
+const bhCone = new THREE.Mesh(bhConeGeo, bhConeMat);
+bhCone.position.set(0, BH_CHIMNEY_Y + bhConeH / 2, 0);
+bhCone.frustumCulled = false;
+balloonGroup.add(bhCone);
 
 // Seeded PRNG for deterministic placement
 let _bseed = 42;
