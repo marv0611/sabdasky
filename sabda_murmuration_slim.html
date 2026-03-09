@@ -856,8 +856,8 @@ const BH_DIST = 65;                  // closer for real perspective depth
 const BH_HOUSE_SCALE = 0.35;         // small house — balloons dominate
 const BH_EVENT_START = 600;           // starts at t=10min
 const BH_EVENT_DUR = 60;             // 60 seconds to cross
-const BH_Y_START = -25;              // below horizon at start
-const BH_Y_END = 70;                 // above projection at end
+const BH_Y_START = -100;             // far below — invisible even through CubeCamera
+const BH_Y_END = 80;                 // above projection at end
 const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_EVENT_DUR;
 
 const BH_X0 = Math.cos(BH_ANGLE) * BH_DIST;
@@ -868,7 +868,6 @@ const BH_COLORS = [0x203999, 0xF8A6A3, 0x02F3C5];
 
 const balloonGroup = new THREE.Group();
 balloonGroup.position.set(BH_X0, BH_Y_START, BH_Z0);
-balloonGroup.visible = false;
 contentScene.add(balloonGroup);
 
 // House chimney top in group-local coords
@@ -876,12 +875,12 @@ const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE; // ~3.3 units
 const BH_GAP = 1.0; // gap between chimney and balloon bottom
 
 // ── STRING BUNDLE (cone from chimney to balloon cluster bottom) ──
-const BH_ELLIPSE_A = 8.0;   // semi-major (vertical)
-const BH_ELLIPSE_B = 5.0;   // semi-minor (horizontal)
+const BH_ELLIPSE_A = 6.0;   // semi-major (vertical) — tighter
+const BH_ELLIPSE_B = 4.0;   // semi-minor (horizontal) — tighter
 const BH_ELLIPSE_CY = BH_CHIMNEY_Y + BH_GAP + BH_ELLIPSE_A; // center of ellipsoid
 const BH_FUNNEL_TOP = BH_CHIMNEY_Y + BH_GAP; // bottom of ellipsoid
-const BH_N_BALLOONS = 35;   // number of balloon group copies
-const BH_EACH_SCALE = 0.035; // each copy: 87*0.035 = ~3 units tall
+const BH_N_BALLOONS = 120;  // packed dense like the reference
+const BH_EACH_SCALE = 0.018; // each copy: 87*0.018 = ~1.6 units tall — small, dense
 
 const bhStringH = BH_GAP + 0.8;
 const bhStringGeo = new THREE.CylinderGeometry(1.5, 0.12, bhStringH, 8, 1, true);
@@ -1293,29 +1292,32 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.setRenderTarget(null);
   // ── BALLOON HOUSE — 1-minute crossing ──
-  // Constant speed bottom→top. Visible only during the event window.
+  // Pure position: starts far below, rises at constant speed, exits far above.
+  // No visibility toggle — just position. It's always "there", just off-screen.
   {
     const t = time % 1800;
     const eventT = t - BH_EVENT_START;
     
-    if (eventT < 0 || eventT > BH_EVENT_DUR) {
-      balloonGroup.visible = false;
-      balloonGroup.position.y = BH_Y_START;
+    let y;
+    if (eventT < 0) {
+      y = BH_Y_START; // parked far below
+    } else if (eventT > BH_EVENT_DUR) {
+      y = BH_Y_END;   // parked far above
     } else {
-      balloonGroup.visible = true;
-      const y = BH_Y_START + BH_SPEED * eventT;
-      
-      // Subtle horizontal drift
-      const driftX = 1.2 * Math.sin(eventT * 0.05);
-      const driftZ = 0.8 * Math.cos(eventT * 0.07);
-      
-      balloonGroup.position.set(BH_X0 + driftX, y, BH_Z0 + driftZ);
-      
-      // Face toward camera center + gentle sway
-      balloonGroup.rotation.y = BH_ANGLE + Math.PI + eventT * 0.003;
-      balloonGroup.rotation.z = Math.sin(eventT * 0.2) * 0.006;
-      balloonGroup.rotation.x = Math.sin(eventT * 0.15 + 1.0) * 0.004;
+      y = BH_Y_START + BH_SPEED * eventT; // rising
     }
+    
+    // Subtle horizontal drift during rise
+    const drift = (eventT >= 0 && eventT <= BH_EVENT_DUR) ? eventT : 0;
+    const driftX = 1.2 * Math.sin(drift * 0.05);
+    const driftZ = 0.8 * Math.cos(drift * 0.07);
+    
+    balloonGroup.position.set(BH_X0 + driftX, y, BH_Z0 + driftZ);
+    
+    // Face camera + gentle sway
+    balloonGroup.rotation.y = BH_ANGLE + Math.PI + drift * 0.003;
+    balloonGroup.rotation.z = Math.sin(drift * 0.2) * 0.006;
+    balloonGroup.rotation.x = Math.sin(drift * 0.15 + 1.0) * 0.004;
   }
 
   cubeCamera.update(renderer, contentScene);
