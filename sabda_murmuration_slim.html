@@ -898,6 +898,8 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     targetShapeAxis: Math.random() * Math.PI * 2,
     targetSqueeze: 0.003,
     targetElongate: 0.5,
+    flattenStr: 0.6,       // how flat the disc is (1.0=very flat, 0.1=tall/layered)
+    targetFlatten: 0.6,
   };
   // Init wave slots
   for(let w=0;w<MAX_WAVES;w++) f.waves.push({active:false, ox:0, oz:0, radius:0, angle:0, strength:1, maxR:M_WAVE_MAX_R});
@@ -905,7 +907,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
   for (let i = 0; i < FLOCK_SIZE; i++) {
     const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*3.0;
     f.px[i] = Math.cos(a)*r;
-    f.py[i] = (Math.random()-0.5)*0.4;
+    f.py[i] = (Math.random()-0.5)*1.2; // wider vertical spread for layers
     f.pz[i] = Math.sin(a)*r;
     const va = d0+(Math.random()-0.5)*0.3, sp = 0.07+Math.random()*0.04;
     f.vx[i] = Math.cos(va)*sp; f.vy[i] = 0; f.vz[i] = Math.sin(va)*sp;
@@ -1074,12 +1076,15 @@ function updateMurmuration(simTime, speedMult) {
     // Also: squeeze DECAYS between events — flock naturally becomes amorphous
     // unless an event resets the shape. This prevents permanent ellipse.
     f.targetSqueeze *= (1.0 - 0.001 * sm); // slow decay toward zero
+    // targetFlatten drifts toward 0.4 (moderate — not too flat, not too tall)
+    f.targetFlatten += (0.4 - f.targetFlatten) * 0.001 * sm;
     let axisDiff = f.targetShapeAxis - f.shapeAxis;
     if(axisDiff > 1.57) axisDiff -= 3.14159;
     if(axisDiff < -1.57) axisDiff += 3.14159;
     f.shapeAxis += axisDiff * 0.012 * sm;  // faster axis rotation (was 0.008)
     f.shapeSqueeze += (f.targetSqueeze - f.shapeSqueeze) * 0.015 * sm; // faster (was 0.01)
-    f.shapeElongate += (f.targetElongate - f.shapeElongate) * 0.015 * sm; // faster (was 0.01)
+    f.shapeElongate += (f.targetElongate - f.shapeElongate) * 0.015 * sm;
+    f.flattenStr += (f.targetFlatten - f.flattenStr) * 0.012 * sm; // vertical spread transitions
     
     f.pTimer += sm;
     if(f.pTimer >= f.pNext || needsRedirect) {
@@ -1113,7 +1118,8 @@ function updateMurmuration(simTime, speedMult) {
         f.cohesionMult = 1.3 + Math.random()*0.5;
         f.targetShapeAxis = waveAngle;
         f.targetSqueeze = 0.005 + Math.random()*0.003;
-        f.targetElongate = 0.15 + Math.random()*0.15; // very long ribbon
+        f.targetElongate = 0.15 + Math.random()*0.15;
+        f.targetFlatten = 0.5 + Math.random()*0.3; // moderate disc
         
       } else if(eventType < 0.28) {
         // ── SPLIT — dual opposite edges → fork/V shape ──
@@ -1123,24 +1129,29 @@ function updateMurmuration(simTime, speedMult) {
         f.cohesionMult = 0.6 + Math.random()*0.3;
         f.targetShapeAxis = waveAngle + Math.random() * 3.14;
         f.targetSqueeze = 0.001 + Math.random()*0.001;
-        f.targetElongate = 0.8 + Math.random()*0.2; // wide disc
+        f.targetElongate = 0.8 + Math.random()*0.2;
+        f.targetFlatten = 0.3 + Math.random()*0.3; // can get tall
         
       } else if(eventType < 0.40) {
         // ── COMPRESSION — dense ball moment ──
         f.cohesionMult = 2.0 + Math.random()*1.5;
         f.targetSqueeze = 0.008 + Math.random()*0.005;
-        f.targetElongate = 0.85 + Math.random()*0.15; // nearly spherical
+        f.targetElongate = 0.85 + Math.random()*0.15;
         f.targetShapeAxis = Math.random() * 3.14;
+        f.targetFlatten = 0.8 + Math.random()*0.2; // flat ball
         
       } else if(eventType < 0.52) {
         // ── AMORPHOUS — NO shape forcing, let physics find organic form ──
-        // This is the key to breaking the constant ellipse.
-        // Flock shape emerges purely from cohesion/alignment/separation.
         _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.4 + Math.random()*0.3, M_WAVE_MAX_R);
         f.cohesionMult = 0.8 + Math.random()*0.4;
-        f.targetSqueeze = 0.0;  // ZERO — no shape forcing at all
+        f.targetSqueeze = 0.0;
         f.targetElongate = 1.0;
         f.targetShapeAxis = Math.random() * 3.14;
+        f.targetFlatten = 0.15 + Math.random()*0.25; // very tall — multiple vertical layers
+        // Give birds vertical impulse to create layers
+        for(let si=0;si<N;si++){
+          f.vy[si] += (Math.random()-0.5) * 0.006 * f.responsiveness[si];
+        }
         
       } else if(eventType < 0.64) {
         // ── EXPANSION — burst outward → diffuse cloud ──
@@ -1149,10 +1160,12 @@ function updateMurmuration(simTime, speedMult) {
           const spreadStr = (0.001 + Math.random()*0.002) * f.responsiveness[si];
           f.vx[si] += f.px[si] * spreadStr;
           f.vz[si] += f.pz[si] * spreadStr;
+          f.vy[si] += (Math.random()-0.5) * 0.004 * f.responsiveness[si]; // vertical scatter too
         }
-        f.targetSqueeze = 0.0005; // nearly amorphous
+        f.targetSqueeze = 0.0005;
         f.targetElongate = 0.6 + Math.random()*0.4;
         f.targetShapeAxis = Math.random() * 3.14;
+        f.targetFlatten = 0.2 + Math.random()*0.3; // tall cloud
         
       } else if(eventType < 0.76) {
         // ── UNDULATION — rolling ripple → narrow streaming band ──
@@ -1167,29 +1180,33 @@ function updateMurmuration(simTime, speedMult) {
         f.cohesionMult = 1.0;
         f.targetShapeAxis = baseAngle + 1.57;
         f.targetSqueeze = 0.006 + Math.random()*0.003;
-        f.targetElongate = 0.2 + Math.random()*0.1; // very narrow stream
+        f.targetElongate = 0.2 + Math.random()*0.1;
+        f.targetFlatten = 0.4 + Math.random()*0.3; // moderate
         
       } else if(eventType < 0.88) {
-        // ── COLUMN — tall narrow shape, perpendicular to travel ──
-        // Achieved by squeezing along travel direction, letting perp expand
+        // ── TOWER — tall vertical column, birds in stacked layers ──
         _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.4, M_WAVE_MAX_R * 0.7);
-        f.cohesionMult = 1.2 + Math.random()*0.3;
-        f.targetShapeAxis = waveAngle + 1.57; // perpendicular to travel
-        f.targetSqueeze = 0.004 + Math.random()*0.003;
-        f.targetElongate = 0.2 + Math.random()*0.15; // elongated perpendicular to travel
+        f.cohesionMult = 1.4 + Math.random()*0.4;
+        f.targetShapeAxis = waveAngle + 1.57;
+        f.targetSqueeze = 0.005 + Math.random()*0.003;
+        f.targetElongate = 0.7 + Math.random()*0.3; // rounder horizontally
+        f.targetFlatten = 0.1 + Math.random()*0.15; // very tall — tower
+        // Strong vertical impulse to create vertical layers
+        for(let si=0;si<N;si++){
+          f.vy[si] += (Math.random()-0.5) * 0.008 * f.responsiveness[si];
+        }
         
       } else {
         // ── TEARDROP — strong compression one side, release other ──
-        // One-sided wave creates asymmetric shape
         _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.8 + Math.random()*0.2, M_WAVE_MAX_R * 0.5);
         f.cohesionMult = 1.5 + Math.random()*0.5;
         f.targetShapeAxis = waveAngle;
         f.targetSqueeze = 0.003 + Math.random()*0.002;
         f.targetElongate = 0.35 + Math.random()*0.15;
-        // Also give birds on one side a speed boost → creates tear shape
+        f.targetFlatten = 0.4 + Math.random()*0.3;
         for(let si=0;si<N;si++){
           const dot = f.px[si]*Math.sin(waveAngle) + f.pz[si]*Math.cos(waveAngle);
-          if(dot > 0) { // birds ahead of center
+          if(dot > 0) {
             f.vx[si] *= 1.0 + 0.01 * f.responsiveness[si];
             f.vz[si] *= 1.0 + 0.01 * f.responsiveness[si];
           }
@@ -1350,9 +1367,11 @@ function updateMurmuration(simTime, speedMult) {
       ax += Math.sin(simTime*0.2+birdSeed) * 0.00008 * (2.0-resp);
       az += Math.cos(simTime*0.17+birdSeed*1.3) * 0.00008 * (2.0-resp);
       
-      // ── FLATTEN into disc (Ballerini: aspect ratio 1:2.8:5.6) ──
-      ay -= f.vy[i] * 0.45;        // strong Y damping
-      ay -= f.py[i] * 0.030;       // pull toward Y=0 plane
+      // ── VERTICAL SPREAD — dynamic, controlled by events ──
+      // flattenStr=1.0 → strong disc, flattenStr=0.2 → birds spread vertically into layers
+      const fs = f.flattenStr || 1.0;
+      ay -= f.vy[i] * 0.15 * fs;         // Y damping (was fixed 0.45)
+      ay -= f.py[i] * 0.010 * fs;        // pull toward Y=0 (was fixed 0.030)
       
       // ── VELOCITY UPDATE — direct acceleration (lesson 112) ──
       f.vx[i] = f.vx[i]*0.978 + ax;
