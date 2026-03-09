@@ -854,38 +854,58 @@ saturnLoader1.load(saturnUrl1, gltf => {
 // 4. Group tension tether (Alex Scott NZ)
 // 5. Agitation wave propagation (Flock2 / Hoetzlein 2024)
 // ═══════════════════════════════════════════════════════
-const FLOCK_SIZE = 1500;
+const FLOCK_SIZE = 800;
 const FLOCK_COUNT = 2;
 const MNC = 7;
-const M_MIN_SPEED = 0.036;
-const M_MAX_SPEED = 0.115;
-const M_SEP_DIST = 0.25;       // Exclusion zone with cosine falloff
+const M_MIN_SPEED = 0.025;
+const M_MAX_SPEED = 0.08;
+const M_SEP_DIST = 0.35;       // Wider exclusion — birds don't overlap at projection scale
 const M_SEP_R2 = M_SEP_DIST*M_SEP_DIST;
 const M_WAVE_SPEED = 0.4;      // Wave front expansion: units per frame
 const M_WAVE_MAX_R = 12;       // Wave dies at this radius
 const MAX_WAVES = 4;           // Concurrent waves per flock
 
-// Bird = tiny but bird-shaped. Slightly elongated body with small swept wings.
-// NOT a geometric dot (fake), NOT a long triangle (line artifact).
-// Just enough asymmetry to read as a living thing at distance.
-const birdShape = new THREE.BufferGeometry();
-birdShape.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-  // Body — compact teardrop
-  0, 0.005, 0.07,   0.015, 0, -0.01,  -0.015, 0, -0.01,  // nose
-  0.015, 0, -0.01,  0, -0.003, -0.05, -0.015, 0, -0.01,   // body to tail
-  // Wings — tiny swept-back, give it a bird feel
-  -0.015, 0, -0.01, -0.05, 0.003, -0.02, 0, 0, -0.03,     // left
-  0.015, 0, -0.01,  0, 0, -0.03,       0.05, 0.003, -0.02, // right
-]), 3));
-birdShape.computeVertexNormals();
+// Bird = proper silhouette for projection scale (15m walls, 1m viewing distance).
+// Pre-computed flap cycle: 8 wing positions, geometry swap per frame = zero-cost animation.
+// Each bird is ~8 triangles: body teardrop + swept wings + forked tail.
+const FLAP_FRAMES = 8;
+const birdGeos = [];
+function _mkBirdGeo(tipY, midY) {
+  const v = [];
+  // Body — elongated teardrop, wider than old version for visual presence
+  v.push(0, 0.006, 0.08,   0.02, 0, 0.01,  -0.02, 0, 0.01);   // nose cap
+  v.push(0.02, 0, 0.01,   0, -0.004, -0.055, -0.02, 0, 0.01);  // body to tail root
+  // Forked tail — reads as bird, not bullet
+  v.push(0, -0.004, -0.055,  0.015, 0.003, -0.08,  0, 0, -0.065); // tail right fork
+  v.push(0, -0.004, -0.055,  0, 0, -0.065, -0.015, 0.003, -0.08); // tail left fork
+  // Right wing — inner triangle + outer triangle, swept back
+  v.push(0.02, 0, 0.01,    0.07, midY, 0.0,    0.02, 0, -0.025);  // inner
+  v.push(0.07, midY, 0.0,  0.12, tipY, -0.02,  0.02, 0, -0.025);  // outer
+  // Left wing — mirror
+  v.push(-0.02, 0, 0.01,   -0.02, 0, -0.025,  -0.07, midY, 0.0);  // inner
+  v.push(-0.07, midY, 0.0, -0.02, 0, -0.025,  -0.12, tipY, -0.02); // outer
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(v), 3));
+  g.computeVertexNormals();
+  return g;
+}
+// Build flap cycle — asymmetric: faster downstroke (power), slower upstroke (recovery)
+for (let fr = 0; fr < FLAP_FRAMES; fr++) {
+  const t = fr / FLAP_FRAMES * Math.PI * 2;
+  // Asymmetric wave: downstroke compressed, upstroke extended
+  const wave = Math.sin(t) * 0.7 + Math.sin(t * 2) * 0.3;
+  const tipY = wave * 0.04;   // wing tips move ±4cm
+  const midY = wave * 0.02;   // mid-wing moves ±2cm
+  birdGeos.push(_mkBirdGeo(tipY, midY));
+}
 const birdMat = new THREE.MeshBasicMaterial({ color: 0x050303, side: THREE.DoubleSide });
 
 // Flock 1 → Top strip (Left + Front walls) = -X / -Z quadrant
 // Flock 2 → Bottom strip (Right + Back walls) = +X / +Z quadrant
 // Different speeds, different event timing — never synchronized
 const flockSetup = [
-  { startAngle: 3.93, y: 4.5, driftSpeed: 0.065, eventInterval: [10,22], zone: 'top' },
-  { startAngle: 0.79, y: 5.0, driftSpeed: 0.055, eventInterval: [14,28], zone: 'bottom' },
+  { startAngle: 3.93, y: 4.5, driftSpeed: 0.04, eventInterval: [12,26], zone: 'top' },
+  { startAngle: 0.79, y: 5.0, driftSpeed: 0.035, eventInterval: [16,32], zone: 'bottom' },
 ];
 
 const allFlocks = [];
@@ -902,6 +922,8 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     speedMult: new Float32Array(FLOCK_SIZE),
     responsiveness: new Float32Array(FLOCK_SIZE),
     waveHitId: new Int8Array(FLOCK_SIZE),      // which wave last hit this bird (-1 = none)
+    flapPhase: new Float32Array(FLOCK_SIZE),   // 0-2PI, per-bird flap cycle offset
+    flapSpeed: new Float32Array(FLOCK_SIZE),   // flap Hz variation per bird
     meshes: [],
     // Wave propagation system — each wave is an expanding ring from an edge bird
     waves: [],
@@ -936,7 +958,7 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     f.px[i] = Math.cos(a)*r;
     f.py[i] = (Math.random()-0.5)*1.2; // wider vertical spread for layers
     f.pz[i] = Math.sin(a)*r;
-    const va = d0+(Math.random()-0.5)*0.3, sp = 0.07+Math.random()*0.04;
+    const va = d0+(Math.random()-0.5)*0.3, sp = 0.04+Math.random()*0.03;
     f.vx[i] = Math.cos(va)*sp; f.vy[i] = 0; f.vz[i] = Math.sin(va)*sp;
     f.prevHdg[i] = va;
     f.delayFrames[i] = 0;
@@ -944,19 +966,21 @@ for (let fi = 0; fi < FLOCK_COUNT; fi++) {
     f.waveHitId[i] = -1;
     f.speedMult[i] = 0.5 + Math.random()*1.0;       // 0.5-1.5 (was 0.7-1.3) — wide speed variation
     f.responsiveness[i] = 0.3 + Math.random()*1.4;   // 0.3-1.7 (was 0.6-1.4) — some birds barely react, some overreact
+    f.flapPhase[i] = Math.random() * Math.PI * 2;    // desync flaps — no strobing
+    f.flapSpeed[i] = 4.5 + Math.random() * 3.0;      // 4.5-7.5 Hz — natural starling range
     // Start targets as tight cluster
     const ta = Math.random()*6.28, tr = Math.random()*0.3;
     f.tx[i] = Math.cos(ta)*tr;
     f.tz[i] = Math.sin(ta)*tr;
-    const m = new THREE.Mesh(birdShape, birdMat);
-    m.scale.setScalar(0.8);
+    const m = new THREE.Mesh(birdGeos[0], birdMat);
+    m.scale.setScalar(2.0);        // 2.5× larger — visible bird silhouette at 15m projection
     m.frustumCulled = false;
     contentScene.add(m);
     f.meshes.push(m);
   }
   allFlocks.push(f);
 }
-console.log('SABDA: Murmuration v26 —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, '=', FLOCK_COUNT*FLOCK_SIZE, 'birds (wave propagation + Ballerini physics)');
+console.log('SABDA: Murmuration v27 —', FLOCK_COUNT, 'flocks ×', FLOCK_SIZE, '=', FLOCK_COUNT*FLOCK_SIZE, 'birds (projection-scale silhouettes + flap animation)');
 
 // Shared pre-allocated buffers
 const _mNearby = new Int32Array(768);
@@ -1500,7 +1524,7 @@ function updateMurmuration(simTime, speedMult) {
     f.anchorZ += rcz;
     
     // ═══════════════════════════════════════════════════════
-    // UPDATE MESHES
+    // UPDATE MESHES — position, heading, flap, bank
     // ═══════════════════════════════════════════════════════
     const cx=f.anchorX, cy=f.anchorY, cz=f.anchorZ;
     for(let i=0;i<N;i++){
@@ -1514,6 +1538,16 @@ function updateMurmuration(simTime, speedMult) {
       if(rotDiff > 3.14159) rotDiff -= 6.28318;
       if(rotDiff < -3.14159) rotDiff += 6.28318;
       m.rotation.y += rotDiff * 0.15; // smooth 15% per frame
+      // Bank into turns — birds tilt when changing direction
+      m.rotation.z = -rotDiff * 2.5; // bank proportional to turn rate
+      // Pitch from vertical velocity — climbing/diving
+      const spd = Math.sqrt(f.vx[i]*f.vx[i]+f.vz[i]*f.vz[i]) + 0.001;
+      m.rotation.x = -Math.asin(Math.max(-0.5, Math.min(0.5, f.vy[i]/spd)));
+      // Flap animation — swap geometry per bird's phase
+      f.flapPhase[i] += f.flapSpeed[i] * 0.016667; // ~60fps dt
+      const fr = ((f.flapPhase[i] * FLAP_FRAMES / (Math.PI*2)) % FLAP_FRAMES + FLAP_FRAMES) % FLAP_FRAMES;
+      const geoIdx = fr | 0;
+      if(m.geometry !== birdGeos[geoIdx]) m.geometry = birdGeos[geoIdx];
     }
   }
 }
