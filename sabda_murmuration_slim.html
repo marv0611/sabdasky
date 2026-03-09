@@ -865,10 +865,10 @@ const BH_Z0 = Math.sin(BH_ANGLE) * BH_DIST;
 
 // Colors: deep blue, salmon pink, mint green
 // 8-color palette
-const BH_COLORS = [
-  0xFF0000, 0xFFD700, 0x0000FF, 0x00FF00,
-  0xFF8C00, 0x9400D3, 0x00FFFF, 0xFF69B4,
-];
+// Warm colors (top-right half) and Cool colors (bottom-left half)
+const BH_WARM = [0xCC2222, 0xD4A520, 0xD07018, 0xD05888]; // muted red, gold, orange, pink
+const BH_COOL = [0x1848B8, 0x188838, 0x7020A8, 0x18A8A8]; // blue, green, violet, cyan
+const BH_COLORS = [...BH_WARM, ...BH_COOL];
 
 const balloonGroup = new THREE.Group();
 balloonGroup.position.set(BH_X0, BH_Y_START, BH_Z0);
@@ -905,8 +905,8 @@ function bhClusterR(y01) {
   return BH_MAX_R * Math.cos(t * Math.PI / 2);
 }
 
-// Specular glint light — positioned upper-left at 45° for white shoulder highlight
-const bhGlintLight = new THREE.PointLight(0xffffff, 2.5, 30);
+// Specular highlight light — warm off-white (#FCF5E5) at 45° upper-left
+const bhGlintLight = new THREE.PointLight(0xFCF5E5, 3.0, 35);
 bhGlintLight.position.set(-3, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.85, 3);
 balloonGroup.add(bhGlintLight);
 
@@ -986,18 +986,31 @@ for (let si = 0; si < BH_N_STRAYS; si++) {
   });
 }
 
-// Assign colors: check ALL neighbors within range — no same color touching
+// Assign colors: warm top-right ↔ cool bottom-left gradient + neighbor avoidance
 for (let i = 0; i < bhPositions.length; i++) {
   const p = bhPositions[i];
+  // Gradient: combine normalized Y (0=bottom, 1=top) and X direction
+  const ny = (p.y - BH_CLUSTER_BOT) / BH_CLUSTER_H; // 0..1
+  const nx = p.x / (BH_MAX_R + 0.5); // -1..1 roughly
+  const warmBias = (ny * 0.6 + nx * 0.4 + 1) / 2; // 0=cool, 1=warm
+  
+  // Collect neighbor colors
   const nearColors = new Set();
   for (let j = 0; j < i; j++) {
     const q = bhPositions[j];
     const dx = p.x-q.x, dy = p.y-q.y, dz = p.z-q.z;
     if (dx*dx+dy*dy+dz*dz < 2.2*2.2) nearColors.add(q.colorIdx);
   }
+  
+  // Pick from warm or cool pool based on gradient, with randomness
   let ci;
   for (let t = 0; t < 50; t++) {
-    ci = Math.floor(brand() * BH_COLORS.length);
+    const useWarm = brand() < (warmBias * 0.7 + 0.15); // biased but not strict
+    if (useWarm) {
+      ci = Math.floor(brand() * BH_WARM.length); // warm indices 0-3
+    } else {
+      ci = BH_WARM.length + Math.floor(brand() * BH_COOL.length); // cool indices 4-7
+    }
     if (!nearColors.has(ci)) break;
   }
   p.colorIdx = ci;
@@ -1022,21 +1035,42 @@ loader.load(balloonGlbUrl, gltf => {
   
   console.log('SABDA: Balloon geo verts:', balloonGeo.attributes.position.count);
   
-  // One material per color — glossy latex with specular glint
-  const bhMats = BH_COLORS.map(c => {
-    const col = new THREE.Color(c);
-    return new THREE.MeshStandardMaterial({
-      color: col,
-      roughness: 0.22,   // glossy — picks up white specular from point light
-      metalness: 0.08,    // slight metalness for sharp highlight
-      emissive: col.clone().multiplyScalar(0.10),
-    });
-  });
+  // 3 brightness tiers per color: full, -15%, -30% (ambient occlusion)
+  const bhMats = [];
+  for (let ci = 0; ci < BH_COLORS.length; ci++) {
+    const base = new THREE.Color(BH_COLORS[ci]);
+    for (let tier = 0; tier < 3; tier++) {
+      const darken = 1.0 - tier * 0.15; // 1.0, 0.85, 0.70
+      const col = base.clone().multiplyScalar(darken);
+      bhMats.push(new THREE.MeshStandardMaterial({
+        color: col,
+        roughness: 0.22,
+        metalness: 0.08,
+        emissive: col.clone().multiplyScalar(0.06),
+      }));
+    }
+  }
   
-  // Place each copy
+  // Place each copy with AO tier based on position
   for (let i = 0; i < bhPositions.length; i++) {
     const p = bhPositions[i];
-    const mesh = new THREE.Mesh(balloonGeo, bhMats[p.colorIdx]);
+    
+    // AO: how deep inside the cluster? Center + bottom = darker
+    const ny = (p.y - BH_CLUSTER_BOT) / BH_CLUSTER_H;
+    const maxR = bhClusterR(ny);
+    const dist = Math.sqrt(p.x*p.x + p.z*p.z);
+    const depthFrac = maxR > 0.1 ? 1 - (dist / maxR) : 0; // 0=surface, 1=dead center
+    const bottomFrac = 1 - ny; // 1=bottom, 0=top
+    const ao = depthFrac * 0.6 + bottomFrac * 0.4; // combined AO
+    
+    // tier 0 = bright (surface/top), tier 2 = dark (center/bottom)
+    let tier;
+    if (ao < 0.3) tier = 0;
+    else if (ao < 0.6) tier = 1;
+    else tier = 2;
+    
+    const matIdx = p.colorIdx * 3 + tier;
+    const mesh = new THREE.Mesh(balloonGeo, bhMats[matIdx]);
     mesh.position.set(p.x, p.y, p.z);
     mesh.rotation.y = p.rotY;
     mesh.scale.setScalar(p.scale);
