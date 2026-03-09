@@ -19,6 +19,7 @@ canvas{position:absolute;top:0;left:0}
 </head>
 <body>
 <div id="loading">S A B D A — Watchout</div>
+<div id="projLabel" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);color:#fff;font:bold 18px sans-serif;background:rgba(0,0,0,0.7);padding:8px 20px;border-radius:8px;z-index:999;opacity:0;transition:opacity 0.5s;pointer-events:none"></div>
 <div id="fps"></div>
 
 <!-- ═══ EMBEDDED ASSETS ═══ -->
@@ -232,6 +233,22 @@ compScene.add(makeQuad(rtFront, W_LEFT,  H_WALL, W_FRONT, H_WALL));
 compScene.add(makeQuad(rtRight, 0,       0,      W_RIGHT, H_WALL));
 compScene.add(makeQuad(rtBack,  W_RIGHT, 0,      W_BACK,  H_WALL));
 
+// ── PROJECTOR SIMULATION SCENES ──
+// Press P to cycle: 0=both strips, 1=top only (Left+Front), 2=bottom only (Right+Back)
+let projMode = 0;
+const STRIP_W = W_LEFT + W_FRONT; // 6928
+const STRIP_H = H_WALL;           // 1200
+
+const projTopScene = new THREE.Scene();
+const projTopCam = new THREE.OrthographicCamera(0, STRIP_W, STRIP_H, 0, -1, 1);
+projTopScene.add(makeQuad(rtLeft,  0,      0, W_LEFT,  H_WALL));
+projTopScene.add(makeQuad(rtFront, W_LEFT, 0, W_FRONT, H_WALL));
+
+const projBotScene = new THREE.Scene();
+const projBotCam = new THREE.OrthographicCamera(0, STRIP_W, STRIP_H, 0, -1, 1);
+projBotScene.add(makeQuad(rtRight, 0,       0, W_RIGHT, H_WALL));
+projBotScene.add(makeQuad(rtBack,  W_RIGHT, 0, W_BACK,  H_WALL));
+
 // ── GUIDE OVERLAYS (toggle with D key) ──
 const guideGroup = new THREE.Group();
 
@@ -278,6 +295,15 @@ document.addEventListener('keydown', e => {
   if (e.key === 'd' || e.key === 'D') {
     showGuides = !showGuides;
     guideGroup.visible = showGuides;
+  }
+  if (e.key === 'p' || e.key === 'P') {
+    projMode = (projMode + 1) % 3;
+    const labels = ['BOTH STRIPS', 'TOP STRIP (Left+Front)', 'BOTTOM STRIP (Right+Back)'];
+    console.log('Projector sim:', labels[projMode]);
+    // Show mode label briefly
+    const lbl = document.getElementById('projLabel');
+    if(lbl){ lbl.textContent = labels[projMode]; lbl.style.opacity = 1;
+      clearTimeout(lbl._t); lbl._t = setTimeout(()=>{ lbl.style.opacity = 0; }, 2000); }
   }
 });
 
@@ -1886,7 +1912,13 @@ if (!window.__SABDA_PUPPETEER__) {
 
     window.SABDA_RENDER_FRAME(liveT, timeScale);
     renderer.setRenderTarget(null);
-    renderer.render(compScene, compCam);
+    if(projMode === 0) {
+      renderer.render(compScene, compCam);
+    } else if(projMode === 1) {
+      renderer.render(projTopScene, projTopCam);
+    } else {
+      renderer.render(projBotScene, projBotCam);
+    }
     requestAnimationFrame(liveLoop);
   }
   document.getElementById('loading').classList.add('done');
