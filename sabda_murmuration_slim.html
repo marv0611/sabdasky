@@ -854,12 +854,11 @@ saturnLoader1.load(saturnUrl1, gltf => {
 const BH_ANGLE = Math.PI;            // center of left wall
 const BH_DIST = 65;                  // closer for real perspective depth
 const BH_HOUSE_SCALE = 0.35;         // small house — balloons dominate
-const BH_BALLOON_SCALE = 0.18;       // balloon GLB is ~87 units tall → ~15.7 units at this scale
 const BH_EVENT_START = 600;           // starts at t=10min
 const BH_EVENT_DUR = 60;             // 60 seconds to cross
 const BH_Y_START = -25;              // below horizon at start
 const BH_Y_END = 70;                 // above projection at end
-const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_EVENT_DUR; // ~1.58 u/s
+const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_EVENT_DUR;
 
 const BH_X0 = Math.cos(BH_ANGLE) * BH_DIST;
 const BH_Z0 = Math.sin(BH_ANGLE) * BH_DIST;
@@ -875,79 +874,89 @@ contentScene.add(balloonGroup);
 // House chimney top in group-local coords
 const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE; // ~3.3 units
 const BH_GAP = 1.0; // gap between chimney and balloon bottom
-const BH_BALLOON_Y = BH_CHIMNEY_Y + BH_GAP; // ~4.3 — where balloon cluster starts
 
-// ── STRING BUNDLE (cone from chimney to balloon bottom) ──
-const bhStringH = BH_GAP + 0.5;
-const bhStringGeo = new THREE.CylinderGeometry(1.2, 0.15, bhStringH, 8, 1, true);
+// ── STRING BUNDLE (cone from chimney to balloon cluster bottom) ──
+const BH_ELLIPSE_A = 8.0;   // semi-major (vertical)
+const BH_ELLIPSE_B = 5.0;   // semi-minor (horizontal)
+const BH_ELLIPSE_CY = BH_CHIMNEY_Y + BH_GAP + BH_ELLIPSE_A; // center of ellipsoid
+const BH_FUNNEL_TOP = BH_CHIMNEY_Y + BH_GAP; // bottom of ellipsoid
+const BH_N_BALLOONS = 35;   // number of balloon group copies
+const BH_EACH_SCALE = 0.035; // each copy: 87*0.035 = ~3 units tall
+
+const bhStringH = BH_GAP + 0.8;
+const bhStringGeo = new THREE.CylinderGeometry(1.5, 0.12, bhStringH, 8, 1, true);
 const bhStringMat = new THREE.MeshBasicMaterial({
-  color: 0xf0e8d0, transparent: true, opacity: 0.4, side: THREE.DoubleSide,
+  color: 0xf0e8d0, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
 });
 const bhStringMesh = new THREE.Mesh(bhStringGeo, bhStringMat);
 bhStringMesh.position.set(0, BH_CHIMNEY_Y + bhStringH / 2, 0);
 bhStringMesh.frustumCulled = false;
 balloonGroup.add(bhStringMesh);
 
-// ── LOAD BALLOON CLUSTER GLB (×3 colored copies) ──
+// Seeded PRNG for deterministic placement
+let _bseed = 42;
+function brand() { _bseed = (_bseed * 16807) % 2147483647; return _bseed / 2147483647; }
+
+// Pre-compute positions in ellipsoid volume
+const bhPositions = [];
+for (let i = 0; i < BH_N_BALLOONS; i++) {
+  // Rejection sampling inside ellipsoid
+  let bx, by, bz;
+  for (let tries = 0; tries < 100; tries++) {
+    bx = (brand() * 2 - 1) * BH_ELLIPSE_B;
+    by = (brand() * 2 - 1) * BH_ELLIPSE_A;
+    bz = (brand() * 2 - 1) * BH_ELLIPSE_B;
+    const d = (bx*bx)/(BH_ELLIPSE_B*BH_ELLIPSE_B) + (by*by)/(BH_ELLIPSE_A*BH_ELLIPSE_A) + (bz*bz)/(BH_ELLIPSE_B*BH_ELLIPSE_B);
+    if (d <= 1) break;
+  }
+  bhPositions.push({
+    x: bx, y: BH_ELLIPSE_CY + by, z: bz,
+    rotY: brand() * Math.PI * 2,
+    scale: BH_EACH_SCALE * (0.8 + brand() * 0.4),
+    colorIdx: Math.floor(brand() * 3),
+  });
+}
+
+// ── LOAD BALLOON GLB → create many small copies in ellipsoid ──
 const balloonGlbUrl = b64ToUrl('balloonglbdata', 'model/gltf-binary');
 loader.load(balloonGlbUrl, gltf => {
   URL.revokeObjectURL(balloonGlbUrl);
-  const orig = gltf.scene;
   
-  // Debug: log structure
-  let meshCount = 0;
-  orig.traverse(c => {
-    if (c.isMesh) {
-      meshCount++;
-      console.log('SABDA: Balloon mesh found:', c.name, 'geo verts:', c.geometry?.attributes?.position?.count, 'material:', c.material?.type);
-    }
+  // Extract the geometry from the single mesh
+  let balloonGeo = null;
+  gltf.scene.traverse(c => {
+    if (c.isMesh && !balloonGeo) balloonGeo = c.geometry;
   });
-  console.log('SABDA: Balloon GLB — meshes:', meshCount);
   
-  // 3 copies: use original for first, clone for 2nd and 3rd
-  for (let ci = 0; ci < 3; ci++) {
-    const wrapper = new THREE.Group();
-    wrapper.scale.setScalar(BH_BALLOON_SCALE);
-    wrapper.position.set(0, BH_BALLOON_Y, 0);
-    wrapper.rotation.y = ci * (Math.PI * 2 / 3);
-    
-    const color = new THREE.Color(BH_COLORS[ci]);
-    
-    if (ci === 0) {
-      // Use original, recolor
-      orig.traverse(c => {
-        if (c.isMesh) {
-          c.frustumCulled = false;
-          c.material = new THREE.MeshStandardMaterial({
-            color: color, roughness: 0.4, metalness: 0,
-            emissive: color.clone().multiplyScalar(0.1),
-          });
-          console.log('SABDA: Set material on original, verts:', c.geometry.attributes.position.count);
-        }
-      });
-      wrapper.add(orig);
-    } else {
-      // Clone geometry+mesh manually for each copy
-      orig.traverse(c => {
-        if (c.isMesh) {
-          const newMesh = new THREE.Mesh(
-            c.geometry,
-            new THREE.MeshStandardMaterial({
-              color: color, roughness: 0.4, metalness: 0,
-              emissive: color.clone().multiplyScalar(0.1),
-            })
-          );
-          newMesh.frustumCulled = false;
-          wrapper.add(newMesh);
-        }
-      });
-    }
-    
-    balloonGroup.add(wrapper);
-    console.log('SABDA: Balloon copy', ci, 'color:', '#' + color.getHexString());
+  if (!balloonGeo) {
+    console.error('SABDA: No mesh found in balloon GLB');
+    checkReady();
+    return;
   }
   
-  console.log('SABDA: Balloon group total children:', balloonGroup.children.length);
+  console.log('SABDA: Balloon geo verts:', balloonGeo.attributes.position.count);
+  
+  // Pre-create one material per color
+  const bhMats = BH_COLORS.map(c => {
+    const col = new THREE.Color(c);
+    return new THREE.MeshStandardMaterial({
+      color: col, roughness: 0.4, metalness: 0,
+      emissive: col.clone().multiplyScalar(0.1),
+    });
+  });
+  
+  // Place each copy
+  for (let i = 0; i < bhPositions.length; i++) {
+    const p = bhPositions[i];
+    const mesh = new THREE.Mesh(balloonGeo, bhMats[p.colorIdx]);
+    mesh.position.set(p.x, p.y, p.z);
+    mesh.rotation.y = p.rotY;
+    mesh.scale.setScalar(p.scale);
+    mesh.frustumCulled = false;
+    balloonGroup.add(mesh);
+  }
+  
+  console.log('SABDA: Balloon cluster —', BH_N_BALLOONS, 'copies in ellipsoid, group children:', balloonGroup.children.length);
   checkReady();
 }, undefined, err => {
   console.error('SABDA: Balloon GLB FAILED:', err);
