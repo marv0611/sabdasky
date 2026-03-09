@@ -881,36 +881,34 @@ const BH_MAX_R = 4.5;       // max radius at widest point
 const BH_WIDE_AT = 0.60;    // widest point at 60% up
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
-const BH_N_BALLOONS = 250;  // dense — no gaps
-const BH_EACH_SCALE = 0.012; // each copy: 87*0.012 = ~1.04 units tall — small, tight
+const BH_N_BALLOONS = 300;  // dense — no gaps
+const BH_EACH_SCALE = 0.028; // each copy: 87*0.028 = ~2.4 units — overlapping tight
 
-// Teardrop radius function: funnel at bottom, wide in upper middle, rounded top
+// Teardrop radius function
 function bhClusterR(y01) {
-  // y01 = 0 at bottom, 1 at top
   if (y01 < 0 || y01 > 1) return 0;
-  if (y01 < 0.15) {
-    // Funnel: narrow at bottom, widens
-    return 0.3 + (y01 / 0.15) * (BH_MAX_R * 0.4 - 0.3);
+  if (y01 < 0.12) {
+    return 0.3 + (y01 / 0.12) * (BH_MAX_R * 0.35 - 0.3);
   }
   if (y01 < BH_WIDE_AT) {
-    // Widen to max
-    const t = (y01 - 0.15) / (BH_WIDE_AT - 0.15);
-    return BH_MAX_R * 0.4 + t * (BH_MAX_R - BH_MAX_R * 0.4);
+    const t = (y01 - 0.12) / (BH_WIDE_AT - 0.12);
+    return BH_MAX_R * 0.35 + t * (BH_MAX_R - BH_MAX_R * 0.35);
   }
-  // Round off to top
   const t = (y01 - BH_WIDE_AT) / (1 - BH_WIDE_AT);
   return BH_MAX_R * Math.cos(t * Math.PI / 2);
 }
 
-const bhStringH = BH_GAP + 0.5;
-const bhStringGeo = new THREE.CylinderGeometry(0.6, 0.08, bhStringH, 8, 1, true);
-const bhStringMat = new THREE.MeshBasicMaterial({
-  color: 0xf0e8d0, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
-});
-const bhStringMesh = new THREE.Mesh(bhStringGeo, bhStringMat);
-bhStringMesh.position.set(0, BH_CHIMNEY_Y + bhStringH / 2, 0);
-bhStringMesh.frustumCulled = false;
-balloonGroup.add(bhStringMesh);
+// Thin strings on each side (not a cone in the middle)
+const bhStringGeo = new THREE.CylinderGeometry(0.02, 0.02, BH_GAP + 0.3, 4);
+const bhStringMat = new THREE.MeshBasicMaterial({ color: 0xe8e0d0, transparent: true, opacity: 0.3 });
+for (let si = 0; si < 8; si++) {
+  const a = si * Math.PI * 2 / 8;
+  const sr = 0.4;
+  const s = new THREE.Mesh(bhStringGeo, bhStringMat);
+  s.position.set(Math.cos(a) * sr, BH_CHIMNEY_Y + (BH_GAP + 0.3) / 2, Math.sin(a) * sr);
+  s.frustumCulled = false;
+  balloonGroup.add(s);
+}
 
 // Seeded PRNG for deterministic placement
 let _bseed = 42;
