@@ -711,8 +711,8 @@ contentScene.add(planetGroup);
     const shadowMat = new THREE.MeshBasicMaterial({
       map: logoTex,
       transparent: true,
-      opacity: 0.12,
-      color: 0x1a0828,  // very dark purple tint
+      opacity: 0.35,
+      color: 0x0a0018,  // deep dark — visible contrast against purple
       blending: THREE.NormalBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -724,8 +724,8 @@ contentScene.add(planetGroup);
     const highlightMat = new THREE.MeshBasicMaterial({
       map: logoTex,
       transparent: true,
-      opacity: 0.06,
-      color: 0xd0b8e8,  // soft lavender highlight
+      opacity: 0.15,
+      color: 0xe8d0f8,  // light lavender highlight
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
