@@ -2507,6 +2507,22 @@ The PT-MZ682 uses 3LCD technology (not DLP):
 
 ---
 
-*Manual v12.3 — March 2026*
+## 30. Generic Pipeline Lessons
+
+### 30.1 Never Toggle `visible` for Scene Enter/Exit
+
+Setting `group.visible = false` then `true` causes instant pop-in — objects appear from nothing in a single frame. **Always use position-based hiding**: park the group at `y = -100` (below CubeCamera view) or `y = +100` (above). Let it physically rise/fall into the visible range. The CubeCamera can't see objects that far outside the projection, so they're effectively invisible without any jarring toggle.
+
+### 30.2 Never Use Bash Heredoc to Embed Base64 in JS
+
+Bash heredocs inject a stray newline character inside JavaScript string literals. This silently breaks the JS parser — no error message, just a black screen. **Always use Python** to build HTML files that contain embedded base64 strings. Python's string concatenation guarantees zero unwanted characters inside the string.
+
+### 30.3 Always Check for Duplicate `const` Before Adding
+
+Duplicate `const` declarations in JS modules cause an immediate silent crash — black screen, no console error. Before adding any new `const`, **always `grep` the file** for the variable name first. This is especially dangerous when refactoring code across sessions where earlier definitions may exist higher in the file.
+
+---
+
+*Manual v12.4 — March 2026*
 *Standard: 10/10 or nothing.*
 *Rule #1: Look before you deliver.*
