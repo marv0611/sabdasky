@@ -108,7 +108,7 @@ const CUBE_SIZE = 4096;
 const cubeRT = new THREE.WebGLCubeRenderTarget(CUBE_SIZE, {
   generateMipmaps: true,
   minFilter: THREE.LinearMipmapLinearFilter,
-  type: THREE.UnsignedByteType,
+  type: THREE.HalfFloatType,
 });
 const cubeCamera = new THREE.CubeCamera(0.05, 500, cubeRT);
 cubeCamera.position.set(0, EYE_H, 0);
@@ -184,7 +184,8 @@ function makeEquirectMat(azStartFrac, azEndFrac) {
         float topBottomFade = smoothstep(0.0, 0.02, vUv.y) * smoothstep(1.0, 0.98, vUv.y);
         col.rgb *= topBottomFade * 0.05 + 0.95;
 
-        col.rgb += dither(gl_FragCoord.xy) / 255.0;
+        // Film grain: 1.5/255 dithering — breaks up banding in dark purple gradients
+        col.rgb += dither(gl_FragCoord.xy) * 1.5 / 255.0;
         gl_FragColor = col;
       }
     `,
@@ -1598,7 +1599,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   hemi.color.setRGB(1.0*tR, 0.50*tG, 0.25*tB);       // hot golden sky
   hemi.groundColor.setRGB(0.15*tB, 0.08*tG, 0.30*tR); // deep violet ground
   rim.color.setRGB(0.25*tB, 0.20*tG, 0.70*tR);        // strong violet rim
-  renderer.toneMappingExposure = 1.0+b*0.18;
+  renderer.toneMappingExposure = 0.82+b*0.14; // match evening scene (was 1.0+b*0.18)
   hemi.intensity = 0.32+b*0.08;
 
   // ── SKY WARMTH ──
@@ -1616,11 +1617,11 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   }
   // Dreamy tint: warm = amber/rose, cool = lavender — but NEVER suppress blue vividness
   skySphereMat.uniforms.tintColor.value.setRGB(
-    0.98 + warmth * 0.20,                    // R: punchy warm glow
-    0.78 + warmth * 0.15,                    // G: more contrast
-    0.90 + (1-warmth) * 0.18                 // B: vivid cool lavender
+    0.94 + warmth * 0.11,                    // R: 0.94→1.05 (was 0.98→1.18)
+    0.85 + warmth * 0.10,                    // G: 0.85→0.95 (was 0.78→0.93)
+    0.92 + (1-warmth) * 0.10                 // B: 0.92→1.02 (was 0.90→1.08)
   );
-  sun.intensity = 0.55+warmth*0.50+b*0.15;
+  sun.intensity = 0.45+warmth*0.40+b*0.10; // match evening (was 0.55+0.50+0.15)
   // Sun: richer amber/rose during warm, cooler violet during cool
   sun.color.setRGB(
     tR*(0.85+warmth*0.20),                   // strong warm red
