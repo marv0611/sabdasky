@@ -710,9 +710,9 @@ contentScene.add(planetGroup);
     const logoMat = new THREE.MeshBasicMaterial({
       map: logoTex,
       transparent: true,
-      opacity: 0.22,
-      color: 0x8050a0,  // purple-tinted to match planet surface
-      blending: THREE.NormalBlending,
+      opacity: 0.4,
+      color: 0xffffff,  // white — maximum contrast on purple
+      blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
