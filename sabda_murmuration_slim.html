@@ -853,7 +853,7 @@ saturnLoader1.load(saturnUrl1, gltf => {
 // Three copies of balloon GLB, each with one of the 3 brand colors, rotated 120° apart.
 const BH_ANGLE = Math.PI;            // center of left wall
 const BH_DIST = 65;                  // closer for real perspective depth
-const BH_HOUSE_SCALE = 0.35;         // small house — balloons dominate
+const BH_HOUSE_SCALE = 0.315;        // 10% smaller house
 const BH_EVENT_START = 600;           // starts at t=10min
 const BH_EVENT_DUR = 60;             // 60 seconds to cross
 const BH_Y_START = -100;             // far below — invisible even through CubeCamera
@@ -877,8 +877,8 @@ contentScene.add(balloonGroup);
 const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 1.06; // strings — ratio 48/385 of cluster height
 // From reference: balloon:house width = 2.04x, balloon H:W = 1.51:1
-const BH_CLUSTER_H = 7.86 * BH_HOUSE_SCALE * 2.04 * 1.51; // ~8.5 units
-const BH_MAX_R = BH_CLUSTER_H / (2 * 1.51); // maintains 1.51:1 aspect
+const BH_CLUSTER_H = 8.47 * 1.05; // 5% taller
+const BH_MAX_R = 2.81 * 0.95;     // 5% narrower
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
 const BH_N_INTERIOR = 400;
