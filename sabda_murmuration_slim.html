@@ -875,15 +875,35 @@ const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE; // ~3.3 units
 const BH_GAP = 1.0; // gap between chimney and balloon bottom
 
 // ── STRING BUNDLE (cone from chimney to balloon cluster bottom) ──
-const BH_ELLIPSE_A = 6.0;   // semi-major (vertical) — tighter
-const BH_ELLIPSE_B = 4.0;   // semi-minor (horizontal) — tighter
-const BH_ELLIPSE_CY = BH_CHIMNEY_Y + BH_GAP + BH_ELLIPSE_A; // center of ellipsoid
-const BH_FUNNEL_TOP = BH_CHIMNEY_Y + BH_GAP; // bottom of ellipsoid
-const BH_N_BALLOONS = 120;  // packed dense like the reference
-const BH_EACH_SCALE = 0.018; // each copy: 87*0.018 = ~1.6 units tall — small, dense
+// Teardrop/egg shape: tall, widest at 60% up, funnel taper to chimney
+const BH_CLUSTER_H = 14.0;  // total cluster height
+const BH_MAX_R = 4.5;       // max radius at widest point
+const BH_WIDE_AT = 0.60;    // widest point at 60% up
+const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
+const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
+const BH_N_BALLOONS = 250;  // dense — no gaps
+const BH_EACH_SCALE = 0.012; // each copy: 87*0.012 = ~1.04 units tall — small, tight
 
-const bhStringH = BH_GAP + 0.8;
-const bhStringGeo = new THREE.CylinderGeometry(1.5, 0.12, bhStringH, 8, 1, true);
+// Teardrop radius function: funnel at bottom, wide in upper middle, rounded top
+function bhClusterR(y01) {
+  // y01 = 0 at bottom, 1 at top
+  if (y01 < 0 || y01 > 1) return 0;
+  if (y01 < 0.15) {
+    // Funnel: narrow at bottom, widens
+    return 0.3 + (y01 / 0.15) * (BH_MAX_R * 0.4 - 0.3);
+  }
+  if (y01 < BH_WIDE_AT) {
+    // Widen to max
+    const t = (y01 - 0.15) / (BH_WIDE_AT - 0.15);
+    return BH_MAX_R * 0.4 + t * (BH_MAX_R - BH_MAX_R * 0.4);
+  }
+  // Round off to top
+  const t = (y01 - BH_WIDE_AT) / (1 - BH_WIDE_AT);
+  return BH_MAX_R * Math.cos(t * Math.PI / 2);
+}
+
+const bhStringH = BH_GAP + 0.5;
+const bhStringGeo = new THREE.CylinderGeometry(0.6, 0.08, bhStringH, 8, 1, true);
 const bhStringMat = new THREE.MeshBasicMaterial({
   color: 0xf0e8d0, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
 });
@@ -899,21 +919,24 @@ function brand() { _bseed = (_bseed * 16807) % 2147483647; return _bseed / 21474
 // Pre-compute positions in ellipsoid volume
 const bhPositions = [];
 for (let i = 0; i < BH_N_BALLOONS; i++) {
-  // Rejection sampling inside ellipsoid
-  let bx, by, bz;
+  // Pick random Y in cluster, then place within radius at that height
   for (let tries = 0; tries < 100; tries++) {
-    bx = (brand() * 2 - 1) * BH_ELLIPSE_B;
-    by = (brand() * 2 - 1) * BH_ELLIPSE_A;
-    bz = (brand() * 2 - 1) * BH_ELLIPSE_B;
-    const d = (bx*bx)/(BH_ELLIPSE_B*BH_ELLIPSE_B) + (by*by)/(BH_ELLIPSE_A*BH_ELLIPSE_A) + (bz*bz)/(BH_ELLIPSE_B*BH_ELLIPSE_B);
-    if (d <= 1) break;
+    const y01 = brand();
+    const maxR = bhClusterR(y01);
+    if (maxR < 0.1) continue;
+    const angle = brand() * Math.PI * 2;
+    const r = Math.sqrt(brand()) * maxR; // sqrt for uniform disk
+    const bx = Math.cos(angle) * r;
+    const bz = Math.sin(angle) * r;
+    const by = BH_CLUSTER_BOT + y01 * BH_CLUSTER_H;
+    bhPositions.push({
+      x: bx, y: by, z: bz,
+      rotY: brand() * Math.PI * 2,
+      scale: BH_EACH_SCALE * (0.85 + brand() * 0.3),
+      colorIdx: Math.floor(brand() * 3),
+    });
+    break;
   }
-  bhPositions.push({
-    x: bx, y: BH_ELLIPSE_CY + by, z: bz,
-    rotY: brand() * Math.PI * 2,
-    scale: BH_EACH_SCALE * (0.8 + brand() * 0.4),
-    colorIdx: Math.floor(brand() * 3),
-  });
 }
 
 // ── LOAD BALLOON GLB → create many small copies in ellipsoid ──
