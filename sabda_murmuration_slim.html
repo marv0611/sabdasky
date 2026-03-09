@@ -889,21 +889,27 @@ bhStringMesh.frustumCulled = false;
 balloonGroup.add(bhStringMesh);
 
 // ── LOAD BALLOON CLUSTER GLB (×3 colored copies) ──
-let balloonLoadDone = false;
 const balloonGlbUrl = b64ToUrl('balloonglbdata', 'model/gltf-binary');
 loader.load(balloonGlbUrl, gltf => {
   URL.revokeObjectURL(balloonGlbUrl);
   const orig = gltf.scene;
   
+  // Debug: log what we got
+  let meshCount = 0;
+  orig.traverse(c => { if (c.isMesh) meshCount++; });
+  console.log('SABDA: Balloon GLB loaded — meshes:', meshCount, 'children:', orig.children.length);
+  
   for (let ci = 0; ci < 3; ci++) {
-    const clone = SkeletonUtils.clone(orig);
-    clone.scale.setScalar(BH_BALLOON_SCALE);
-    clone.position.set(0, BH_BALLOON_Y, 0);
-    clone.rotation.y = ci * (Math.PI * 2 / 3); // 0°, 120°, 240°
+    const clone = ci === 0 ? orig : orig.clone(true);
+    const wrapper = new THREE.Group();
+    wrapper.add(clone);
+    wrapper.scale.setScalar(BH_BALLOON_SCALE);
+    wrapper.position.set(0, BH_BALLOON_Y, 0);
+    wrapper.rotation.y = ci * (Math.PI * 2 / 3);
     
-    // Override all materials to the brand color
+    // Override ALL materials to brand color
     const color = new THREE.Color(BH_COLORS[ci]);
-    clone.traverse(c => {
+    wrapper.traverse(c => {
       if (c.isMesh) {
         c.frustumCulled = false;
         c.material = new THREE.MeshStandardMaterial({
@@ -911,15 +917,15 @@ loader.load(balloonGlbUrl, gltf => {
           roughness: 0.4,
           metalness: 0,
           transparent: true,
-          emissive: color.clone().multiplyScalar(0.08),
+          emissive: color.clone().multiplyScalar(0.1),
         });
       }
     });
-    balloonGroup.add(clone);
+    balloonGroup.add(wrapper);
+    console.log('SABDA: Balloon copy', ci, 'color:', '#' + color.getHexString());
   }
   
-  balloonLoadDone = true;
-  console.log('SABDA: Balloon cluster GLB loaded — 3 copies ×', BH_BALLOON_SCALE.toFixed(2));
+  console.log('SABDA: Balloon group total children:', balloonGroup.children.length);
   checkReady();
 }, undefined, err => {
   console.error('SABDA: Balloon GLB FAILED:', err);
