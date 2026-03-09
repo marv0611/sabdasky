@@ -28,6 +28,7 @@ canvas{position:absolute;top:0;left:0}
 <script id="birdsdata" type="text/plain">ASSET_PLACEHOLDER</script>
 <script id="planetdata" type="text/plain">ASSET_PLACEHOLDER</script>
 <script id="saturndata" type="text/plain">ASSET_PLACEHOLDER</script>
+<script id="balloonhousedata" type="text/plain">ASSET_PLACEHOLDER</script>
 
 
 <script type="importmap">{"imports":{
@@ -771,7 +772,7 @@ function b64ToUrl(id, mime) {
 const loader = new GLTFLoader();
 const birdFlocks = [];
 let readyCount = 0;
-function checkReady() { if (++readyCount >= 3) { document.getElementById('loading').classList.add('done'); window.SABDA_READY = true; console.log('SABDA: All assets loaded, ready for rendering'); } }
+function checkReady() { if (++readyCount >= 4) { document.getElementById('loading').classList.add('done'); window.SABDA_READY = true; console.log('SABDA: All assets loaded, ready for rendering'); } }
 
 // ── BIRDS ──
 const BIRD_REF_DIST = 23;  // reference distance for consistent apparent size
@@ -844,6 +845,54 @@ saturnLoader1.load(saturnUrl1, gltf => {
   console.error('SABDA: Saturn FAILED to load:', err);
   checkReady(); // still count it so scene starts
 });
+
+// ── BALLOON HOUSE (floating house with balloons — rises from below) ──
+// Thermodynamic model: buoyancy with drag → exponential terminal velocity
+// Plus thermal oscillations and wind drift — all deterministic for clean loop
+const BALLOON_ANGLE = 2.5;          // radians from center (away from planets)
+const BALLOON_HDIST = 90;           // horizontal distance — slightly fogged for depth
+const BALLOON_START_Y = -25;        // below floor, invisible at t=0
+const BALLOON_SPRITE_H = 16;        // world units tall
+const BALLOON_VTERM = 0.048;        // terminal rise velocity (units/sec)
+const BALLOON_TAU = 35;             // velocity buildup time constant (seconds)
+const BALLOON_X0 = Math.cos(BALLOON_ANGLE) * BALLOON_HDIST;
+const BALLOON_Z0 = Math.sin(BALLOON_ANGLE) * BALLOON_HDIST;
+
+const balloonGroup = new THREE.Group();
+balloonGroup.position.set(BALLOON_X0, BALLOON_START_Y, BALLOON_Z0);
+balloonGroup.visible = false;
+contentScene.add(balloonGroup);
+
+// Load PNG texture from embedded base64
+const balloonImg = new Image();
+balloonImg.onload = function() {
+  const tex = new THREE.Texture(balloonImg);
+  tex.encoding = THREE.sRGBEncoding;
+  tex.needsUpdate = true;
+  const aspect = balloonImg.width / balloonImg.height;
+  const W = BALLOON_SPRITE_H * aspect;
+  const geo = new THREE.PlaneGeometry(W, BALLOON_SPRITE_H);
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, alphaTest: 0.05,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  // Crossed planes — visible from all angles through CubeCamera
+  const p1 = new THREE.Mesh(geo, mat);
+  const p2 = new THREE.Mesh(geo, mat.clone());
+  p2.rotation.y = Math.PI / 2;
+  p1.frustumCulled = false;
+  p2.frustumCulled = false;
+  balloonGroup.add(p1);
+  balloonGroup.add(p2);
+  balloonGroup.visible = true;
+  console.log('SABDA: Balloon house loaded,', W.toFixed(1), '×', BALLOON_SPRITE_H, 'units');
+  checkReady();
+};
+balloonImg.onerror = function() {
+  console.error('SABDA: Balloon house FAILED to load');
+  checkReady(); // still count it
+};
+balloonImg.src = 'data:image/png;base64,' + document.getElementById('balloonhousedata').textContent.trim();
 
 // ═══════════════════════════════════════════════════════
 // MURMURATION v17 — Five behavioral upgrades from research literature
@@ -1884,6 +1933,54 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   // ── RENDER 4 WALLS ──
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.setRenderTarget(null);
+  // ── BALLOON HOUSE THERMODYNAMICS ──
+  // Deterministic position from time — clean loop, no accumulated state
+  {
+    const t = time % 1800;
+    
+    // Vertical: buoyancy with drag → exponential approach to terminal velocity
+    // y(t) = y0 + vt*t - vt*tau*(1 - e^(-t/tau)) + thermals
+    const vt = BALLOON_VTERM, tau = BALLOON_TAU;
+    const riseY = vt * t - vt * tau * (1 - Math.exp(-t / tau));
+    
+    // Thermal oscillations — sum of incommensurate frequencies for natural look
+    const thermalY = 1.8 * Math.sin(t * 0.047 + 1.3)
+                   + 1.0 * Math.sin(t * 0.031 + 2.7)
+                   + 0.6 * Math.sin(t * 0.019 + 0.5);
+    
+    // Horizontal wind drift — slow, gentle, deterministic
+    const driftX = 4.0 * Math.sin(t * 0.0028 + 0.8)
+                 + 2.0 * Math.sin(t * 0.0071 + 2.1);
+    const driftZ = 3.5 * Math.cos(t * 0.0033 + 1.5)
+                 + 1.5 * Math.cos(t * 0.0065 + 3.2);
+    
+    balloonGroup.position.set(
+      BALLOON_X0 + driftX,
+      BALLOON_START_Y + riseY + thermalY,
+      BALLOON_Z0 + driftZ
+    );
+    
+    // Gentle sway — as if buffeted by air currents
+    balloonGroup.rotation.z = Math.sin(t * 0.15) * 0.012 + Math.sin(t * 0.07) * 0.008;
+    balloonGroup.rotation.x = Math.sin(t * 0.11 + 1.0) * 0.006;
+    
+    // Opacity: fade in after start, fade out before loop end
+    // t < 120: invisible (below scene)
+    // t = 120..300: fade in
+    // t = 300..1600: fully visible
+    // t = 1600..1740: fade out
+    // t > 1740: invisible
+    let bOpacity = 1;
+    if (t < 120) bOpacity = 0;
+    else if (t < 300) bOpacity = (t - 120) / 180;
+    else if (t > 1740) bOpacity = 0;
+    else if (t > 1600) bOpacity = 1 - (t - 1600) / 140;
+    
+    balloonGroup.traverse(c => {
+      if (c.isMesh && c.material) c.material.opacity = bOpacity;
+    });
+  }
+
   // ── MURMURATION ──
   updateMurmuration(time, speedMultiplier || 1);
 
