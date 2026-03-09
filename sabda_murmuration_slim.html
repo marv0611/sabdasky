@@ -878,25 +878,30 @@ const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 0.86;
 
 const BH_CLUSTER_H = 11.66;
-const BH_MAX_R = 1.5;       // narrow — pickle shape, ~3.9:1 height:width
+const BH_MAX_R = 7.86 * BH_HOUSE_SCALE * 1.5; // 3× house width (radius = 1.5× house width)
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
 const BH_N_INTERIOR = 400;
-const BH_EACH_SCALE = 0.022; // smaller to fit narrow shape
+const BH_EACH_SCALE = 0.026;
 
-// Elongated oval / pickle: smooth ellipse, widest at 55%, rounded everywhere
+// ICE CREAM SCOOP on a CONE
+// Bottom 40%: sharp V taper (linear — straight diagonal to point)
+// Top 60%: bulging semicircle (cosine dome)
+// Widest at 40% (where cone meets scoop)
 function bhClusterR(y01) {
   if (y01 < 0 || y01 > 1) return 0;
-  // Simple ellipse with center shifted up to 55%
-  const cy = 0.55;
-  const dy = (y01 - cy) / (y01 < cy ? cy : (1 - cy));
-  if (Math.abs(dy) > 1) return 0;
-  return BH_MAX_R * Math.sqrt(1 - dy * dy);
+  if (y01 < 0.40) {
+    // Sharp cone: straight line from point to full width
+    return BH_MAX_R * (y01 / 0.40);
+  }
+  // Bulging semicircle scoop
+  const t = (y01 - 0.40) / 0.60;
+  return BH_MAX_R * Math.cos(t * Math.PI / 2);
 }
 
 // Specular highlight light
-const bhGlintLight = new THREE.PointLight(0xFCF5E5, 3.5, 40);
-bhGlintLight.position.set(-4, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.8, 4);
+const bhGlintLight = new THREE.PointLight(0xFCF5E5, 3.5, 45);
+bhGlintLight.position.set(-5, BH_CLUSTER_BOT + BH_CLUSTER_H * 0.7, 5);
 balloonGroup.add(bhGlintLight);
 
 let _bseed = 42;
