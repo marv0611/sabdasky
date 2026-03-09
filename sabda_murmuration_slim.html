@@ -872,12 +872,12 @@ contentScene.add(balloonGroup);
 
 // House chimney top in group-local coords
 const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE; // ~3.3 units
-const BH_GAP = 1.0; // gap between chimney and balloon bottom
+const BH_GAP = 0.86; // strings height — ratio 70 of 271/70/950
 
 // ── STRING BUNDLE (cone from chimney to balloon cluster bottom) ──
 // Teardrop shape matching reference: tall, narrow, widest at ~70% up
-const BH_CLUSTER_H = 18.0;  // much taller
-const BH_MAX_R = 4.2;       // narrower — height:width ~2.1:1
+const BH_CLUSTER_H = 11.66; // balloon height — ratio 950 of 271/70/950
+const BH_MAX_R = 2.77;      // height:width ≈ 2.1:1
 const BH_WIDE_AT = 0.70;    // widest point at 70% up (reference)
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
@@ -903,8 +903,8 @@ function bhClusterR(y01) {
 }
 
 // Subtle cone net between funnel bottom and chimney (like reference)
-const bhConeH = BH_GAP + 0.5;
-const bhConeGeo = new THREE.ConeGeometry(0.8, bhConeH, 12, 1, true);
+const bhConeH = BH_GAP;
+const bhConeGeo = new THREE.ConeGeometry(0.5, bhConeH, 12, 1, true);
 const bhConeMat = new THREE.MeshBasicMaterial({
   color: 0xe8dcc8, transparent: true, opacity: 0.12,
   side: THREE.DoubleSide, depthWrite: false,
