@@ -1418,6 +1418,13 @@ function updateMurmuration(simTime, speedMult) {
     
     // ═══════════════════════════════════════════════════════
     // GROUP TENSION — very gentle, high threshold, allows wide spread
+    let maxExtX=f.px[0],minExtX=f.px[0],maxExtZ=f.pz[0],minExtZ=f.pz[0];
+    for(let i=1;i<N;i++){
+      if(f.px[i]>maxExtX) maxExtX=f.px[i];
+      if(f.px[i]<minExtX) minExtX=f.px[i];
+      if(f.pz[i]>maxExtZ) maxExtZ=f.pz[i];
+      if(f.pz[i]<minExtZ) minExtZ=f.pz[i];
+    }
     const maxExtent = Math.max(maxExtX-minExtX, maxExtZ-minExtZ);
     const TENSION_THRESHOLD = 12; // was 8 — much more freedom
     if(maxExtent > TENSION_THRESHOLD){
