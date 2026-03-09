@@ -960,47 +960,39 @@ function updateMurmuration(simTime, speedMult) {
     // ═══════════════════════════════════════════════════════
     
     // ── LOOP SEAMLESS: fade out last 60s, fade in first 30s ──
-    // At the loop point (t=0/1800), flocks are far away and invisible.
-    // Last 60s: push flocks outward to distance 25+ (tiny specks → invisible)
-    // First 30s: flocks start at distance 25, drift inward naturally
     const loopT = simTime % 1800;
-    const FADE_OUT_START = 1740; // last 60 seconds
-    const FADE_IN_END = 30;     // first 30 seconds
-    let loopPhase = 'normal';   // 'fadeout', 'fadein', or 'normal'
+    const FADE_OUT_START = 1740;
+    const FADE_IN_END = 30;
+    let loopPhase = 'normal';
+    let needsRedirect = false, redirectAngle = 0;
+    
+    // Compute anchorDist FIRST — needed by fadeout/fadein
+    const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
     
     if(loopT >= FADE_OUT_START) {
       loopPhase = 'fadeout';
-      // How far through the fadeout (0 at start, 1 at loop point)
       const fadeProgress = (loopT - FADE_OUT_START) / (1800 - FADE_OUT_START);
-      // Push flock outward — override normal distance limits
-      const targetDist = 12 + fadeProgress * 18; // 12 → 30
+      const targetDist = 12 + fadeProgress * 18;
       if(anchorDist < targetDist) {
-        // Steer outward along current heading
         const outAngle = Math.atan2(f.anchorX, f.anchorZ);
         needsRedirect = true;
         redirectAngle = outAngle + (Math.random()-0.5)*0.3;
       }
-      // Also spread birds apart — weaken cohesion during fadeout
       f.cohesionMult = Math.max(0.1, 1.0 - fadeProgress * 1.5);
     } else if(loopT < FADE_IN_END) {
       loopPhase = 'fadein';
-      const fadeProgress = loopT / FADE_IN_END; // 0 at start, 1 at end
-      // Steer flock inward toward zone at comfortable distance
-      const targetDist = 25 - fadeProgress * 16; // 25 → 9
+      const fadeProgress = loopT / FADE_IN_END;
+      const targetDist = 25 - fadeProgress * 16;
       if(anchorDist > targetDist) {
         needsRedirect = true;
         redirectAngle = Math.atan2(-f.anchorX, -f.anchorZ) + (Math.random()-0.5)*0.5;
       }
-      // Gradually restore cohesion
       f.cohesionMult = Math.min(1.0, 0.1 + fadeProgress * 0.9);
     }
     
     f.anchorY += Math.sin(simTime * 0.12 + fi * 3) * 0.003 * sm;
     f.anchorY = Math.max(2, Math.min(8, f.anchorY));
     
-    const anchorDist = Math.sqrt(f.anchorX*f.anchorX + f.anchorZ*f.anchorZ);
-    
-    let needsRedirect = false, redirectAngle = 0;
     // Normal distance limits — only apply during normal phase
     if(loopPhase === 'normal') {
       if(anchorDist > 12) {
