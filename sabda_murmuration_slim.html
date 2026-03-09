@@ -1071,12 +1071,15 @@ function updateMurmuration(simTime, speedMult) {
     f.cohesionMult += (1.0 - f.cohesionMult) * 0.003 * sm;
     
     // Shape smoothly transitions toward target
+    // Also: squeeze DECAYS between events — flock naturally becomes amorphous
+    // unless an event resets the shape. This prevents permanent ellipse.
+    f.targetSqueeze *= (1.0 - 0.001 * sm); // slow decay toward zero
     let axisDiff = f.targetShapeAxis - f.shapeAxis;
     if(axisDiff > 1.57) axisDiff -= 3.14159;
     if(axisDiff < -1.57) axisDiff += 3.14159;
-    f.shapeAxis += axisDiff * 0.008 * sm;
-    f.shapeSqueeze += (f.targetSqueeze - f.shapeSqueeze) * 0.01 * sm;
-    f.shapeElongate += (f.targetElongate - f.shapeElongate) * 0.01 * sm;
+    f.shapeAxis += axisDiff * 0.012 * sm;  // faster axis rotation (was 0.008)
+    f.shapeSqueeze += (f.targetSqueeze - f.shapeSqueeze) * 0.015 * sm; // faster (was 0.01)
+    f.shapeElongate += (f.targetElongate - f.shapeElongate) * 0.015 * sm; // faster (was 0.01)
     
     f.pTimer += sm;
     if(f.pTimer >= f.pNext || needsRedirect) {
@@ -1101,68 +1104,96 @@ function updateMurmuration(simTime, speedMult) {
         waveAngle = zc + (Math.random()-0.5)*2.5;
       }
       
-      // Pick event type
+      // Pick event type — 8 varieties for maximum shape surprise
       const eventType = Math.random();
       
-      if(eventType < 0.30) {
-        // ── SWEEP WAVE — single edge, wide propagation → ribbon/funnel ──
+      if(eventType < 0.15) {
+        // ── SWEEP WAVE — single edge → long ribbon/funnel ──
         _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.5 + Math.random()*0.3, M_WAVE_MAX_R);
         f.cohesionMult = 1.3 + Math.random()*0.5;
-        // Shape: elongated ribbon along wave direction
         f.targetShapeAxis = waveAngle;
-        f.targetSqueeze = 0.004 + Math.random()*0.003;
-        f.targetElongate = 0.3 + Math.random()*0.2; // very elongated
+        f.targetSqueeze = 0.005 + Math.random()*0.003;
+        f.targetElongate = 0.15 + Math.random()*0.15; // very long ribbon
         
-      } else if(eventType < 0.50) {
-        // ── SPLIT — dual opposite edges, opposing angles → fork shape ──
+      } else if(eventType < 0.28) {
+        // ── SPLIT — dual opposite edges → fork/V shape ──
         _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.7, M_WAVE_MAX_R * 0.8);
-        // Opposing bird: reflect through centroid
         const oppAngle = waveAngle + 3.14159 + (Math.random()-0.5)*0.8;
         _launchWave(f, -f.px[edgeI], -f.pz[edgeI], oppAngle, 0.7, M_WAVE_MAX_R * 0.8);
-        f.cohesionMult = 0.7 + Math.random()*0.3;
-        // Shape: wide disc (both axes extend)
+        f.cohesionMult = 0.6 + Math.random()*0.3;
         f.targetShapeAxis = waveAngle + Math.random() * 3.14;
         f.targetSqueeze = 0.001 + Math.random()*0.001;
-        f.targetElongate = 0.8 + Math.random()*0.2; // nearly circular
+        f.targetElongate = 0.8 + Math.random()*0.2; // wide disc
         
-      } else if(eventType < 0.65) {
-        // ── COMPRESSION — moderate cohesion boost → dense ball moment ──
-        f.cohesionMult = 1.8 + Math.random()*1.0;
-        // Shape: tight ball — high squeeze, equal axes
-        f.targetShapeAxis = Math.random() * 3.14;
-        f.targetSqueeze = 0.006 + Math.random()*0.004;
+      } else if(eventType < 0.40) {
+        // ── COMPRESSION — dense ball moment ──
+        f.cohesionMult = 2.0 + Math.random()*1.5;
+        f.targetSqueeze = 0.008 + Math.random()*0.005;
         f.targetElongate = 0.85 + Math.random()*0.15; // nearly spherical
+        f.targetShapeAxis = Math.random() * 3.14;
         
-      } else if(eventType < 0.80) {
-        // ── EXPANSION — moderate cohesion drop + gentle outward nudge ──
+      } else if(eventType < 0.52) {
+        // ── AMORPHOUS — NO shape forcing, let physics find organic form ──
+        // This is the key to breaking the constant ellipse.
+        // Flock shape emerges purely from cohesion/alignment/separation.
+        _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.4 + Math.random()*0.3, M_WAVE_MAX_R);
+        f.cohesionMult = 0.8 + Math.random()*0.4;
+        f.targetSqueeze = 0.0;  // ZERO — no shape forcing at all
+        f.targetElongate = 1.0;
+        f.targetShapeAxis = Math.random() * 3.14;
+        
+      } else if(eventType < 0.64) {
+        // ── EXPANSION — burst outward → diffuse cloud ──
         f.cohesionMult = 0.3 + Math.random()*0.2;
         for(let si=0;si<N;si++){
           const spreadStr = (0.001 + Math.random()*0.002) * f.responsiveness[si];
           f.vx[si] += f.px[si] * spreadStr;
           f.vz[si] += f.pz[si] * spreadStr;
         }
-        // Shape: diffuse cloud — low squeeze, random axis
-        f.targetShapeAxis = Math.random() * 3.14;
-        f.targetSqueeze = 0.001;
+        f.targetSqueeze = 0.0005; // nearly amorphous
         f.targetElongate = 0.6 + Math.random()*0.4;
+        f.targetShapeAxis = Math.random() * 3.14;
         
-      } else {
-        // ── UNDULATION — 2-3 small rapid waves from same direction → rolling ripple ──
+      } else if(eventType < 0.76) {
+        // ── UNDULATION — rolling ripple → narrow streaming band ──
         const baseAngle = waveAngle;
         for(let u=0;u<2+((Math.random()*2)|0);u++){
-          // Stagger origin slightly along the edge
           const offset = (Math.random()-0.5)*2;
           const ox = f.px[edgeI] + Math.cos(baseAngle+1.57)*offset;
           const oz = f.pz[edgeI] + Math.sin(baseAngle+1.57)*offset;
-          // Each sub-wave slightly different angle → undulating effect
           const subAngle = baseAngle + (Math.random()-0.5)*0.6;
           _launchWave(f, ox, oz, subAngle, 0.5 + Math.random()*0.3, M_WAVE_MAX_R * 0.6);
         }
         f.cohesionMult = 1.0;
-        // Shape: narrow ribbon perpendicular to wave direction
         f.targetShapeAxis = baseAngle + 1.57;
-        f.targetSqueeze = 0.005 + Math.random()*0.003;
-        f.targetElongate = 0.25 + Math.random()*0.15; // very narrow
+        f.targetSqueeze = 0.006 + Math.random()*0.003;
+        f.targetElongate = 0.2 + Math.random()*0.1; // very narrow stream
+        
+      } else if(eventType < 0.88) {
+        // ── COLUMN — tall narrow shape, perpendicular to travel ──
+        // Achieved by squeezing along travel direction, letting perp expand
+        _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.4, M_WAVE_MAX_R * 0.7);
+        f.cohesionMult = 1.2 + Math.random()*0.3;
+        f.targetShapeAxis = waveAngle + 1.57; // perpendicular to travel
+        f.targetSqueeze = 0.004 + Math.random()*0.003;
+        f.targetElongate = 0.2 + Math.random()*0.15; // elongated perpendicular to travel
+        
+      } else {
+        // ── TEARDROP — strong compression one side, release other ──
+        // One-sided wave creates asymmetric shape
+        _launchWave(f, f.px[edgeI], f.pz[edgeI], waveAngle, 0.8 + Math.random()*0.2, M_WAVE_MAX_R * 0.5);
+        f.cohesionMult = 1.5 + Math.random()*0.5;
+        f.targetShapeAxis = waveAngle;
+        f.targetSqueeze = 0.003 + Math.random()*0.002;
+        f.targetElongate = 0.35 + Math.random()*0.15;
+        // Also give birds on one side a speed boost → creates tear shape
+        for(let si=0;si<N;si++){
+          const dot = f.px[si]*Math.sin(waveAngle) + f.pz[si]*Math.cos(waveAngle);
+          if(dot > 0) { // birds ahead of center
+            f.vx[si] *= 1.0 + 0.01 * f.responsiveness[si];
+            f.vz[si] *= 1.0 + 0.01 * f.responsiveness[si];
+          }
+        }
       }
     }
     
