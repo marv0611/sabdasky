@@ -865,9 +865,9 @@ const BH_Z0 = Math.sin(BH_ANGLE) * BH_DIST;
 
 // Colors: deep blue, salmon pink, mint green
 // 8-color palette
-// Warm colors (top-right half) and Cool colors (bottom-left half)
-const BH_WARM = [0xCC2222, 0xD4A520, 0xD07018, 0xD05888]; // muted red, gold, orange, pink
-const BH_COOL = [0x1848B8, 0x188838, 0x7020A8, 0x18A8A8]; // blue, green, violet, cyan
+// 8-color palette
+const BH_WARM = [0xFF0000, 0xFFD700, 0xFF8C00, 0xFF69B4];
+const BH_COOL = [0x0000FF, 0x00FF00, 0x9400D3, 0x00FFFF];
 const BH_COLORS = [...BH_WARM, ...BH_COOL];
 
 const balloonGroup = new THREE.Group();
@@ -1044,8 +1044,8 @@ loader.load(balloonGlbUrl, gltf => {
       const col = base.clone().multiplyScalar(darken);
       bhMats.push(new THREE.MeshStandardMaterial({
         color: col,
-        roughness: 0.22,
-        metalness: 0.08,
+        roughness: 0.35,
+        metalness: 0.03,
         emissive: col.clone().multiplyScalar(0.06),
       }));
     }
