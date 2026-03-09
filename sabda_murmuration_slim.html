@@ -703,14 +703,14 @@ contentScene.add(planetGroup);
     const phiLen = logoArc / R;
     const thetaLen = logoArcH / R;
     const phiStart = Math.PI/2 - phiLen/2;
-    const thetaOffset = 0.22;
+    const thetaOffset = 0.35; // lower — subtle signature position
     const thetaStart = Math.PI/2 - thetaLen/2 + thetaOffset;
     
     const logoGeo = new THREE.SphereGeometry(R, 48, 12, phiStart, phiLen, thetaStart, thetaLen);
     const logoMat = new THREE.MeshBasicMaterial({
       map: logoTex,
       transparent: true,
-      opacity: 0.18,
+      opacity: 0.13,
       color: 0xd8c0f0,  // soft lavender
       blending: THREE.AdditiveBlending,
       depthWrite: false,
