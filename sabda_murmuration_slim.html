@@ -1102,22 +1102,24 @@ const LANTERN_Y_END = 70;
 const LANTERN_ANGLE = Math.PI * 1.05;  // Left wall B ~58%
 const LANTERN_DIST = 75;
 
-// 15 lanterns in a natural arc with depth perspective
+// 15 lanterns spread wide across the sky — like a real lantern festival
+// Close ones are big, far ones are small dots — natural perspective
 const LANTERN_OFFSETS = [];
 for (let i = 0; i < 15; i++) {
   const seed = i * 7.31 + 2.17;
   const sn = v => Math.sin(seed * v);
-  // Spread in a wide horizontal arc with natural scatter
-  const angle = (i - 7) * 0.08;  // spread across ~1.1 radians of arc
-  const depthVar = sn(7.7) * 20;  // ±20 units depth
+  // Depth tiers: 5 close, 5 mid, 5 far
+  const tier = Math.floor(i / 5);  // 0=close, 1=mid, 2=far
+  const distBase = [0, 25, 55][tier];  // distance offset from base
+  const scaleBase = [1.2, 0.7, 0.35][tier];  // close=big, far=tiny
   LANTERN_OFFSETS.push({
-    dx: Math.sin(angle) * 12 + sn(1.1) * 2,  // wide horizontal spread
-    dy: sn(2.3) * 4 + (i % 3) * 2,           // varied altitude
-    dz: Math.cos(angle) * 4 + sn(4.1) * 2,   // some depth from arc curve
-    distOffset: depthVar,
+    dx: (sn(1.1) + sn(3.7) * 0.5) * 25,   // very wide horizontal spread
+    dy: sn(2.3) * 6 + tier * 3,             // higher tiers slightly higher
+    dz: sn(4.1) * 20,                       // wide lateral spread
+    distOffset: distBase + sn(7.7) * 10,    // depth with variation
     phase: sn(6.7) * Math.PI * 2,
-    riseDelay: i * 0.8 + Math.abs(sn(8.3)) * 3,  // sequential-ish release
-    scale: 0.80 + Math.abs(sn(9.1)) * 0.4,
+    riseDelay: i * 0.6 + Math.abs(sn(8.3)) * 5,
+    scale: scaleBase * (0.85 + Math.abs(sn(9.1)) * 0.3),
   });
 }
 
@@ -1562,7 +1564,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
                           + Math.sin(time * 13.2 + lo.phase * 5) * 0.05
                           + Math.sin(time * 21.7 + lo.phase * 7) * 0.03;
       const isVisible = myEventT > -2 && myEventT < LANTERN_EVENT_DUR + 10;
-      li.glow.intensity = isVisible ? 2.5 * flicker : 0;
+      li.glow.intensity = isVisible ? 2.5 * flicker * lo.scale : 0;
     }
   }
 
