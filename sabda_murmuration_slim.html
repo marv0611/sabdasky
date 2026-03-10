@@ -1776,18 +1776,26 @@ if (!window.__SABDA_PUPPETEER__) {
   document.body.appendChild(scrubDiv);
 
   let liveT = 0, playing = true, scrubbing = false, timeScale = 1;
+  let lastFrameTime = performance.now() / 1000;
   playBtn.onclick = () => { playing = !playing; playBtn.textContent = playing ? '⏸' : '▶'; };
   slider.oninput = () => { scrubbing = true; liveT = parseFloat(slider.value); };
   slider.onchange = () => { scrubbing = false; };
   document.addEventListener('keydown', e => {
     if (e.key === 't' || e.key === 'T') {
-      timeScale = timeScale === 1 ? 30 : 1;
+      timeScale = timeScale === 30 ? 1 : 30;
       info.style.color = timeScale > 1 ? '#ff6666' : '#c4a882';
+    }
+    if (e.key === 'y' || e.key === 'Y') {
+      timeScale = timeScale === 5 ? 1 : 5;
+      info.style.color = timeScale > 1 ? '#ffaa44' : '#c4a882';
     }
   });
 
   function liveLoop() {
-    if (playing && !scrubbing) liveT += (1/30) * timeScale;
+    const now = performance.now() / 1000;
+    const realDt = Math.min(now - lastFrameTime, 0.1); // cap at 100ms to avoid jumps
+    lastFrameTime = now;
+    if (playing && !scrubbing) liveT += realDt * timeScale;
     if (liveT > 1800) liveT = 0;
     if (!scrubbing) slider.value = liveT;
 
