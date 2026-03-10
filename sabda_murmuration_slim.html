@@ -94,7 +94,7 @@ const EYE_H = 1.6;
 // RENDERER
 // ═══════════════════════════════════════════════════════
 const renderer = new THREE.WebGLRenderer({
-  antialias: true,
+  antialias: false,
   powerPreference: 'high-performance',
 });
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1184,6 +1184,16 @@ loader.load(lanternUrl, gltf => {
 // ═══════════════════════════════════════════════════════
 const br = t => (Math.sin(t*Math.PI*2/BREATH - Math.PI/2)+1)/2;
 const colT = new THREE.Color(), colC = new THREE.Color(0.7,0.5,0.4);
+// Pre-allocated temps — ZERO allocations per frame
+const _colReset = new THREE.Color(0.7, 0.5, 0.4);
+const _cloudWarm = new THREE.Color(0.85, 0.40, 0.55);
+const _cloudCool = new THREE.Color(0.40, 0.45, 0.80);
+const _cloudCol = new THREE.Color();
+const _hazeWarm = new THREE.Color(0.78, 0.55, 0.62);
+const _hazeCool = new THREE.Color(0.50, 0.54, 0.68);
+const _hazeCol = new THREE.Color();
+const _velDir = new THREE.Vector3();
+const _segPos = new THREE.Vector3();
 let time = 0, lastT = performance.now()/1000;
 let fpsFrames = 0, fpsLast = performance.now();
 const fpsEl = document.getElementById('fps');
@@ -1250,7 +1260,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   if (colLoopT > 1790) {
     const colBlend = (colLoopT - 1790) / 10; // 0→1 over last 10 seconds
     const colEased = colBlend * colBlend * colBlend; // cubic
-    colC.lerp(new THREE.Color(0.7, 0.5, 0.4), colEased * 0.15);
+    colC.lerp(_colReset, colEased * 0.15);
   }
   const tR=0.5+colC.r*0.5,tG=0.5+colC.g*0.5,tB=0.5+colC.b*0.5;
   // Ambient/hemi: richer tones — rose-amber ambient, violet-gold hemi
@@ -1268,11 +1278,9 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   skySphereMat.uniforms.mixVal.value = 1.0 - warmth;  // warmth=1 → sky A (evening), warmth=0 → sky B (belfast)
 
   // Cloud bank colour sync — warm pink when evening sky, cool blue-grey when Belfast
-  const cloudWarm = new THREE.Color(0.85, 0.40, 0.55); // vivid magenta-rose
-  const cloudCool = new THREE.Color(0.40, 0.45, 0.80); // vivid blue-violet
-  const cloudCol = cloudWarm.clone().lerp(cloudCool, 1.0 - warmth);
+  _cloudCol.copy(_cloudWarm).lerp(_cloudCool, 1.0 - warmth);
   for (let ci = 0; ci < cloudMeshes.length; ci++) {
-    cloudMeshes[ci].material.uniforms.uSkyColor.value.copy(cloudCol);
+    cloudMeshes[ci].material.uniforms.uSkyColor.value.copy(_cloudCol);
   }
   // Dreamy tint: warm = amber/rose, cool = lavender — but NEVER suppress blue vividness
   skySphereMat.uniforms.tintColor.value.setRGB(
@@ -1349,7 +1357,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     ss.pos.normalize().multiplyScalar(340);
     // Multi-segment streak: sample points backward along trajectory on dome surface
     const tailAngle = (0.65 + ss.tailBonus * 0.003);
-    const velDir = ss.vel.clone().normalize();
+    const velDir = _velDir.copy(ss.vel).normalize();
     const p = ssGeo.attributes.position.array;
     const hw = 1.5;
     const sR2 = 340;
@@ -1357,7 +1365,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
       const t = i / SS_SEGMENTS;  // 0=tail, 1=head
       // Walk backward from head along velocity direction, project each point onto dome
       const stepBack = tailAngle * (1 - t);
-      const segPos = ss.pos.clone().addScaledVector(velDir, -stepBack * sR2);
+      const segPos = _segPos.copy(ss.pos).addScaledVector(velDir, -stepBack * sR2);
       segPos.normalize().multiplyScalar(sR2);
       const px = segPos.x, py = segPos.y, pz = segPos.z;
       // Radial direction
@@ -1386,10 +1394,8 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   // ── PLANETS ──
   planetGroup.rotation.y = (time / 1800) * Math.PI * 2 * 9.9; saturnMainGroup.rotation.y = (time / 1800) * Math.PI * 2 * 1;
   // Atmospheric haze colour sync — match sky warmth
-  const hazeWarm = new THREE.Color(0.78, 0.55, 0.62);
-  const hazeCool = new THREE.Color(0.50, 0.54, 0.68);
-  const hazeCol = hazeWarm.clone().lerp(hazeCool, 1.0 - warmth);
-  saturnHazeMat.color.copy(hazeCol);
+  _hazeCol.copy(_hazeWarm).lerp(_hazeCool, 1.0 - warmth);
+  saturnHazeMat.color.copy(_hazeCol);
   saturnHazeMat.opacity = 0.50 + b * 0.15;
 
   // ── BIRDS ──
