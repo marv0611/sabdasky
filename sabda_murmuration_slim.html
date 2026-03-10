@@ -985,6 +985,19 @@ dracoLoader.setDecoderPath('https://unpkg.com/three@0.162.0/examples/jsm/libs/dr
 function applySaturnMaterials(root) {
   root.traverse(c => { if(c.isMesh){c.frustumCulled=false; if(c.material){
     const mn=(c.material.name||'').toLowerCase(), tex=c.material.map;
+    const nn=(c.name||'').toLowerCase();
+    // Hide moons, satellites, small orbiting objects — keep only saturn body + rings
+    if(nn.includes('moon')||nn.includes('satellite')||nn.includes('titan')||nn.includes('enceladus')||nn.includes('mimas')||nn.includes('rhea')||nn.includes('dione')||nn.includes('tethys')||nn.includes('iapetus')) {
+      c.visible = false; return;
+    }
+    // Also hide any very small meshes (likely moons) — check bounding sphere
+    const geo = c.geometry;
+    if(geo) {
+      geo.computeBoundingSphere();
+      if(geo.boundingSphere && geo.boundingSphere.radius < 5) {
+        c.visible = false; return;
+      }
+    }
     if(mn.includes('saturn1')){c.material=new THREE.MeshBasicMaterial({map:tex,color:new THREE.Color(0xe8d0a0)});}
     else if(mn.includes('saturn2')){c.material=new THREE.MeshBasicMaterial({map:tex,color:new THREE.Color(0xddc899),side:THREE.DoubleSide,transparent:true,alphaTest:0.01});}
     else{c.material=new THREE.MeshBasicMaterial({map:tex,color:new THREE.Color(0xccbbaa)});}
