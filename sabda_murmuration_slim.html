@@ -986,7 +986,7 @@ function applySaturnMaterials(root) {
   // First pass: hide all moon/satellite subtrees (groups + meshes)
   root.traverse(c => {
     const nn = (c.name || '').toLowerCase();
-    if(nn.includes('mimas') || nn.includes('enceladus') || nn.includes('moon') || nn.includes('satellite') || nn.includes('titan') || nn.includes('rhea') || nn.includes('dione') || nn.includes('tethys') || nn.includes('iapetus') || nn.includes('hyperion') || nn.includes('phoebe') || nn.includes('dummy')) {
+    if(nn.includes('mimas') || nn.includes('enceladus') || nn.includes('moon') || nn.includes('satellite') || nn.includes('titan') || nn.includes('rhea') || nn.includes('dione') || nn.includes('tethys') || nn.includes('iapetus') || nn.includes('hyperion') || nn.includes('phoebe')) {
       c.visible = false;
     }
   });
@@ -1554,7 +1554,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
 
 
   // ── PLANETS ──
-  planetGroup.rotation.y = (time / 1800) * Math.PI * 2 * 9.9; saturnMainGroup.rotation.y = (time / 1800) * Math.PI * 2 * 1;
+  planetGroup.rotation.y = (time / 1800) * Math.PI * 2 * 10; saturnMainGroup.rotation.y = (time / 1800) * Math.PI * 2 * 1;
   // Atmospheric haze colour sync — match sky warmth
   _hazeCol.copy(_hazeWarm).lerp(_hazeCool, 1.0 - warmth);
   saturnHazeMat.color.copy(_hazeCol);
