@@ -1130,26 +1130,26 @@ loader.load(lanternUrl, gltf => {
     const s = LANTERN_SCALE * lo.scale;
     lantern.scale.setScalar(s);
 
-    // Make paper parts glow warm from inside — strong emissive
+    // Keep original material colors — only add subtle warm emissive for candlelit feel
     lantern.traverse(c => {
       if (c.isMesh) {
         c.material = c.material.clone();
-        c.material.emissive = new THREE.Color(0xffaa44);
-        c.material.emissiveIntensity = 0.7;
-        c.material.roughness = Math.min(c.material.roughness || 1, 0.6);
+        // Very subtle warm emissive — just a hint of inner glow, not overpowering
+        c.material.emissive = new THREE.Color(0xffcc88);
+        c.material.emissiveIntensity = 0.08;
         if (c.material.map) {
           c.material.map.anisotropy = 4;
         }
       }
     });
 
-    // Strong warm amber point light inside — visible glow halo
-    const glow = new THREE.PointLight(0xffcc66, 3.0, 15, 1.5);
+    // Candle light inside — warm, flickering, visible glow on surroundings
+    const glow = new THREE.PointLight(0xffcc66, 4.0, 18, 1.5);
     glow.position.set(0, 1.0 * s, 0);
     lantern.add(glow);
 
-    // Wider soft orange fill — creates warm halo around lantern
-    const fill = new THREE.PointLight(0xff8833, 1.0, 25, 2);
+    // Wider soft halo — warm ambient spill
+    const fill = new THREE.PointLight(0xff9944, 1.5, 30, 2);
     fill.position.set(0, 0.5 * s, 0);
     lantern.add(fill);
 
@@ -1563,8 +1563,8 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
                           + Math.sin(time * 13.2 + lo.phase * 5) * 0.05
                           + Math.sin(time * 21.7 + lo.phase * 7) * 0.03;
       const isVisible = myEventT > -2 && myEventT < LANTERN_EVENT_DUR + 10;
-      li.glow.intensity = isVisible ? 3.0 * flicker : 0;
-      li.fill.intensity = isVisible ? 1.0 * flicker : 0;
+      li.glow.intensity = isVisible ? 4.0 * flicker : 0;
+      li.fill.intensity = isVisible ? 1.5 * flicker : 0;
     }
   }
 
