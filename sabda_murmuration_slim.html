@@ -181,10 +181,10 @@ function makeEquirectMat(azStartFrac, azEndFrac) {
 
         // 3. Saturation boost — 45% (vivid without oversaturating)
         float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
-        col.rgb = mix(vec3(luma), col.rgb, 1.45);
+        col.rgb = mix(vec3(luma), col.rgb, 1.30);
 
         // 4. Soft highlight ceiling — no hard clip, just gentle compression above 0.85
-        col.rgb = min(col.rgb, 0.85 + (col.rgb - 0.85) * 0.3);
+        col.rgb = min(col.rgb, 0.90 + (col.rgb - 0.90) * 0.4);
 
         // 4. Gentle vignette on vertical edges — helps blend zones
         float topBottomFade = smoothstep(0.0, 0.02, vUv.y) * smoothstep(1.0, 0.98, vUv.y);
@@ -266,8 +266,8 @@ function makeRoomWallMat(azStartFrac, azEndFrac) {
         vec3 scurve = col.rgb * col.rgb * (3.0 - 2.0 * col.rgb);
         col.rgb = mix(col.rgb, scurve, 0.50);
         float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
-        col.rgb = mix(vec3(luma), col.rgb, 1.45);
-        col.rgb = min(col.rgb, 0.85 + (col.rgb - 0.85) * 0.3);
+        col.rgb = mix(vec3(luma), col.rgb, 1.30);
+        col.rgb = min(col.rgb, 0.90 + (col.rgb - 0.90) * 0.4);
         float topBottomFade = smoothstep(0.0, 0.02, vUv.y) * smoothstep(1.0, 0.98, vUv.y);
         col.rgb *= topBottomFade * 0.05 + 0.95;
         col.rgb += dither(gl_FragCoord.xy) * 1.5 / 255.0;
@@ -1020,7 +1020,7 @@ const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_DUR;
 const BH_EVENTS = [
   { start: 300,  angle: Math.PI * 1.10, dist: 65 },  // t=5min — Left wall B @ 37%
   { start: 900,  angle: Math.PI * 0.01, dist: 65 },  // t=15min — Right wall D @ 30%
-  { start: 1500, angle: Math.PI * 1.52, dist: 65 },  // t=25min — Left wall B ~98% (top row)
+  { start: 1500, angle: Math.PI * 1.48, dist: 65 },  // t=25min — Left wall B ~97%
 ];
 
 // Default position (parked below, using first event's angle)
