@@ -1094,7 +1094,7 @@ const lanternGroup = new THREE.Group();
 contentScene.add(lanternGroup);
 
 // 15 lanterns — lantern festival cluster
-const LANTERN_SCALE = 1.5;
+const LANTERN_SCALE = 3.0;
 const LANTERN_EVENT_START = 1100;  // t=18min20s — between balloon crossings 2 and 3
 const LANTERN_EVENT_DUR = 60;    // 2 minutes to cross
 const LANTERN_Y_START = -60;
@@ -1102,21 +1102,21 @@ const LANTERN_Y_END = 70;
 const LANTERN_ANGLE = Math.PI * 1.05;  // Left wall B ~58%
 const LANTERN_DIST = 75;
 
-// 15 lanterns spread wide — no overlapping, clear separation
+// 15 lanterns in a natural arc with depth perspective
 const LANTERN_OFFSETS = [];
 for (let i = 0; i < 15; i++) {
   const seed = i * 7.31 + 2.17;
   const sn = v => Math.sin(seed * v);
-  // Arrange in a wide arc, 3 rows of 5, well separated
-  const row = Math.floor(i / 5);
-  const col = i % 5;
+  // Spread in a wide horizontal arc with natural scatter
+  const angle = (i - 7) * 0.08;  // spread across ~1.1 radians of arc
+  const depthVar = sn(7.7) * 20;  // ±20 units depth
   LANTERN_OFFSETS.push({
-    dx: (col - 2) * 5.0 + sn(1.1) * 1.5,     // 5 across, ~25 units wide
-    dy: (row - 1) * 4.0 + sn(2.3) * 1.0,      // 3 rows, ~8 units tall
-    dz: row * 3.0 + sn(4.1) * 1.5,             // rows at different depths
-    distOffset: (col - 2) * 4 + sn(7.7) * 3,   // spread in depth too
+    dx: Math.sin(angle) * 12 + sn(1.1) * 2,  // wide horizontal spread
+    dy: sn(2.3) * 4 + (i % 3) * 2,           // varied altitude
+    dz: Math.cos(angle) * 4 + sn(4.1) * 2,   // some depth from arc curve
+    distOffset: depthVar,
     phase: sn(6.7) * Math.PI * 2,
-    riseDelay: Math.abs(sn(8.3)) * 10 + row * 3, // back rows rise later
+    riseDelay: i * 0.8 + Math.abs(sn(8.3)) * 3,  // sequential-ish release
     scale: 0.80 + Math.abs(sn(9.1)) * 0.4,
   });
 }
@@ -1134,16 +1134,19 @@ loader.load(lanternUrl, gltf => {
     const s = LANTERN_SCALE * lo.scale;
     lantern.scale.setScalar(s);
 
-    // Model already has emissive texture (warm glow baked in) — just clone materials
+    // Warm up the emissive — shift toward orange, boost intensity
     lantern.traverse(c => {
       if (c.isMesh) {
         c.material = c.material.clone();
+        // Tint emissive warmer/more orange
+        c.material.emissive = new THREE.Color(0xffaa55);
+        c.material.emissiveIntensity = 1.8;
         if (c.material.map) c.material.map.anisotropy = 4;
       }
     });
 
-    // Small point light to cast warm glow on nearby objects/clouds
-    const glow = new THREE.PointLight(0xffcc66, 1.0, 10, 2);
+    // Warm orange point light — creates visible glow halo
+    const glow = new THREE.PointLight(0xffaa44, 2.5, 18, 2);
     glow.position.set(0, 0, 0);
     lantern.add(glow);
 
@@ -1559,7 +1562,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
                           + Math.sin(time * 13.2 + lo.phase * 5) * 0.05
                           + Math.sin(time * 21.7 + lo.phase * 7) * 0.03;
       const isVisible = myEventT > -2 && myEventT < LANTERN_EVENT_DUR + 10;
-      li.glow.intensity = isVisible ? 1.0 * flicker : 0;
+      li.glow.intensity = isVisible ? 2.5 * flicker : 0;
     }
   }
 
