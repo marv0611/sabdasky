@@ -886,7 +886,7 @@ const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_DUR;
 const BH_EVENTS = [
   { start: 300,  angle: Math.PI * 1.01, dist: 65 },  // t=5min — Left wall B @ 30%
   { start: 900,  angle: Math.PI * 0.01, dist: 65 },  // t=15min — Right wall D @ 30%
-  { start: 1500, angle: Math.PI * 0.42, dist: 65 },  // t=25min — Front wall C @ 30%
+  { start: 1500, angle: Math.PI * 0.39, dist: 65 },  // t=25min — Front wall C @ 40%
 ];
 
 // Default position (parked below, using first event's angle)
@@ -894,9 +894,9 @@ const BH_X0 = Math.cos(BH_EVENTS[0].angle) * BH_EVENTS[0].dist;
 const BH_Z0 = Math.sin(BH_EVENTS[0].angle) * BH_EVENTS[0].dist;
 
 // 10-color palette: reduced red/orange, added deep blue + light blue
-const BH_WARM = [0xFFD700];                               // gold only (removed pink)
-const BH_COOL = [0x0000FF, 0x00FF00, 0x9400D3, 0x00FFFF, 0x1E3A8A, 0x60A5FA, 0x2563EB, 0x3B82F6, 0x1D4ED8]; // blue, green, violet, cyan, deep blue, light blue, royal blue, mid blue, navy blue
-const BH_COLORS = [...BH_WARM, ...BH_COOL];
+// "Up" movie palette — 5 colors, assigned uniformly (no two same colors adjacent)
+const BH_COLORS = [0xEE05F2, 0x05DBF2, 0x37A603, 0xD8F279, 0xF27507];
+// magenta, cyan, green, lime, orange
 
 const balloonGroup = new THREE.Group();
 balloonGroup.position.set(BH_X0, BH_Y_START, BH_Z0);
@@ -990,15 +990,10 @@ for (let i = 0; i < bhPositions.length; i++) {
     if (dx*dx+dy*dy+dz*dz < 2.2*2.2) nearColors.add(q.colorIdx);
   }
   
-  // Pick from warm or cool pool based on gradient, with randomness
+  // Pick uniformly from 5 "Up" colors, avoiding neighbor duplicates
   let ci;
   for (let t = 0; t < 50; t++) {
-    const useWarm = brand() < (warmBias * 0.7 + 0.15); // biased but not strict
-    if (useWarm) {
-      ci = Math.floor(brand() * BH_WARM.length); // warm indices 0-3
-    } else {
-      ci = BH_WARM.length + Math.floor(brand() * BH_COOL.length); // cool indices 4-7
-    }
+    ci = Math.floor(brand() * BH_COLORS.length);
     if (!nearColors.has(ci)) break;
   }
   p.colorIdx = ci;
