@@ -1111,7 +1111,7 @@ const SL_Y_START = -80;
 const SL_Y_END = 75;
 const SL_DIST_MIN = 50;          // closest lanterns
 const SL_DIST_MAX = 120;         // furthest lanterns (tiny warm dots)
-const SL_COUNT = 40;             // fill the room
+const SL_COUNT = 60;             // fill the room
 
 // Wind — gentle shared drift
 const SL_WIND_DX = 0.06;
@@ -1123,15 +1123,17 @@ for (let i = 0; i < SL_COUNT; i++) {
   const seed = i * 5.17 + 3.29;
   const sn = v => Math.sin(seed * v);
   
-  // Spread across full 360° — each lantern at a different angle
-  const angle = (i / SL_COUNT) * Math.PI * 2 + sn(1.1) * 0.3; // even spread + jitter
+  // Golden angle spacing — guarantees even 360° coverage with no clumps
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~137.5°
+  const angle = i * goldenAngle + sn(1.1) * 0.15; // golden angle + tiny jitter
   
-  // Distance: mix of close, mid, far — creates natural depth
-  const distFrac = Math.abs(sn(2.3) * 0.5 + sn(4.7) * 0.3 + 0.5); // 0-1
-  const dist = SL_DIST_MIN + distFrac * (SL_DIST_MAX - SL_DIST_MIN);
+  // Distance: 3 tiers evenly mixed — close, mid, far
+  const tierIdx = i % 3; // cycle through close/mid/far
+  const distBase = [SL_DIST_MIN, (SL_DIST_MIN+SL_DIST_MAX)/2, SL_DIST_MAX][tierIdx];
+  const dist = distBase + sn(2.3) * 10; // ±10 jitter within tier
   
   // Scale proportional to closeness (close=big, far=small dot)
-  const closeness = 1 - (dist - SL_DIST_MIN) / (SL_DIST_MAX - SL_DIST_MIN);
+  const closeness = 1 - Math.max(0, Math.min(1, (dist - SL_DIST_MIN) / (SL_DIST_MAX - SL_DIST_MIN)));
   const scale = 0.5 + closeness * 0.8; // 0.5 (far) to 1.3 (close)
   
   SL_DATA.push({
@@ -1139,7 +1141,7 @@ for (let i = 0; i < SL_COUNT; i++) {
     dist,
     riseSpeed: 0.85 + Math.abs(sn(3.1)) * 0.3,
     // Stagger launches across the 3:16 window — some early, some late
-    riseDelay: i === 0 ? 0 : (i / SL_COUNT) * SL_FILL_DUR * 0.8 + Math.abs(sn(5.9)) * SL_FILL_DUR * 0.15,
+    riseDelay: i === 0 ? 0 : Math.abs(sn(5.9) * 0.5 + sn(9.3) * 0.3 + sn(11.7) * 0.2) * SL_FILL_DUR,
     phase: sn(6.7) * Math.PI * 2,
     windVar: { dx: sn(7.1) * 0.04, dz: sn(8.3) * 0.03 },
     scale,
