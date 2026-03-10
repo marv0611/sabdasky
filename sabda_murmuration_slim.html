@@ -228,7 +228,8 @@ const roomCamera = new THREE.PerspectiveCamera(75, OUT_W/OUT_H, 0.1, 100);
 roomCamera.position.set(0, EYE_H, 0);
 let roomControls = null;
 
-// Wall projection shader for 3D room (different from render equirect — uses modelViewMatrix)
+// Wall projection shader for 3D room — RAW cubemap, no post-processing
+// (contrast/saturation already baked into cubemap by content scene lighting)
 function makeRoomWallMat(azStartFrac, azEndFrac) {
   const azStart = azStartFrac * Math.PI * 2;
   const azEnd   = azEndFrac * Math.PI * 2;
@@ -257,14 +258,7 @@ function makeRoomWallMat(azStartFrac, azEndFrac) {
         float elevation = (vUv.y - 0.5) * vFovRad + elevOffset;
         float ce = cos(elevation);
         vec3 dir = vec3(sin(azimuth) * ce, sin(elevation), -cos(azimuth) * ce);
-        vec4 col = textureCube(tCube, dir);
-        col.rgb = col.rgb * 0.97 + 0.015;
-        vec3 scurve = col.rgb * col.rgb * (3.0 - 2.0 * col.rgb);
-        col.rgb = mix(col.rgb, scurve, 0.50);
-        float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
-        col.rgb = mix(vec3(luma), col.rgb, 1.45);
-        col.rgb = min(col.rgb, 0.85 + (col.rgb - 0.85) * 0.3);
-        gl_FragColor = col;
+        gl_FragColor = textureCube(tCube, dir);
       }
     `,
     side: THREE.FrontSide,
