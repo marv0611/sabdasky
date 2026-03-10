@@ -1087,73 +1087,81 @@ loader.load(houseUrl, gltf => {
 });
 
 // ═══════════════════════════════════════════════════════
-// SKY LANTERNS — 3 Kongming lanterns rising like hot air, drifted by wind
-// Physics: slow initial rise, wind drift, gentle wobble/sway, slight rotation
+// SKY LANTERNS — Yi Peng / Pingxi festival-style release
+//
+// Real sky lantern behavior (from research):
+// - Released together from ground, takes ~2min to fill with hot air
+// - Initial rise is SLOW (buoyancy building), then accelerates
+// - They drift with wind — same general direction but each catches currents differently
+// - Close lanterns are large, warm, detailed; far ones are small glowing dots
+// - They spread apart gradually as they rise (wind variation per lantern)
+// - Gentle wobble from paper catching air, slight tilt into wind
+// - "Some cluster together as companions. Others venture solo into darkness."
+// - Rise speed varies: lighter ones faster, heavier ones lag behind
+// - They DON'T go perfectly straight up — always drifting laterally
 // ═══════════════════════════════════════════════════════
 const lanternGroup = new THREE.Group();
 contentScene.add(lanternGroup);
 
-// 15 lanterns — lantern festival cluster
-const LANTERN_SCALE = 3.0;
-const LANTERN_EVENT_START = 1100;  // t=18min20s — between balloon crossings 2 and 3
-const LANTERN_EVENT_DUR = 60;    // 2 minutes to cross
-const LANTERN_Y_START = -60;
-const LANTERN_Y_END = 70;
-const LANTERN_ANGLE = Math.PI * 1.05;  // Left wall B ~58%
-const LANTERN_DIST = 75;
+const SL_SCALE = 0.15;
+const SL_START = 1100;            // t=18min20s
+const SL_DUR = 80;                // 80 seconds crossing (slower than balloons, more floaty)
+const SL_Y_START = -80;
+const SL_Y_END = 75;
+const SL_ANGLE = Math.PI * 0.95;  // Left wall B, left of planet
+const SL_DIST = 65;
+const SL_COUNT = 12;
 
-// 15 lanterns spread wide across the sky — like a real lantern festival
-// Close ones are big, far ones are small dots — natural perspective
-const LANTERN_OFFSETS = [];
-for (let i = 0; i < 15; i++) {
-  const seed = i * 7.31 + 2.17;
+// Wind direction (shared — all lanterns drift roughly the same way)
+const SL_WIND_DX = 0.12;         // slow lateral drift per second
+const SL_WIND_DZ = 0.04;
+
+// Generate 12 lanterns with natural spread
+const SL_DATA = [];
+for (let i = 0; i < SL_COUNT; i++) {
+  const seed = i * 5.17 + 3.29;
   const sn = v => Math.sin(seed * v);
-  // Depth tiers: 5 close, 5 mid, 5 far
-  const tier = Math.floor(i / 5);  // 0=close, 1=mid, 2=far
-  const distBase = [0, 25, 55][tier];  // distance offset from base
-  const scaleBase = [1.2, 0.7, 0.35][tier];  // close=big, far=tiny
-  LANTERN_OFFSETS.push({
-    dx: (sn(1.1) + sn(3.7) * 0.5) * 25,   // very wide horizontal spread
-    dy: sn(2.3) * 6 + tier * 3,             // higher tiers slightly higher
-    dz: sn(4.1) * 20,                       // wide lateral spread
-    distOffset: distBase + sn(7.7) * 10,    // depth with variation
-    phase: sn(6.7) * Math.PI * 2,
-    riseDelay: i * 0.6 + Math.abs(sn(8.3)) * 5,
-    scale: scaleBase * (0.85 + Math.abs(sn(9.1)) * 0.3),
+  const riseSpeed = 0.85 + Math.abs(sn(1.1)) * 0.3; // 0.85-1.15 — lighter ones faster
+  SL_DATA.push({
+    // Initial position: tight cluster at ground (released together)
+    x0: sn(2.3) * 2.0,           // very tight start — within ~4m of each other
+    z0: sn(3.7) * 1.5,
+    // Per-lantern wind variation (each catches currents differently)
+    windVar: { dx: sn(4.1) * 0.06, dz: sn(5.3) * 0.04 },
+    // Rise characteristics
+    riseSpeed,
+    riseDelay: Math.abs(sn(6.7)) * 12,  // stagger 0-12s (some fill with hot air faster)
+    phase: sn(7.9) * Math.PI * 2,       // wobble phase
+    scale: 0.85 + Math.abs(sn(8.3)) * 0.3,
   });
 }
 
-const lanternInstances = [];
-
+const slInstances = [];
 const lanternUrl = b64ToUrl('lanterndata', 'model/gltf-binary');
 loader.load(lanternUrl, gltf => {
   URL.revokeObjectURL(lanternUrl);
   const template = gltf.scene;
 
-  for (let i = 0; i < LANTERN_OFFSETS.length; i++) {
-    const lo = LANTERN_OFFSETS[i];
+  for (let i = 0; i < SL_COUNT; i++) {
+    const d = SL_DATA[i];
     const lantern = template.clone();
-    const s = LANTERN_SCALE * lo.scale;
+    const s = SL_SCALE * d.scale;
     lantern.scale.setScalar(s);
 
-    // Warm up the emissive — shift toward orange, boost intensity
+    // Keep original materials — model already has emissive glow baked in
     lantern.traverse(c => {
       if (c.isMesh) {
         c.material = c.material.clone();
-        // Tint emissive warmer/more orange
-        c.material.emissive = new THREE.Color(0xffaa55);
-        c.material.emissiveIntensity = 1.8;
         if (c.material.map) c.material.map.anisotropy = 4;
       }
     });
 
-    // Warm orange point light — creates visible glow halo
-    const glow = new THREE.PointLight(0xffaa44, 2.5, 18, 2);
-    glow.position.set(0, 0, 0);
+    // Small warm point light for ambient glow on surroundings
+    const glow = new THREE.PointLight(0xffbb55, 0.6, 8, 2);
     lantern.add(glow);
 
     lanternGroup.add(lantern);
-    lanternInstances.push({ mesh: lantern, offset: lo, glow });
+    slInstances.push({ mesh: lantern, data: d, glow });
   }
 
   checkReady();
@@ -1511,60 +1519,69 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     balloonGroup.rotation.x = Math.sin(drift * 0.15 + 1.0) * 0.004;
   }
 
-  // ── SKY LANTERNS — 3 Kongming lanterns, natural hot-air physics ──
+  // ── SKY LANTERNS — released together, spreading apart as they rise ──
   {
     const t = time % 1800;
-    const eventT = t - LANTERN_EVENT_START;
+    const eventT = t - SL_START;
+    const baseX = Math.cos(SL_ANGLE) * SL_DIST;
+    const baseZ = Math.sin(SL_ANGLE) * SL_DIST;
 
-    for (let i = 0; i < lanternInstances.length; i++) {
-      const li = lanternInstances[i];
-      const lo = li.offset;
-      const myEventT = eventT - lo.riseDelay; // staggered start
+    for (let i = 0; i < slInstances.length; i++) {
+      const sl = slInstances[i];
+      const d = sl.data;
+      const myT = eventT - d.riseDelay;
 
-      // Per-lantern distance for depth variation
-      const myDist = LANTERN_DIST + (lo.distOffset || 0);
-      const bx = Math.cos(LANTERN_ANGLE) * myDist;
-      const bz = Math.sin(LANTERN_ANGLE) * myDist;
-
-      let y;
-      if (myEventT < 0) {
-        y = LANTERN_Y_START;
-      } else if (myEventT > LANTERN_EVENT_DUR) {
-        y = LANTERN_Y_END;
+      let y, spreadFactor;
+      if (myT < 0) {
+        y = SL_Y_START;
+        spreadFactor = 0;
+      } else if (myT > SL_DUR) {
+        y = SL_Y_END;
+        spreadFactor = 1;
       } else {
-        // Natural rise: slow start (buoyancy building), then steady
-        const progress = myEventT / LANTERN_EVENT_DUR;
-        const eased = progress < 0.15
-          ? progress * progress / 0.15
-          : 0.15 + (progress - 0.15) * 0.85 / 0.85;
-        y = LANTERN_Y_START + (LANTERN_Y_END - LANTERN_Y_START) * eased;
+        // Sky lantern rise curve: slow start (hot air filling), accelerates, then steadies
+        const p = myT / SL_DUR;
+        const eased = p < 0.2
+          ? p * p * p / (0.2 * 0.2)  // cubic ease-in (slow fill phase)
+          : 0.2 + (p - 0.2) * 0.8 / 0.8; // then steady
+        y = SL_Y_START + (SL_Y_END - SL_Y_START) * eased * d.riseSpeed;
+        spreadFactor = p; // lanterns spread apart as they rise
       }
 
-      // Wind drift
-      const windT = Math.max(0, myEventT);
-      const windX = windT * 0.08 * Math.sin(windT * 0.02 + lo.phase);
-      const windZ = windT * 0.05 * Math.cos(windT * 0.015 + lo.phase * 0.7);
+      // Wind drift: shared direction + per-lantern variation
+      // They start tight, then SPREAD APART gradually (key behavior)
+      const airT = Math.max(0, myT);
+      const sharedWindX = airT * SL_WIND_DX;
+      const sharedWindZ = airT * SL_WIND_DZ;
+      const personalWindX = airT * d.windVar.dx * (1 + spreadFactor);
+      const personalWindZ = airT * d.windVar.dz * (1 + spreadFactor);
 
-      // Gentle wobble
-      const wobbleX = Math.sin(time * 0.8 + lo.phase) * 0.015;
-      const wobbleZ = Math.cos(time * 0.6 + lo.phase * 1.3) * 0.012;
+      // Starting position spreads with time (tight release, gradual separation)
+      const spread = 1 + spreadFactor * 8; // starts at 1x, ends at 9x spread
 
-      // Slow rotation
-      const rot = time * 0.15 + lo.phase * 2.0 + windT * 0.005;
+      // Gentle paper wobble
+      const wobX = Math.sin(time * 0.7 + d.phase) * 0.04;
+      const wobZ = Math.cos(time * 0.5 + d.phase * 1.3) * 0.03;
+      // Slight tilt into wind direction
+      const tiltX = SL_WIND_DX * 0.15;
+      const tiltZ = SL_WIND_DZ * 0.1;
 
-      li.mesh.position.set(
-        bx + lo.dx + windX,
-        y + lo.dy,
-        bz + lo.dz + windZ
+      sl.mesh.position.set(
+        baseX + d.x0 * spread + sharedWindX + personalWindX,
+        y,
+        baseZ + d.z0 * spread + sharedWindZ + personalWindZ
       );
-      li.mesh.rotation.set(wobbleX, rot, wobbleZ);
+      sl.mesh.rotation.set(
+        wobX + tiltX,
+        time * 0.1 + d.phase,  // slow rotation
+        wobZ + tiltZ
+      );
 
-      // Flicker the glow light (candle flame inside)
-      const flicker = 1.0 + Math.sin(time * 8.5 + lo.phase * 3) * 0.08
-                          + Math.sin(time * 13.2 + lo.phase * 5) * 0.05
-                          + Math.sin(time * 21.7 + lo.phase * 7) * 0.03;
-      const isVisible = myEventT > -2 && myEventT < LANTERN_EVENT_DUR + 10;
-      li.glow.intensity = isVisible ? 2.5 * flicker * lo.scale : 0;
+      // Candle flicker
+      const flicker = 1.0 + Math.sin(time * 9 + d.phase * 3) * 0.1
+                          + Math.sin(time * 14 + d.phase * 5) * 0.06;
+      const vis = myT > -1 && myT < SL_DUR + 15;
+      sl.glow.intensity = vis ? 0.6 * flicker : 0;
     }
   }
 
