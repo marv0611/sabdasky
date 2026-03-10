@@ -1256,7 +1256,11 @@ const SL_COUNT = 70;             // fill the room
 const SL_WIND_DX = 0.06;
 const SL_WIND_DZ = 0.03;
 
-// 60 lanterns distributed across full 360° at various distances
+// 70 lanterns distributed across full 360° — avoiding wall corners
+// Wall corners at: 0.500π (Front/Left), 0.227π (Front/Right), 1.500π (Right/Back), 1.227π (Back/Left)
+const SL_CORNERS = [0.500, 0.227, 1.500, 1.227].map(v => v * Math.PI);
+const SL_CORNER_AVOID = 0.08 * Math.PI; // ~60cm exclusion zone around each corner
+
 const SL_DATA = [];
 for (let i = 0; i < SL_COUNT; i++) {
   const seed = i * 5.17 + 3.29;
@@ -1264,7 +1268,17 @@ for (let i = 0; i < SL_COUNT; i++) {
   
   // Golden angle spacing for even 360° coverage
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  const angle = i * goldenAngle + sn(1.1) * 0.15;
+  let angle = i * goldenAngle + sn(1.1) * 0.15;
+  
+  // Push away from wall corners
+  for (const corner of SL_CORNERS) {
+    let diff = angle - corner;
+    // Normalize to -π to π
+    diff = diff - Math.floor((diff + Math.PI) / (2*Math.PI)) * 2*Math.PI;
+    if (Math.abs(diff) < SL_CORNER_AVOID) {
+      angle += (diff >= 0 ? 1 : -1) * (SL_CORNER_AVOID - Math.abs(diff) + 0.02);
+    }
+  }
   
   // Distance: 3 tiers evenly mixed
   const tierIdx = i % 3;
