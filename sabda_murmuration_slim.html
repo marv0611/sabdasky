@@ -886,7 +886,7 @@ const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_DUR;
 const BH_EVENTS = [
   { start: 300,  angle: Math.PI * 1.01, dist: 65 },  // t=5min — Left wall B @ 30%
   { start: 900,  angle: Math.PI * 0.01, dist: 65 },  // t=15min — Right wall D @ 30%
-  { start: 1500, angle: Math.PI * 0.39, dist: 65 },  // t=25min — Front wall C @ 40%
+  { start: 1500, angle: Math.PI * 1.72, dist: 65 },  // t=25min — Right wall D @ 70%
 ];
 
 // Default position (parked below, using first event's angle)
@@ -1027,8 +1027,8 @@ loader.load(balloonGlbUrl, gltf => {
       const col = base.clone().multiplyScalar(darken);
       bhMats.push(new THREE.MeshStandardMaterial({
         color: col,
-        roughness: 0.35,
-        metalness: 0.03,
+        roughness: 0.315,
+        metalness: 0.05,
         emissive: col.clone().multiplyScalar(0.06),
       }));
     }
