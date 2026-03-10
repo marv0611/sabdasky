@@ -219,39 +219,63 @@ const eqCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
 // ═══════════════════════════════════════════════════════
 // 3D ROOM VIEWER — press R to toggle (360° room simulation)
+// SABDA room: 15.00m × 5.63m × 3.23m (L×W×H)
+// Walls: Left B (15m, -X), Right D (15m, +X), Front C (5.63m, +Z), Back A (5.63m, -Z)
 // ═══════════════════════════════════════════════════════
 const ROOM_H = 3.23;
 const roomScene = new THREE.Scene();
 roomScene.background = new THREE.Color(0x0e0a0d);
-const roomCamera = new THREE.PerspectiveCamera(75, OUT_W/OUT_H, 0.1, 50);
-roomCamera.position.set(0, 1.6, 0);
-let roomControls = null; // lazy init on first R press
 
-// Room wall materials (share the cubemap equirect shader)
+// Room camera at eye height, centered
+const roomCamera = new THREE.PerspectiveCamera(70, OUT_W/OUT_H, 0.1, 50);
+roomCamera.position.set(0, EYE_H, 0);
+let roomControls = null;
+
+// Room wall projection materials (each reads from cubemap equirect)
 const matRoomFront = makeEquirectMat(0.0, uF);
 const matRoomRight = makeEquirectMat(uF, uR);
 const matRoomBack  = makeEquirectMat(uR, uB);
 const matRoomLeft  = makeEquirectMat(uB, 1.0);
 
-// Build 4 walls
+// Wall geometry — room centered at origin
+// Front C: short wall at +Z, facing -Z (toward center)
 const wF = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_H), matRoomFront);
-wF.position.set(0, ROOM_H/2, -ROOM_L/2); roomScene.add(wF);
-const wR = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_L, ROOM_H), matRoomRight);
-wR.rotation.y = -Math.PI/2; wR.position.set(ROOM_W/2, ROOM_H/2, 0); roomScene.add(wR);
+wF.position.set(0, ROOM_H/2, ROOM_L/2);
+wF.rotation.y = Math.PI; // face inward
+roomScene.add(wF);
+
+// Back A: short wall at -Z, facing +Z
 const wB = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_H), matRoomBack);
-wB.rotation.y = Math.PI; wB.position.set(0, ROOM_H/2, ROOM_L/2); roomScene.add(wB);
+wB.position.set(0, ROOM_H/2, -ROOM_L/2);
+roomScene.add(wB);
+
+// Left B: long wall at -X, facing +X
 const wL = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_L, ROOM_H), matRoomLeft);
-wL.rotation.y = Math.PI/2; wL.position.set(-ROOM_W/2, ROOM_H/2, 0); roomScene.add(wL);
+wL.rotation.y = Math.PI/2;
+wL.position.set(-ROOM_W/2, ROOM_H/2, 0);
+roomScene.add(wL);
 
-// Floor + ceiling (dark)
-const floorMat = new THREE.MeshBasicMaterial({color: 0x0a0808});
+// Right D: long wall at +X, facing -X
+const wR = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_L, ROOM_H), matRoomRight);
+wR.rotation.y = -Math.PI/2;
+wR.position.set(ROOM_W/2, ROOM_H/2, 0);
+roomScene.add(wR);
+
+// Floor — matte dark gray
+const floorMat = new THREE.MeshStandardMaterial({color: 0x333333, roughness: 1.0, metalness: 0});
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_L), floorMat);
-floor.rotation.x = -Math.PI/2; floor.position.set(0, 0, 0); roomScene.add(floor);
-const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_L), floorMat.clone());
-ceiling.rotation.x = Math.PI/2; ceiling.position.set(0, ROOM_H, 0); roomScene.add(ceiling);
+floor.rotation.x = -Math.PI/2;
+roomScene.add(floor);
 
-// Soft ambient for room
-roomScene.add(new THREE.AmbientLight(0xffffff, 0.1));
+// Ceiling — dark
+const ceilMat = new THREE.MeshStandardMaterial({color: 0x111111, roughness: 1.0, metalness: 0});
+const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_L), ceilMat);
+ceiling.rotation.x = Math.PI/2;
+ceiling.position.y = ROOM_H;
+roomScene.add(ceiling);
+
+// Soft ambient so floor/ceiling visible
+roomScene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
 let roomMode = false;
 
