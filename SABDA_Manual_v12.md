@@ -2576,6 +2576,64 @@ Bash heredocs inject a stray newline character inside JavaScript string literals
 
 Duplicate `const` declarations in JS modules cause an immediate silent crash — black screen, no console error. Before adding any new `const`, **always `grep` the file** for the variable name first. This is especially dangerous when refactoring code across sessions where earlier definitions may exist higher in the file.
 
+### 30.4 Asset Management
+
+- **Check downloadability before recommending** a 3D model. Many Sketchfab models are view-only.
+- **Test GLB scale in isolation** before integrating — models vary wildly in internal units (some need 0.008×, others 3.0×).
+- **Optimize with gltf-transform**: `resize` textures to match projected wall size (1K is fine for objects projected at ≤2m), `simplify` mesh, `draco` compress. But never go below what the projection resolution demands — always check on the wall.
+- **Strip unused extensions** (e.g. `KHR_materials_specular`) that crash older Three.js versions.
+- **Remove point lights from instanced objects** — emissive textures provide glow without GPU cost. 60 PointLights will destroy frame rate.
+
+### 30.5 Positioning & Angle Mapping
+
+- **Build an angle reference tool early.** The mapping between wall percentage and 3D angle is non-obvious (equirect shader uses `sin(az)/-cos(az)`, not direct angle). Errors compound fast.
+- **Never guess wall positions** — calculate from azimuth math or ask the user to confirm on a reference diagram.
+- **When the user marks positions on a screenshot**, identify which row (top/bottom) and which wall (Left/Front/Right/Back) BEFORE converting to angles. Getting the wall wrong wastes multiple iterations.
+- **Trace the full conversion**: 3D position `(cos(θ)*d, y, sin(θ)*d)` → shader azimuth `atan2(x, -z)` → wall fraction → wall name. Verify the wall name matches before committing.
+
+### 30.6 Performance — Zero Allocations Per Frame
+
+- **Hoist all object creation outside the render loop.** Every `new THREE.Color()`, `.clone()`, `new THREE.Vector3()` inside the render loop creates garbage that triggers GC pauses. Pre-allocate temps like `_tempColor = new THREE.Color()` and reuse with `.copy()`.
+- **`mesh.visible = false`** for inactive objects — GPU skips them entirely.
+- **Disable antialias** when rendering to offscreen cubemap pipeline — it only affects the final blit and wastes GPU.
+- **For 50+ instances**: remove per-instance lights, use emissive textures. Use `gltf-transform` to decimate mesh + resize textures (lanterns went 20MB/16K tris → 340KB/2.4K tris with no visible loss).
+
+### 30.7 Color Pipeline — sRGB Render Target Matching
+
+- **The sRGB RT round-trip changes colors.** If view A renders through an sRGB render target and view B renders direct to screen, they will NOT match. Both paths must go through identical RT chains (shader → sRGB RT → MeshBasicMaterial blit → screen).
+- **Never double-apply post-processing.** If the cubemap already has tone mapping from the content scene, the wall shader must not add contrast/saturation on top — or the output will be oversaturated.
+- **Saturation above 1.4 makes purples muddy** on projection. 1.30 is the safe max for SABDA's purple palette.
+- **Highlight ceiling below 0.85 crushes detail.** 0.90 with 0.4 compression is the sweet spot.
+
+### 30.8 Room Viewer Architecture
+
+- **Wall shaders for 3D room** must use `projectionMatrix * modelViewMatrix * vec4(position, 1.0)` — the fullscreen quad shader (`position.xy`) does NOT work on 3D geometry.
+- **Room and strip viewers must share identical fragment shader code.** Any difference creates color mismatch.
+- **Render room to intermediate sRGB RT then blit to screen** — matches the strip RT chain exactly.
+- **Floor: `MeshBasicMaterial`** (not `MeshStandardMaterial`) to avoid unwanted light interaction. Matte dark gray `0x2a2a2a`.
+
+### 30.9 Depth & Perspective for Floating Objects
+
+- **Establish a depth budget early**: birds 18-30, floating objects 50-120, planets/background 85+. Objects must not clip through each other.
+- **Golden angle distribution** (137.5°) guarantees even 360° coverage for instanced objects. Linear spacing creates visible patterns.
+- **Wall corner exclusion zones** — objects split across two walls look broken. Push them ≥60cm from any corner.
+- **Scale must correlate with distance**: close objects big, far objects small. A 2-5× ratio between nearest and furthest reads as natural depth.
+
+### 30.10 Natural Motion for Rising Objects (Lanterns, Balloons)
+
+- Real sky lanterns **start tight and spread apart as they rise** — the spreading IS the visual.
+- Each object should catch wind differently — **shared wind direction + per-instance variation**.
+- **Rise curve**: cubic ease-in (slow start) then steady — not linear. Hot air filling, buoyancy building.
+- **Stagger launch times** for a festival release feel — not all at once.
+
+### 30.11 Process Discipline
+
+- **When the user marks positions on a screenshot**, match those exact positions. Don't approximate.
+- **Never say "done" without verifying** — trace the full code path mentally before committing.
+- **When the same fix fails 3+ times**, stop and trace the entire pipeline from source to screen instead of trying variations.
+- **Revert immediately when asked** — don't salvage a failed approach.
+- **One task per commit** — don't bundle position + color + performance changes.
+
 ---
 
 *Manual v12.4 — March 2026*
