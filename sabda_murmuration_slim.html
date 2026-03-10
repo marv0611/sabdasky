@@ -732,22 +732,21 @@ contentScene.add(planetGroup);
     const symTex = new THREE.Texture(symImg);
     symTex.needsUpdate = true;
     
-    const symArcW = 0.75; // wider
-    const symArcH = 0.90; // taller — elongated to match original
+    const symArcW = 0.80;
+    const symArcH = 0.95;
     
     const R = 1.015;
     const phiLen = symArcW / R;
     const thetaLen = symArcH / R;
-    // Opposite side: phi = PI/2 + PI = 3*PI/2
     const phiStart = 3*Math.PI/2 - phiLen/2;
-    const thetaOffset = 0.08; // slightly below equator
+    const thetaOffset = 0.18; // lower on the planet
     const thetaStart = Math.PI/2 - thetaLen/2 + thetaOffset;
     
     const symGeo = new THREE.SphereGeometry(R, 48, 48, phiStart, phiLen, thetaStart, thetaLen);
     const symMat = new THREE.MeshBasicMaterial({
       map: symTex,
       transparent: true,
-      opacity: 0.4,
+      opacity: 0.3,
       color: 0xffffff,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
