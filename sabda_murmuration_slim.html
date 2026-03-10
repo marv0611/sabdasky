@@ -253,12 +253,25 @@ function makeRoomWallMat(azStartFrac, azEndFrac) {
       uniform samplerCube tCube;
       uniform float vFovRad, elevOffset, azStart, azRange;
       varying vec2 vUv;
+      float dither(vec2 co) {
+        return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+      }
       void main() {
         float azimuth = azStart + vUv.x * azRange;
         float elevation = (vUv.y - 0.5) * vFovRad + elevOffset;
         float ce = cos(elevation);
         vec3 dir = vec3(sin(azimuth) * ce, sin(elevation), -cos(azimuth) * ce);
-        gl_FragColor = textureCube(tCube, dir);
+        vec4 col = textureCube(tCube, dir);
+        col.rgb = col.rgb * 0.97 + 0.015;
+        vec3 scurve = col.rgb * col.rgb * (3.0 - 2.0 * col.rgb);
+        col.rgb = mix(col.rgb, scurve, 0.50);
+        float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+        col.rgb = mix(vec3(luma), col.rgb, 1.45);
+        col.rgb = min(col.rgb, 0.85 + (col.rgb - 0.85) * 0.3);
+        float topBottomFade = smoothstep(0.0, 0.02, vUv.y) * smoothstep(1.0, 0.98, vUv.y);
+        col.rgb *= topBottomFade * 0.05 + 0.95;
+        col.rgb += dither(gl_FragCoord.xy) * 1.5 / 255.0;
+        gl_FragColor = col;
       }
     `,
     side: THREE.FrontSide,
