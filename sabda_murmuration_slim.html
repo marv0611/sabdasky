@@ -1094,13 +1094,13 @@ const lanternGroup = new THREE.Group();
 contentScene.add(lanternGroup);
 
 // 3 lanterns at slightly different positions/altitudes
-const LANTERN_SCALE = 0.8;
+const LANTERN_SCALE = 0.06;
 const LANTERN_EVENT_START = 1100;  // t=18min20s — between balloon crossings 2 and 3
 const LANTERN_EVENT_DUR = 120;    // 2 minutes to cross (slower than balloons — more floaty)
 const LANTERN_Y_START = -60;
 const LANTERN_Y_END = 70;
 const LANTERN_ANGLE = Math.PI * 1.20;  // Left wall B ~58%
-const LANTERN_DIST = 55;              // slightly closer than balloons for depth variety
+const LANTERN_DIST = 80;              // slightly closer than balloons for depth variety
 
 // Each lantern: offset from group center, individual sway phase
 const LANTERN_OFFSETS = [
@@ -1135,12 +1135,12 @@ loader.load(lanternUrl, gltf => {
     });
 
     // Warm amber point light inside each lantern
-    const glow = new THREE.PointLight(0xffaa44, 1.5, 20, 2);
+    const glow = new THREE.PointLight(0xffaa44, 0.8, 8, 2);
     glow.position.set(0, 1.0 * s, 0);
     lantern.add(glow);
 
     // Subtle secondary fill (softer, wider)
-    const fill = new THREE.PointLight(0xff6622, 0.4, 35, 2);
+    const fill = new THREE.PointLight(0xff6622, 0.2, 12, 2);
     fill.position.set(0, 0.5 * s, 0);
     lantern.add(fill);
 
