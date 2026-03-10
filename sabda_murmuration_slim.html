@@ -894,8 +894,8 @@ const BH_X0 = Math.cos(BH_EVENTS[0].angle) * BH_EVENTS[0].dist;
 const BH_Z0 = Math.sin(BH_EVENTS[0].angle) * BH_EVENTS[0].dist;
 
 // 10-color palette: reduced red/orange, added deep blue + light blue
-const BH_WARM = [0xFFD700, 0xFF69B4, 0xFFA500];          // gold, pink, orange (reduced)
-const BH_COOL = [0x0000FF, 0x00FF00, 0x9400D3, 0x00FFFF, 0x1E3A8A, 0x60A5FA, 0xFF4444]; // blue, green, violet, cyan, deep blue, light blue, soft red
+const BH_WARM = [0xFFD700, 0xFF69B4];                     // gold, pink (no orange/red)
+const BH_COOL = [0x0000FF, 0x00FF00, 0x9400D3, 0x00FFFF, 0x1E3A8A, 0x60A5FA, 0x2563EB, 0x3B82F6]; // blue, green, violet, cyan, deep blue, light blue, royal blue, mid blue
 const BH_COLORS = [...BH_WARM, ...BH_COOL];
 
 const balloonGroup = new THREE.Group();
@@ -906,7 +906,7 @@ const BH_CHIMNEY_Y = 9.5 * BH_HOUSE_SCALE;
 const BH_GAP = 1.06; // strings — ratio 48/385 of cluster height
 // From reference: balloon:house width = 2.04x, balloon H:W = 1.51:1
 const BH_CLUSTER_H = 8.47 * 1.05; // 5% taller
-const BH_MAX_R = 2.81 * 0.855 * 0.90;    // 5% + 10% + 10% narrower
+const BH_MAX_R = 2.81 * 0.855 * 0.90 * 0.92;    // total ~30% narrower than original
 const BH_CLUSTER_BOT = BH_CHIMNEY_Y + BH_GAP;
 const BH_CLUSTER_TOP = BH_CLUSTER_BOT + BH_CLUSTER_H;
 const BH_N_INTERIOR = 400;
