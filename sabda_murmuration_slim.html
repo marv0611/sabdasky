@@ -219,63 +219,102 @@ const eqCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
 // ═══════════════════════════════════════════════════════
 // 3D ROOM VIEWER — press R to toggle (360° room simulation)
-// SABDA room: 15.00m × 5.63m × 3.23m (L×W×H)
-// Walls: Left B (15m, -X), Right D (15m, +X), Front C (5.63m, +Z), Back A (5.63m, -Z)
+// SABDA room: 15.00m(L) × 5.63m(W) × 3.23m(H)
 // ═══════════════════════════════════════════════════════
 const ROOM_H = 3.23;
 const roomScene = new THREE.Scene();
 roomScene.background = new THREE.Color(0x0e0a0d);
-
-// Room camera at eye height, centered
-const roomCamera = new THREE.PerspectiveCamera(70, OUT_W/OUT_H, 0.1, 50);
+const roomCamera = new THREE.PerspectiveCamera(75, OUT_W/OUT_H, 0.1, 100);
 roomCamera.position.set(0, EYE_H, 0);
 let roomControls = null;
 
-// Room wall projection materials (each reads from cubemap equirect)
-const matRoomFront = makeEquirectMat(0.0, uF);
-const matRoomRight = makeEquirectMat(uF, uR);
-const matRoomBack  = makeEquirectMat(uR, uB);
-const matRoomLeft  = makeEquirectMat(uB, 1.0);
+// Wall projection shader for 3D room (different from render equirect — uses modelViewMatrix)
+function makeRoomWallMat(azStartFrac, azEndFrac) {
+  const azStart = azStartFrac * Math.PI * 2;
+  const azEnd   = azEndFrac * Math.PI * 2;
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      tCube: { value: null },
+      vFovRad: { value: VFOV_RAD },
+      elevOffset: { value: ELEV_OFFSET },
+      azStart: { value: azStart },
+      azRange: { value: azEnd - azStart },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      uniform samplerCube tCube;
+      uniform float vFovRad, elevOffset, azStart, azRange;
+      varying vec2 vUv;
+      void main() {
+        float azimuth = azStart + vUv.x * azRange;
+        float elevation = (vUv.y - 0.5) * vFovRad + elevOffset;
+        float ce = cos(elevation);
+        vec3 dir = vec3(sin(azimuth) * ce, sin(elevation), -cos(azimuth) * ce);
+        vec4 col = textureCube(tCube, dir);
+        col.rgb = col.rgb * 0.97 + 0.015;
+        vec3 scurve = col.rgb * col.rgb * (3.0 - 2.0 * col.rgb);
+        col.rgb = mix(col.rgb, scurve, 0.50);
+        float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+        col.rgb = mix(vec3(luma), col.rgb, 1.45);
+        col.rgb = min(col.rgb, 0.85 + (col.rgb - 0.85) * 0.3);
+        gl_FragColor = col;
+      }
+    `,
+    side: THREE.FrontSide,
+  });
+}
 
-// Wall geometry — room centered at origin
-// Front C: short wall at +Z, facing -Z (toward center)
+// Wall materials for room
+const matRoomFront = makeRoomWallMat(0.0, uF);
+const matRoomRight = makeRoomWallMat(uF, uR);
+const matRoomBack  = makeRoomWallMat(uR, uB);
+const matRoomLeft  = makeRoomWallMat(uB, 1.0);
+
+// Front wall (A) — short, at Z = -ROOM_L/2, facing +Z
 const wF = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_H), matRoomFront);
-wF.position.set(0, ROOM_H/2, ROOM_L/2);
-wF.rotation.y = Math.PI; // face inward
+wF.position.set(0, ROOM_H/2, -ROOM_L/2);
 roomScene.add(wF);
 
-// Back A: short wall at -Z, facing +Z
-const wB = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_H), matRoomBack);
-wB.position.set(0, ROOM_H/2, -ROOM_L/2);
-roomScene.add(wB);
-
-// Left B: long wall at -X, facing +X
-const wL = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_L, ROOM_H), matRoomLeft);
-wL.rotation.y = Math.PI/2;
-wL.position.set(-ROOM_W/2, ROOM_H/2, 0);
-roomScene.add(wL);
-
-// Right D: long wall at +X, facing -X
+// Right wall (D) — long, at X = +ROOM_W/2, facing -X
 const wR = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_L, ROOM_H), matRoomRight);
 wR.rotation.y = -Math.PI/2;
 wR.position.set(ROOM_W/2, ROOM_H/2, 0);
 roomScene.add(wR);
 
-// Floor — matte dark gray
-const floorMat = new THREE.MeshStandardMaterial({color: 0x333333, roughness: 1.0, metalness: 0});
+// Back wall (C) — short, at Z = +ROOM_L/2, facing -Z
+const wB = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_H), matRoomBack);
+wB.rotation.y = Math.PI;
+wB.position.set(0, ROOM_H/2, ROOM_L/2);
+roomScene.add(wB);
+
+// Left wall (B) — long, at X = -ROOM_W/2, facing +X
+const wL = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_L, ROOM_H), matRoomLeft);
+wL.rotation.y = Math.PI/2;
+wL.position.set(-ROOM_W/2, ROOM_H/2, 0);
+roomScene.add(wL);
+
+// Floor — matte gray
+const floorMat = new THREE.MeshStandardMaterial({color: 0x787878, roughness: 0.85, metalness: 0});
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_L), floorMat);
 floor.rotation.x = -Math.PI/2;
 roomScene.add(floor);
 
 // Ceiling — dark
-const ceilMat = new THREE.MeshStandardMaterial({color: 0x111111, roughness: 1.0, metalness: 0});
-const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_L), ceilMat);
+const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_L), new THREE.MeshBasicMaterial({color: 0x111111}));
 ceiling.rotation.x = Math.PI/2;
 ceiling.position.y = ROOM_H;
 roomScene.add(ceiling);
 
-// Soft ambient so floor/ceiling visible
-roomScene.add(new THREE.AmbientLight(0xffffff, 0.3));
+// Room lighting
+roomScene.add(new THREE.HemisphereLight(0xc4a882, 0x1a1018, 0.15));
+roomScene.add(new THREE.AmbientLight(0xffffff, 0.1));
 
 let roomMode = false;
 
