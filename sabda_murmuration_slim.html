@@ -1168,15 +1168,10 @@ loader.load(lanternUrl, gltf => {
       }
     });
 
-    // Point light only on close lanterns (far ones already glow via emissive texture)
-    let glow = null;
-    if (d.scale > 0.75) {
-      glow = new THREE.PointLight(0xffbb55, 0.8 * d.scale, 10 * d.scale, 2);
-      lantern.add(glow);
-    }
-
+    // No point lights — emissive texture already provides the warm glow
+    // This saves 60 light calculations per frame
     lanternGroup.add(lantern);
-    slInstances.push({ mesh: lantern, data: d, glow });
+    slInstances.push({ mesh: lantern, data: d });
   }
 
   checkReady();
@@ -1577,11 +1572,6 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
       if (vis) {
         sl.mesh.position.set(bx + wx, y, bz + wz);
         sl.mesh.rotation.set(wobX, time * 0.1 + d.phase, wobZ);
-        const flicker = 1.0 + Math.sin(time * 9 + d.phase * 3) * 0.1
-                            + Math.sin(time * 14 + d.phase * 5) * 0.06;
-        if (sl.glow) sl.glow.intensity = 0.8 * d.scale * flicker;
-      } else {
-        if (sl.glow) sl.glow.intensity = 0;
       }
     }
   }
