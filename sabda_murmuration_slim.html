@@ -43,7 +43,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+// OrbitControls loaded dynamically
 
 /* ═══════════════════════════════════════════════════════════════════
    SABDA Watchout 4-Wall Output — Evening Road v11
@@ -350,11 +350,13 @@ document.addEventListener('keydown', e => {
   if (e.key === 'r' || e.key === 'R') {
     roomMode = !roomMode;
     if (roomMode && !roomControls) {
-      roomControls = new OrbitControls(roomCamera, renderer.domElement);
-      roomControls.target.set(0, 1.6, -2);
-      roomControls.enablePan = false;
-      roomControls.enableZoom = false;
-      roomControls.rotateSpeed = 0.5;
+      import('three/addons/controls/OrbitControls.js').then(mod => {
+        roomControls = new mod.OrbitControls(roomCamera, renderer.domElement);
+        roomControls.target.set(0, 1.6, -2);
+        roomControls.enablePan = false;
+        roomControls.enableZoom = false;
+        roomControls.rotateSpeed = 0.5;
+      });
     }
     if (roomControls) roomControls.enabled = roomMode;
     const lbl = document.getElementById('projLabel');
