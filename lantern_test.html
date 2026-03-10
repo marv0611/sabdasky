@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html><head><style>body{margin:0;background:#1a0a2e;}</style></head>
+<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a0a2e);
+const cam = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 1000);
+cam.position.set(0, 2, 8);
+cam.lookAt(0,1.5,0);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+// Lights
+const ambient = new THREE.AmbientLight(0x404060, 0.3);
+scene.add(ambient);
+const dir = new THREE.DirectionalLight(0xffeedd, 0.8);
+dir.position.set(5,10,5);
+scene.add(dir);
+
+// Inner glow light (warm amber)
+const glowLight = new THREE.PointLight(0xffaa44, 2, 10);
+glowLight.position.set(0, 1.5, 0);
+scene.add(glowLight);
+
+const loader = new THREE.GLTFLoader();
+loader.load('assets/chinese_lantern.glb', gltf => {
+  const model = gltf.scene;
+  scene.add(model);
+  
+  // Log structure
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  console.log('Lantern size:', size);
+  console.log('Lantern center:', center);
+  console.log('Lantern box min:', box.min, 'max:', box.max);
+  
+  model.traverse(c => {
+    if(c.isMesh) {
+      console.log('Mesh:', c.name, 'material:', c.material.type, c.material.name);
+      // Make paper parts slightly transparent for glow effect
+      if(c.material.map) {
+        c.material.transparent = true;
+        c.material.opacity = 0.95;
+      }
+    }
+  });
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, cam);
+}
+animate();
+</script>
+</body></html>
