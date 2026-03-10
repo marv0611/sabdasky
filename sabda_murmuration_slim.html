@@ -874,17 +874,24 @@ saturnLoader1.load(saturnUrl1, gltf => {
 // Rises from below the horizon, crosses the sky, exits above.
 // Balloons appear first, then strings, then house — pure geometric emergence.
 // Three copies of balloon GLB, each with one of the 3 brand colors, rotated 120° apart.
-const BH_ANGLE = Math.PI;            // center of left wall
-const BH_DIST = 65;                  // closer for real perspective depth
 const BH_HOUSE_SCALE = 0.315;        // 10% smaller house
-const BH_EVENT_START = 600;           // starts at t=10min
-const BH_EVENT_DUR = 60;             // 60 seconds to cross
 const BH_Y_START = -100;             // far below — invisible even through CubeCamera
 const BH_Y_END = 80;                 // above projection at end
-const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_EVENT_DUR;
+const BH_DUR = 60;                   // 60 seconds per crossing
+const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_DUR;
 
-const BH_X0 = Math.cos(BH_ANGLE) * BH_DIST;
-const BH_Z0 = Math.sin(BH_ANGLE) * BH_DIST;
+// ── 3 crossings: t=5min, t=15min, t=25min ──
+// Each: { start: seconds, angle: radians, dist: units }
+// Angles TBD — using placeholder positions for preview
+const BH_EVENTS = [
+  { start: 300,  angle: Math.PI * 0.75, dist: 65 },  // crossing 1 @ 5min
+  { start: 900,  angle: Math.PI * 1.00, dist: 65 },  // crossing 2 @ 15min
+  { start: 1500, angle: Math.PI * 1.25, dist: 65 },  // crossing 3 @ 25min
+];
+
+// Default position (parked below, using first event's angle)
+const BH_X0 = Math.cos(BH_EVENTS[0].angle) * BH_EVENTS[0].dist;
+const BH_Z0 = Math.sin(BH_EVENTS[0].angle) * BH_EVENTS[0].dist;
 
 // Colors: deep blue, salmon pink, mint green
 // 8-color palette
@@ -1396,31 +1403,48 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   // ── RENDER 4 WALLS ──
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.setRenderTarget(null);
-  // ── BALLOON HOUSE — 1-minute crossing ──
-  // Pure position: starts far below, rises at constant speed, exits far above.
-  // No visibility toggle — just position. It's always "there", just off-screen.
+  // ── BALLOON HOUSE — 3 crossings per 30-min loop ──
+  // Find the active event (or park below between events).
   {
     const t = time % 1800;
-    const eventT = t - BH_EVENT_START;
-    
-    let y;
-    if (eventT < 0) {
-      y = BH_Y_START; // parked far below
-    } else if (eventT > BH_EVENT_DUR) {
-      y = BH_Y_END;   // parked far above
-    } else {
-      y = BH_Y_START + BH_SPEED * eventT; // rising
+    let y = BH_Y_START;
+    let activeAngle = BH_EVENTS[0].angle;
+    let activeDist = BH_EVENTS[0].dist;
+    let drift = 0;
+    let isActive = false;
+
+    for (const ev of BH_EVENTS) {
+      const eventT = t - ev.start;
+      if (eventT >= 0 && eventT <= BH_DUR) {
+        // This event is active
+        y = BH_Y_START + BH_SPEED * eventT;
+        activeAngle = ev.angle;
+        activeDist = ev.dist;
+        drift = eventT;
+        isActive = true;
+        break;
+      }
     }
-    
+
+    // If not active, park below using the next upcoming event's angle
+    if (!isActive) {
+      y = BH_Y_START;
+      for (const ev of BH_EVENTS) {
+        if (t < ev.start) { activeAngle = ev.angle; activeDist = ev.dist; break; }
+      }
+    }
+
+    const ax = Math.cos(activeAngle) * activeDist;
+    const az = Math.sin(activeAngle) * activeDist;
+
     // Subtle horizontal drift during rise
-    const drift = (eventT >= 0 && eventT <= BH_EVENT_DUR) ? eventT : 0;
     const driftX = 1.2 * Math.sin(drift * 0.05);
     const driftZ = 0.8 * Math.cos(drift * 0.07);
-    
-    balloonGroup.position.set(BH_X0 + driftX, y, BH_Z0 + driftZ);
-    
+
+    balloonGroup.position.set(ax + driftX, y, az + driftZ);
+
     // Face camera + gentle sway
-    balloonGroup.rotation.y = BH_ANGLE + Math.PI + drift * 0.003;
+    balloonGroup.rotation.y = activeAngle + Math.PI + drift * 0.003;
     balloonGroup.rotation.z = Math.sin(drift * 0.2) * 0.006;
     balloonGroup.rotation.x = Math.sin(drift * 0.15 + 1.0) * 0.004;
   }
