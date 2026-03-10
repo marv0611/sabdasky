@@ -1094,7 +1094,7 @@ const lanternGroup = new THREE.Group();
 contentScene.add(lanternGroup);
 
 // 15 lanterns — lantern festival cluster
-const LANTERN_SCALE = 0.018;
+const LANTERN_SCALE = 1.5;
 const LANTERN_EVENT_START = 1100;  // t=18min20s — between balloon crossings 2 and 3
 const LANTERN_EVENT_DUR = 60;    // 2 minutes to cross
 const LANTERN_Y_START = -60;
@@ -1134,41 +1134,21 @@ loader.load(lanternUrl, gltf => {
     const s = LANTERN_SCALE * lo.scale;
     lantern.scale.setScalar(s);
 
-    // Original material preserved — paper becomes slightly translucent so light shines through
+    // Model already has emissive texture (warm glow baked in) — just clone materials
     lantern.traverse(c => {
       if (c.isMesh) {
         c.material = c.material.clone();
-        // No emissive override — keep original texture colors
-        c.material.transparent = true;
-        c.material.opacity = 0.92;  // slightly translucent paper
-        c.material.side = THREE.DoubleSide; // see inner surface lit by candle
-        if (c.material.map) {
-          c.material.map.anisotropy = 4;
-        }
+        if (c.material.map) c.material.map.anisotropy = 4;
       }
     });
 
-    // Small candle flame sprite visible inside (the warm dot you see through the paper)
-    const flameSprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      color: 0xffdd66,
-      transparent: true,
-      opacity: 0.9,
-      blending: THREE.AdditiveBlending,
-    }));
-    flameSprite.scale.setScalar(s * 80); // small warm dot
-    flameSprite.position.set(0, s * 60, 0); // centered inside lantern body
-    lantern.add(flameSprite);
-
-    // Candle point light — illuminates the paper from inside
-    const glow = new THREE.PointLight(0xffcc66, 2.0, 12, 2);
-    glow.position.set(0, s * 60, 0);
+    // Small point light to cast warm glow on nearby objects/clouds
+    const glow = new THREE.PointLight(0xffcc66, 1.0, 10, 2);
+    glow.position.set(0, 0, 0);
     lantern.add(glow);
 
-    // No fill light — just the single candle inside
-    const fill = null;
-
     lanternGroup.add(lantern);
-    lanternInstances.push({ mesh: lantern, offset: lo, glow, flameSprite });
+    lanternInstances.push({ mesh: lantern, offset: lo, glow });
   }
 
   checkReady();
@@ -1579,8 +1559,7 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
                           + Math.sin(time * 13.2 + lo.phase * 5) * 0.05
                           + Math.sin(time * 21.7 + lo.phase * 7) * 0.03;
       const isVisible = myEventT > -2 && myEventT < LANTERN_EVENT_DUR + 10;
-      li.glow.intensity = isVisible ? 2.0 * flicker : 0;
-      if (li.flameSprite) li.flameSprite.material.opacity = isVisible ? 0.7 + 0.3 * flicker : 0;
+      li.glow.intensity = isVisible ? 1.0 * flicker : 0;
     }
   }
 
