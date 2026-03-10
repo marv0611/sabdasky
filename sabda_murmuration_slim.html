@@ -93,7 +93,7 @@ const EYE_H = 1.6;
 // RENDERER
 // ═══════════════════════════════════════════════════════
 const renderer = new THREE.WebGLRenderer({
-  antialias: false,
+  antialias: true,
   powerPreference: 'high-performance',
 });
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -110,8 +110,8 @@ const contentScene = new THREE.Scene();
 
 const CUBE_SIZE = 4096;
 const cubeRT = new THREE.WebGLCubeRenderTarget(CUBE_SIZE, {
-  generateMipmaps: true,
-  minFilter: THREE.LinearMipmapLinearFilter,
+  generateMipmaps: false,
+  minFilter: THREE.LinearFilter,
   type: THREE.HalfFloatType,
 });
 const cubeCamera = new THREE.CubeCamera(0.05, 500, cubeRT);
@@ -860,7 +860,7 @@ saturnLoader1.load(saturnUrl1, gltf => {
   URL.revokeObjectURL(saturnUrl1);
   applySaturnMaterials(gltf.scene);
   saturnMainGroup.add(gltf.scene); checkReady();
-  console.log('SABDA: Saturn loaded OK, meshes:', gltf.scene.children.length);
+  // [log removed]
 }, undefined, err => {
   console.error('SABDA: Saturn FAILED to load:', err);
   checkReady(); // still count it so scene starts
@@ -882,7 +882,7 @@ const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_DUR;
 const BH_EVENTS = [
   { start: 300,  angle: Math.PI * 1.01, dist: 65 },  // t=5min — Left wall B @ 30%
   { start: 900,  angle: Math.PI * 0.01, dist: 65 },  // t=15min — Right wall D @ 30%
-  { start: 1500, angle: Math.PI * 1.52, dist: 65 },  // t=25min — Left/Front boundary (top row)
+  { start: 1500, angle: Math.PI * 1.49, dist: 65 },  // t=25min — Left wall B ~98% (top row)
 ];
 
 // Default position (parked below, using first event's angle)
@@ -973,7 +973,6 @@ for (let li = 0; li < SHELL_LAYERS; li++) {
 // Assign colors: warm top-right ↔ cool bottom-left gradient + neighbor avoidance
 for (let i = 0; i < bhPositions.length; i++) {
   const p = bhPositions[i];
-  const ny = (p.y - BH_CLUSTER_BOT) / BH_CLUSTER_H; // 0..1
   
   // Collect neighbor colors
   const nearColors = new Set();
@@ -1009,7 +1008,7 @@ loader.load(balloonGlbUrl, gltf => {
     return;
   }
   
-  console.log('SABDA: Balloon geo verts:', balloonGeo.attributes.position.count);
+  // [log removed]
   
   // 3 brightness tiers per color: full, -15%, -30% (ambient occlusion)
   const bhMats = [];
@@ -1054,7 +1053,7 @@ loader.load(balloonGlbUrl, gltf => {
     balloonGroup.add(mesh);
   }
   
-  console.log('SABDA: Balloon cluster —', bhPositions.length, 'copies, group children:', balloonGroup.children.length);
+  // [log removed]
   checkReady();
 }, undefined, err => {
   console.error('SABDA: Balloon GLB FAILED:', err);
@@ -1079,7 +1078,7 @@ loader.load(houseUrl, gltf => {
     }
   });
   balloonGroup.add(model);
-  console.log('SABDA: House GLB loaded, scale:', BH_HOUSE_SCALE);
+  // [log removed]
   checkReady();
 }, undefined, err => {
   console.error('SABDA: House GLB FAILED:', err);
