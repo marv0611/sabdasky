@@ -224,12 +224,8 @@ const ROOM_L = 15.00, ROOM_W_DIM = 5.63, ROOM_H = 3.23;
 const roomScene = new THREE.Scene();
 roomScene.background = new THREE.Color(0x0e0a0d);
 const roomCamera = new THREE.PerspectiveCamera(75, OUT_W/OUT_H, 0.1, 50);
-roomCamera.position.set(0, 1.6, 0); // eye height
-const roomControls = new OrbitControls(roomCamera, renderer.domElement);
-roomControls.target.set(0, 1.6, -2);
-roomControls.enablePan = false; roomControls.enableZoom = false;
-roomControls.rotateSpeed = 0.5;
-roomControls.enabled = false; // disabled until R pressed
+roomCamera.position.set(0, 1.6, 0);
+let roomControls = null; // lazy init on first R press
 
 // Room wall materials (share the cubemap equirect shader)
 const matRoomFront = makeEquirectMat(0.0, uF);
@@ -353,7 +349,14 @@ document.addEventListener('keydown', e => {
   }
   if (e.key === 'r' || e.key === 'R') {
     roomMode = !roomMode;
-    roomControls.enabled = roomMode;
+    if (roomMode && !roomControls) {
+      roomControls = new OrbitControls(roomCamera, renderer.domElement);
+      roomControls.target.set(0, 1.6, -2);
+      roomControls.enablePan = false;
+      roomControls.enableZoom = false;
+      roomControls.rotateSpeed = 0.5;
+    }
+    if (roomControls) roomControls.enabled = roomMode;
     const lbl = document.getElementById('projLabel');
     if(lbl){ lbl.textContent = roomMode ? '360° ROOM VIEW (drag to look around)' : 'STRIP VIEW'; lbl.style.opacity = 1;
       clearTimeout(lbl._t); lbl._t = setTimeout(()=>{ lbl.style.opacity = 0; }, 3000); }
@@ -1697,7 +1700,7 @@ if (!window.__SABDA_PUPPETEER__) {
     window.SABDA_RENDER_FRAME(liveT, timeScale);
     renderer.setRenderTarget(null);
     if (roomMode) {
-      roomControls.update();
+      if (roomControls) roomControls.update();
       renderer.render(roomScene, roomCamera);
     } else if(projMode === 0) {
       renderer.render(compScene, compCam);
