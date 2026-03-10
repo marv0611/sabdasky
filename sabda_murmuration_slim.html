@@ -325,6 +325,19 @@ roomScene.add(new THREE.AmbientLight(0xffffff, 0.1));
 
 let roomMode = false;
 
+// Room render target — renders room to RT first, then blits to screen (matches strip pipeline)
+const roomRT = new THREE.WebGLRenderTarget(OUT_W, OUT_H, {
+  minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+  colorSpace: THREE.SRGBColorSpace,
+});
+const roomBlitScene = new THREE.Scene();
+const roomBlitCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const roomBlitQuad = new THREE.Mesh(
+  new THREE.PlaneGeometry(2, 2),
+  new THREE.MeshBasicMaterial({ map: roomRT.texture })
+);
+roomBlitScene.add(roomBlitQuad);
+
 // ═══════════════════════════════════════════════════════
 // COMPOSITE SCENE — blit 4 wall textures onto final canvas
 // Layout: Left+Front on top, Right+Back on bottom
@@ -1774,7 +1787,12 @@ if (!window.__SABDA_PUPPETEER__) {
     if (roomMode) {
       renderer.toneMapping = THREE.NoToneMapping;
       if (roomControls) roomControls.update();
+      // Render room to intermediate sRGB RT (same as strip path uses sRGB wall RTs)
+      renderer.setRenderTarget(roomRT);
       renderer.render(roomScene, roomCamera);
+      // Blit RT to screen (same as comp scene blits strip wall RTs)
+      renderer.setRenderTarget(null);
+      renderer.render(roomBlitScene, roomBlitCam);
     } else if(projMode === 0) {
       renderer.render(compScene, compCam);
     } else if(projMode === 1) {
