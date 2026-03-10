@@ -1099,21 +1099,24 @@ const LANTERN_EVENT_START = 1100;  // t=18min20s — between balloon crossings 2
 const LANTERN_EVENT_DUR = 60;    // 2 minutes to cross
 const LANTERN_Y_START = -60;
 const LANTERN_Y_END = 70;
-const LANTERN_ANGLE = Math.PI * 1.20;  // Left wall B ~58%
+const LANTERN_ANGLE = Math.PI * 1.05;  // Left wall B ~58%
 const LANTERN_DIST = 75;
 
-// 15 lanterns spread in a loose cloud with depth variation
+// 15 lanterns spread wide — no overlapping, clear separation
 const LANTERN_OFFSETS = [];
 for (let i = 0; i < 15; i++) {
   const seed = i * 7.31 + 2.17;
   const sn = v => Math.sin(seed * v);
+  // Arrange in a wide arc, 3 rows of 5, well separated
+  const row = Math.floor(i / 5);
+  const col = i % 5;
   LANTERN_OFFSETS.push({
-    dx: sn(1.1) * 6 + sn(3.7) * 2,
-    dy: sn(2.3) * 2.5,
-    dz: sn(4.1) * 5 + sn(5.9) * 1.5,
-    distOffset: sn(7.7) * 15,           // ±15 units depth variation — some closer, some further
+    dx: (col - 2) * 5.0 + sn(1.1) * 1.5,     // 5 across, ~25 units wide
+    dy: (row - 1) * 4.0 + sn(2.3) * 1.0,      // 3 rows, ~8 units tall
+    dz: row * 3.0 + sn(4.1) * 1.5,             // rows at different depths
+    distOffset: (col - 2) * 4 + sn(7.7) * 3,   // spread in depth too
     phase: sn(6.7) * Math.PI * 2,
-    riseDelay: Math.abs(sn(8.3)) * 8,   // stagger up to 8s (faster overall)
+    riseDelay: Math.abs(sn(8.3)) * 10 + row * 3, // back rows rise later
     scale: 0.80 + Math.abs(sn(9.1)) * 0.4,
   });
 }
@@ -1131,31 +1134,41 @@ loader.load(lanternUrl, gltf => {
     const s = LANTERN_SCALE * lo.scale;
     lantern.scale.setScalar(s);
 
-    // Keep original material colors — only add subtle warm emissive for candlelit feel
+    // Original material preserved — paper becomes slightly translucent so light shines through
     lantern.traverse(c => {
       if (c.isMesh) {
         c.material = c.material.clone();
-        // Very subtle warm emissive — just a hint of inner glow, not overpowering
-        c.material.emissive = new THREE.Color(0xffcc88);
-        c.material.emissiveIntensity = 0.08;
+        // No emissive override — keep original texture colors
+        c.material.transparent = true;
+        c.material.opacity = 0.92;  // slightly translucent paper
+        c.material.side = THREE.DoubleSide; // see inner surface lit by candle
         if (c.material.map) {
           c.material.map.anisotropy = 4;
         }
       }
     });
 
-    // Candle light inside — warm, flickering, visible glow on surroundings
-    const glow = new THREE.PointLight(0xffcc66, 1.5, 10, 2);
-    glow.position.set(0, 1.0 * s, 0);
+    // Small candle flame sprite visible inside (the warm dot you see through the paper)
+    const flameSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      color: 0xffdd66,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+    }));
+    flameSprite.scale.setScalar(s * 80); // small warm dot
+    flameSprite.position.set(0, s * 60, 0); // centered inside lantern body
+    lantern.add(flameSprite);
+
+    // Candle point light — illuminates the paper from inside
+    const glow = new THREE.PointLight(0xffcc66, 2.0, 12, 2);
+    glow.position.set(0, s * 60, 0);
     lantern.add(glow);
 
-    // Wider soft halo — warm ambient spill
-    const fill = new THREE.PointLight(0xff9944, 0.5, 15, 2);
-    fill.position.set(0, 0.5 * s, 0);
-    lantern.add(fill);
+    // No fill light — just the single candle inside
+    const fill = null;
 
     lanternGroup.add(lantern);
-    lanternInstances.push({ mesh: lantern, offset: lo, glow, fill });
+    lanternInstances.push({ mesh: lantern, offset: lo, glow, flameSprite });
   }
 
   checkReady();
@@ -1566,8 +1579,8 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
                           + Math.sin(time * 13.2 + lo.phase * 5) * 0.05
                           + Math.sin(time * 21.7 + lo.phase * 7) * 0.03;
       const isVisible = myEventT > -2 && myEventT < LANTERN_EVENT_DUR + 10;
-      li.glow.intensity = isVisible ? 1.5 * flicker : 0;
-      li.fill.intensity = isVisible ? 0.5 * flicker : 0;
+      li.glow.intensity = isVisible ? 2.0 * flicker : 0;
+      if (li.flameSprite) li.flameSprite.material.opacity = isVisible ? 0.7 + 0.3 * flicker : 0;
     }
   }
 
