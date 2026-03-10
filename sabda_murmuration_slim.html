@@ -435,7 +435,7 @@ document.addEventListener('keydown', e => {
     if (roomMode && !roomControls) {
       import('three/addons/controls/OrbitControls.js').then(mod => {
         roomControls = new mod.OrbitControls(roomCamera, renderer.domElement);
-        roomControls.target.set(-ROOM_W/2 + 0.5, EYE_H, 0); // look toward left wall B (long wall)
+        roomControls.target.set(0, EYE_H, -0.01); // dead center, looking slightly forward
         roomControls.enablePan = false;
         roomControls.enableZoom = false;
         roomControls.rotateSpeed = 0.5;
