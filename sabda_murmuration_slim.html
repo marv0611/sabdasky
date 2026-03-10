@@ -679,8 +679,6 @@ dustSystem.frustumCulled = false;
 contentScene.add(dustSystem);
 
 // ── PLANET ──
-let planetMixer = null;
-let planetModel = null; // reference to GLB model — logo attaches here
 const planetGroup = new THREE.Group();
 const plDist = 85, plAngle = Math.PI + 0.85, plElev = 15*Math.PI/180;
 planetGroup.position.set(Math.cos(plAngle)*Math.cos(plElev)*plDist, Math.sin(plElev)*plDist, Math.sin(plAngle)*Math.cos(plElev)*plDist);
@@ -839,9 +837,7 @@ loader.load(b64ToUrl('planetdata','model/gltf-binary'), gltf => {
     else{c.material=new THREE.MeshPhysicalMaterial({map:oMap,normalMap:oNorm,roughness:0.75,metalness:0,emissive:new THREE.Color(0xaa55ff),emissiveIntensity:0.75});}
   }}});
   planetGroup.add(model);
-  planetModel = model; // save reference for logo attachment
   // Animation disabled — rotation handled by planetGroup.rotation.y in render loop
-  // This ensures the logo rotates identically to the surface.
   checkReady();
 });
 
@@ -886,7 +882,7 @@ const BH_SPEED = (BH_Y_END - BH_Y_START) / BH_DUR;
 const BH_EVENTS = [
   { start: 300,  angle: Math.PI * 1.01, dist: 65 },  // t=5min — Left wall B @ 30%
   { start: 900,  angle: Math.PI * 0.01, dist: 65 },  // t=15min — Right wall D @ 30%
-  { start: 1500, angle: Math.PI * 1.55, dist: 65 },  // t=25min — Front wall C ~18% (top row, right of Left/Front boundary)
+  { start: 1500, angle: Math.PI * 1.52, dist: 65 },  // t=25min — Left/Front boundary (top row)
 ];
 
 // Default position (parked below, using first event's angle)
@@ -977,10 +973,7 @@ for (let li = 0; li < SHELL_LAYERS; li++) {
 // Assign colors: warm top-right ↔ cool bottom-left gradient + neighbor avoidance
 for (let i = 0; i < bhPositions.length; i++) {
   const p = bhPositions[i];
-  // Gradient: combine normalized Y (0=bottom, 1=top) and X direction
   const ny = (p.y - BH_CLUSTER_BOT) / BH_CLUSTER_H; // 0..1
-  const nx = p.x / (BH_MAX_R + 0.5); // -1..1 roughly
-  const warmBias = (ny * 0.6 + nx * 0.4 + 1) / 2; // 0=cool, 1=warm
   
   // Collect neighbor colors
   const nearColors = new Set();
