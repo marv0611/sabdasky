@@ -892,7 +892,8 @@ const BH_Z0 = Math.sin(BH_EVENTS[0].angle) * BH_EVENTS[0].dist;
 
 // 10-color palette: reduced red/orange, added deep blue + light blue
 // "Up" movie palette — 5 colors, assigned uniformly (no two same colors adjacent)
-const BH_COLORS = [0xEE05F2, 0x05DBF2, 0x37A603, 0xD8F279, 0xF27507];
+// "Up" palette + extra blues: magenta, cyan, green, lime, orange, sky blue, deep blue
+const BH_COLORS = [0xEE05F2, 0x05DBF2, 0x37A603, 0xD8F279, 0xF27507, 0x3B9FE8, 0x1565C0];
 // magenta, cyan, green, lime, orange
 
 const balloonGroup = new THREE.Group();
@@ -1008,6 +1009,7 @@ loader.load(balloonGlbUrl, gltf => {
     checkReady();
     return;
   }
+  balloonGeo.computeVertexNormals(); // ensure smooth shading
   
   // [log removed]
   
@@ -1020,9 +1022,9 @@ loader.load(balloonGlbUrl, gltf => {
       const col = base.clone().multiplyScalar(darken);
       bhMats.push(new THREE.MeshStandardMaterial({
         color: col,
-        roughness: 0.315,
-        metalness: 0.05,
-        emissive: col.clone().multiplyScalar(0.06),
+        roughness: 0.28,
+        metalness: 0.02,
+        emissive: col.clone().multiplyScalar(0.10),
       }));
     }
   }
