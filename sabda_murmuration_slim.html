@@ -43,6 +43,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 /* ═══════════════════════════════════════════════════════════════════
    SABDA Watchout 4-Wall Output — Evening Road v11
@@ -217,6 +218,48 @@ const eqScnLeft  = makeEquirectScene(matLeft);
 const eqCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
 // ═══════════════════════════════════════════════════════
+// 3D ROOM VIEWER — press R to toggle (360° room simulation)
+// ═══════════════════════════════════════════════════════
+const ROOM_L = 15.00, ROOM_W_DIM = 5.63, ROOM_H = 3.23;
+const roomScene = new THREE.Scene();
+roomScene.background = new THREE.Color(0x0e0a0d);
+const roomCamera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 50);
+roomCamera.position.set(0, 1.6, 0); // eye height
+const roomControls = new OrbitControls(roomCamera, renderer.domElement);
+roomControls.target.set(0, 1.6, -2);
+roomControls.enablePan = false; roomControls.enableZoom = false;
+roomControls.rotateSpeed = 0.5;
+roomControls.enabled = false; // disabled until R pressed
+
+// Room wall materials (share the cubemap equirect shader)
+const matRoomFront = makeEquirectMat(0.0, uF);
+const matRoomRight = makeEquirectMat(uF, uR);
+const matRoomBack  = makeEquirectMat(uR, uB);
+const matRoomLeft  = makeEquirectMat(uB, 1.0);
+
+// Build 4 walls
+const wF = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W_DIM, ROOM_H), matRoomFront);
+wF.position.set(0, ROOM_H/2, -ROOM_L/2); roomScene.add(wF);
+const wR = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_L, ROOM_H), matRoomRight);
+wR.rotation.y = -Math.PI/2; wR.position.set(ROOM_W_DIM/2, ROOM_H/2, 0); roomScene.add(wR);
+const wB = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W_DIM, ROOM_H), matRoomBack);
+wB.rotation.y = Math.PI; wB.position.set(0, ROOM_H/2, ROOM_L/2); roomScene.add(wB);
+const wL = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_L, ROOM_H), matRoomLeft);
+wL.rotation.y = Math.PI/2; wL.position.set(-ROOM_W_DIM/2, ROOM_H/2, 0); roomScene.add(wL);
+
+// Floor + ceiling (dark)
+const floorMat = new THREE.MeshBasicMaterial({color: 0x0a0808});
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W_DIM, ROOM_L), floorMat);
+floor.rotation.x = -Math.PI/2; floor.position.set(0, 0, 0); roomScene.add(floor);
+const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W_DIM, ROOM_L), floorMat.clone());
+ceiling.rotation.x = Math.PI/2; ceiling.position.set(0, ROOM_H, 0); roomScene.add(ceiling);
+
+// Soft ambient for room
+roomScene.add(new THREE.AmbientLight(0xffffff, 0.1));
+
+let roomMode = false;
+
+// ═══════════════════════════════════════════════════════
 // COMPOSITE SCENE — blit 4 wall textures onto final canvas
 // Layout: Left+Front on top, Right+Back on bottom
 // ═══════════════════════════════════════════════════════
@@ -304,10 +347,23 @@ document.addEventListener('keydown', e => {
     projMode = (projMode + 1) % 3;
     const labels = ['BOTH STRIPS', 'TOP STRIP (Left+Front)', 'BOTTOM STRIP (Right+Back)'];
     console.log('Projector sim:', labels[projMode]);
-    // Show mode label briefly
     const lbl = document.getElementById('projLabel');
     if(lbl){ lbl.textContent = labels[projMode]; lbl.style.opacity = 1;
       clearTimeout(lbl._t); lbl._t = setTimeout(()=>{ lbl.style.opacity = 0; }, 2000); }
+  }
+  if (e.key === 'r' || e.key === 'R') {
+    roomMode = !roomMode;
+    roomControls.enabled = roomMode;
+    if (roomMode) {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      roomCamera.aspect = window.innerWidth / window.innerHeight;
+      roomCamera.updateProjectionMatrix();
+    } else {
+      renderer.setSize(OUT_W, OUT_H);
+    }
+    const lbl = document.getElementById('projLabel');
+    if(lbl){ lbl.textContent = roomMode ? '360° ROOM VIEW (drag to look around)' : 'STRIP VIEW'; lbl.style.opacity = 1;
+      clearTimeout(lbl._t); lbl._t = setTimeout(()=>{ lbl.style.opacity = 0; }, 3000); }
   }
 });
 
@@ -1591,6 +1647,11 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
   matRight.uniforms.tCube.value = cubeTex;
   matBack.uniforms.tCube.value = cubeTex;
   matLeft.uniforms.tCube.value = cubeTex;
+  // Room viewer walls
+  matRoomFront.uniforms.tCube.value = cubeTex;
+  matRoomRight.uniforms.tCube.value = cubeTex;
+  matRoomBack.uniforms.tCube.value = cubeTex;
+  matRoomLeft.uniforms.tCube.value = cubeTex;
 
   renderer.setRenderTarget(rtFront); renderer.render(eqScnFront, eqCam);
   renderer.setRenderTarget(rtRight); renderer.render(eqScnRight, eqCam);
@@ -1642,7 +1703,10 @@ if (!window.__SABDA_PUPPETEER__) {
 
     window.SABDA_RENDER_FRAME(liveT, timeScale);
     renderer.setRenderTarget(null);
-    if(projMode === 0) {
+    if (roomMode) {
+      roomControls.update();
+      renderer.render(roomScene, roomCamera);
+    } else if(projMode === 0) {
       renderer.render(compScene, compCam);
     } else if(projMode === 1) {
       renderer.render(projTopScene, projTopCam);
