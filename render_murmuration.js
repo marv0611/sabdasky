@@ -53,17 +53,20 @@ fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 // ── FFMPEG PROCESSES ──
 function startFFmpeg(wallName, w, h) {
-  const outPath = path.join(OUTPUT_DIR, `wall_${wallName}.mov`);
+  const outPath = path.join(OUTPUT_DIR, `wall_${wallName}.mp4`);
   const proc = spawn('ffmpeg', [
     '-y',
     '-f', 'image2pipe',
     '-framerate', String(FPS),
     '-i', 'pipe:0',
-    '-c:v', 'prores_ks',
-    '-profile:v', '3',        // ProRes HQ
-    '-qscale:v', '9',         // High quality
-    '-pix_fmt', 'yuv422p10le',
-    '-g', String(FPS),        // keyframe every 1 second — instant Watchout seek
+    '-c:v', 'libx264',
+    '-crf', CRF,
+    '-preset', PRESET_WALLS,
+    '-tune', 'film',
+    '-profile:v', 'high', '-level', '5.1',
+    '-g', String(FPS),
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
     outPath
   ], { stdio: ['pipe', 'ignore', 'ignore'] });
 
@@ -198,31 +201,33 @@ async function main() {
 
   // Top: Left + Front
   await runFFmpeg([
-    '-y', '-i', path.join(OUTPUT_DIR, 'wall_left.mov'),
-    '-i', path.join(OUTPUT_DIR, 'wall_front.mov'),
+    '-y', '-i', path.join(OUTPUT_DIR, 'wall_left.mp4'),
+    '-i', path.join(OUTPUT_DIR, 'wall_front.mp4'),
     '-filter_complex', '[0:v][1:v]hstack=inputs=2',
-    '-c:v', 'prores_ks', '-profile:v', '3',
-    '-qscale:v', '9', '-pix_fmt', 'yuv422p10le',
+    '-c:v', 'libx264', '-crf', CRF, '-preset', PRESET_MERGE,
+    '-tune', 'film', '-profile:v', 'high', '-level', '5.1',
     '-g', String(FPS),
-    path.join(OUTPUT_DIR, 'sabda_top.mov')
+    '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+    path.join(OUTPUT_DIR, 'sabda_top.mp4')
   ]);
-  console.log('  ✓ sabda_top.mov');
+  console.log('  ✓ sabda_top.mp4');
 
   // Bottom: Right + Back
   await runFFmpeg([
-    '-y', '-i', path.join(OUTPUT_DIR, 'wall_right.mov'),
-    '-i', path.join(OUTPUT_DIR, 'wall_back.mov'),
+    '-y', '-i', path.join(OUTPUT_DIR, 'wall_right.mp4'),
+    '-i', path.join(OUTPUT_DIR, 'wall_back.mp4'),
     '-filter_complex', '[0:v][1:v]hstack=inputs=2',
-    '-c:v', 'prores_ks', '-profile:v', '3',
-    '-qscale:v', '9', '-pix_fmt', 'yuv422p10le',
+    '-c:v', 'libx264', '-crf', CRF, '-preset', PRESET_MERGE,
+    '-tune', 'film', '-profile:v', 'high', '-level', '5.1',
     '-g', String(FPS),
-    path.join(OUTPUT_DIR, 'sabda_bottom.mov')
+    '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+    path.join(OUTPUT_DIR, 'sabda_bottom.mp4')
   ]);
-  console.log('  ✓ sabda_bottom.mov');
+  console.log('  ✓ sabda_bottom.mp4');
 
   const totalMin = ((Date.now() - startTime) / 60000).toFixed(1);
   console.log(`\n═══ Done in ${totalMin} minutes ═══`);
-  console.log(`Output: ${OUTPUT_DIR}/sabda_top.mov + sabda_bottom.mov\n`);
+  console.log(`Output: ${OUTPUT_DIR}/sabda_top.mp4 + sabda_bottom.mp4\n`);
 }
 
 function runFFmpeg(args) {
