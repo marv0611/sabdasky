@@ -1499,7 +1499,62 @@ HAP Q uses GPU-accelerated decompression but produces much larger files (~10×).
 
 ---
 
-## 19. Version History
+## 19. Preview System — 360° Room Viewer (v12.4)
+
+The preview HTML (`sabda_*_full.html`) includes a built-in 360° room simulator and speed controls. This is the **default preview method** for all SABDA visuals going forward.
+
+### Build & Preview
+```bash
+cd ~/Documents/GitHub/sabda && git pull && python3 assemble_murmuration.py && open sabda_murmuration_full.html
+```
+
+### Keyboard Controls
+
+| Key | Function |
+|-----|----------|
+| **R** | Toggle 360° room view (4 walls, floor, ceiling — orbit with mouse drag) |
+| **Y** | Toggle 5× speed (amber indicator) |
+| **T** | Toggle 30× speed (red indicator) |
+| **D** | Toggle guide overlays (wall labels, dividers) |
+| **P** | Cycle projector strip views (both / top only / bottom only) |
+| **⏸ button** | Pause / play |
+| **Slider** | Scrub timeline (0–1800s) |
+
+### 360° Room View (R key)
+
+Renders the scene onto 4 walls matching the SABDA room geometry:
+- Room dimensions: 15.00m (long walls B, D) × 5.63m (short walls A, C) × 3.23m (ceiling height)
+- Camera at eye height (1.6m), exact center of room
+- Orbit controls: drag to look around, no pan, no zoom
+- Floor: matte dark gray (non-reflective)
+- Ceiling: dark
+
+The room viewer uses the **same cubemap and post-processing pipeline** as the strip renderer:
+- Same equirect projection shader (S-curve 0.50, saturation 1.30, highlight ceiling 0.90)
+- Rendered to intermediate sRGB render target, then blitted to screen (matches strip path exactly)
+- `NoToneMapping` on final output (same as strip view)
+
+**This ensures the room view matches exactly what will appear on the projectors.** Any color or brightness difference between room view and strip view is a bug.
+
+### Strip View (default)
+
+The default view shows two horizontal strips:
+- Top strip: Left wall B (5008px) + Front wall C (1920px) = 6928×1200
+- Bottom strip: Right wall D (5008px) + Back wall A (1920px) = 6928×1200
+
+This matches the Watchout stage layout (see Section 18).
+
+### Speed Controls
+
+- **1× (default)**: real-time playback, seconds tick 1:1 with wall clock
+- **5× (Y key)**: preview 30 minutes in 6 minutes — good for checking flow and timing
+- **30× (T key)**: preview 30 minutes in 60 seconds — good for checking loop seam and overall arc
+
+Timer uses `performance.now()` for accurate real-time tracking regardless of frame rate.
+
+---
+
+## 20. Version History
 
 | Version | Key Change |
 |---------|-----------|
