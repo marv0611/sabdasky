@@ -31,6 +31,7 @@ canvas{position:absolute;top:0;left:0}
 <script id="balloonhousedata" type="text/plain">ASSET_PLACEHOLDER</script>
 <script id="balloonglbdata" type="text/plain">ASSET_PLACEHOLDER</script>
 <script id="sabdasymboldata" type="text/plain">ASSET_PLACEHOLDER</script>
+<script id="lanterndata" type="text/plain">ASSET_PLACEHOLDER</script>
 
 
 <script type="importmap">{"imports":{
@@ -793,7 +794,7 @@ function b64ToUrl(id, mime) {
 const loader = new GLTFLoader();
 const birdFlocks = [];
 let readyCount = 0;
-function checkReady() { if (++readyCount >= 5) { document.getElementById('loading').classList.add('done'); window.SABDA_READY = true; console.log('SABDA: All assets loaded, ready for rendering'); } }
+function checkReady() { if (++readyCount >= 6) { document.getElementById('loading').classList.add('done'); window.SABDA_READY = true; console.log('SABDA: All assets loaded, ready for rendering'); } }
 
 // ── BIRDS ──
 const BIRD_REF_DIST = 23;  // reference distance for consistent apparent size
@@ -1082,6 +1083,74 @@ loader.load(houseUrl, gltf => {
   checkReady();
 }, undefined, err => {
   console.error('SABDA: House GLB FAILED:', err);
+  checkReady();
+});
+
+// ═══════════════════════════════════════════════════════
+// SKY LANTERNS — 3 Kongming lanterns rising like hot air, drifted by wind
+// Physics: slow initial rise, wind drift, gentle wobble/sway, slight rotation
+// ═══════════════════════════════════════════════════════
+const lanternGroup = new THREE.Group();
+contentScene.add(lanternGroup);
+
+// 3 lanterns at slightly different positions/altitudes
+const LANTERN_SCALE = 0.8;
+const LANTERN_EVENT_START = 1100;  // t=18min20s — between balloon crossings 2 and 3
+const LANTERN_EVENT_DUR = 120;    // 2 minutes to cross (slower than balloons — more floaty)
+const LANTERN_Y_START = -60;
+const LANTERN_Y_END = 70;
+const LANTERN_ANGLE = Math.PI * 1.20;  // Left wall B ~58%
+const LANTERN_DIST = 55;              // slightly closer than balloons for depth variety
+
+// Each lantern: offset from group center, individual sway phase
+const LANTERN_OFFSETS = [
+  { dx: 0,   dy: 0,    dz: 0,   phase: 0,    riseDelay: 0,  scale: 1.0  },  // center, first to rise
+  { dx: 3.5, dy: -2.5, dz: 1.5, phase: 1.7,  riseDelay: 4,  scale: 0.85 },  // right, slightly behind & lower
+  { dx:-2.8, dy: -4.0, dz:-1.2, phase: 3.1,  riseDelay: 8,  scale: 0.92 },  // left, lowest, last to rise
+];
+
+const lanternInstances = [];
+
+const lanternUrl = b64ToUrl('lanterndata', 'model/gltf-binary');
+loader.load(lanternUrl, gltf => {
+  URL.revokeObjectURL(lanternUrl);
+  const template = gltf.scene;
+
+  for (let i = 0; i < LANTERN_OFFSETS.length; i++) {
+    const lo = LANTERN_OFFSETS[i];
+    const lantern = template.clone();
+    const s = LANTERN_SCALE * lo.scale;
+    lantern.scale.setScalar(s);
+
+    // Make paper parts slightly emissive (warm glow from inside)
+    lantern.traverse(c => {
+      if (c.isMesh) {
+        c.material = c.material.clone();
+        c.material.emissive = new THREE.Color(0xff8833);
+        c.material.emissiveIntensity = 0.25;
+        if (c.material.map) {
+          c.material.map.anisotropy = 4;
+        }
+      }
+    });
+
+    // Warm amber point light inside each lantern
+    const glow = new THREE.PointLight(0xffaa44, 1.5, 20, 2);
+    glow.position.set(0, 1.0 * s, 0);
+    lantern.add(glow);
+
+    // Subtle secondary fill (softer, wider)
+    const fill = new THREE.PointLight(0xff6622, 0.4, 35, 2);
+    fill.position.set(0, 0.5 * s, 0);
+    lantern.add(fill);
+
+    lanternGroup.add(lantern);
+    lanternInstances.push({ mesh: lantern, offset: lo, glow, fill });
+  }
+
+  checkReady();
+}, undefined, err => {
+  console.error('SABDA: Lantern GLB FAILED:', err);
   checkReady();
 });
 
@@ -1432,6 +1501,62 @@ window.SABDA_RENDER_FRAME = function(simTime, speedMultiplier) {
     balloonGroup.rotation.y = activeAngle + Math.PI + drift * 0.003;
     balloonGroup.rotation.z = Math.sin(drift * 0.2) * 0.006;
     balloonGroup.rotation.x = Math.sin(drift * 0.15 + 1.0) * 0.004;
+  }
+
+  // ── SKY LANTERNS — 3 Kongming lanterns, natural hot-air physics ──
+  {
+    const t = time % 1800;
+    const eventT = t - LANTERN_EVENT_START;
+    const baseX = Math.cos(LANTERN_ANGLE) * LANTERN_DIST;
+    const baseZ = Math.sin(LANTERN_ANGLE) * LANTERN_DIST;
+
+    for (let i = 0; i < lanternInstances.length; i++) {
+      const li = lanternInstances[i];
+      const lo = li.offset;
+      const myEventT = eventT - lo.riseDelay; // staggered start
+
+      let y;
+      if (myEventT < 0) {
+        y = LANTERN_Y_START;
+      } else if (myEventT > LANTERN_EVENT_DUR) {
+        y = LANTERN_Y_END;
+      } else {
+        // Natural rise: slow start (buoyancy building), then steady, then slight deceleration
+        const progress = myEventT / LANTERN_EVENT_DUR;
+        const eased = progress < 0.15
+          ? progress * progress / 0.15  // slow quadratic start (filling with hot air)
+          : 0.15 + (progress - 0.15) * 0.85 / 0.85; // then linear steady rise
+        y = LANTERN_Y_START + (LANTERN_Y_END - LANTERN_Y_START) * eased;
+      }
+
+      // Wind drift: slow horizontal movement (not straight up)
+      const windT = Math.max(0, myEventT);
+      const windX = windT * 0.08 * Math.sin(windT * 0.02 + lo.phase);
+      const windZ = windT * 0.05 * Math.cos(windT * 0.015 + lo.phase * 0.7);
+
+      // Gentle wobble (paper catching air currents)
+      const wobbleX = Math.sin(time * 0.8 + lo.phase) * 0.015;
+      const wobbleZ = Math.cos(time * 0.6 + lo.phase * 1.3) * 0.012;
+      const wobbleY = Math.sin(time * 1.1 + lo.phase * 0.5) * 0.008;
+
+      // Slow rotation (wind catches asymmetric shape)
+      const rot = time * 0.15 + lo.phase * 2.0 + windT * 0.005;
+
+      li.mesh.position.set(
+        baseX + lo.dx + windX,
+        y + lo.dy,
+        baseZ + lo.dz + windZ
+      );
+      li.mesh.rotation.set(wobbleX, rot, wobbleZ);
+
+      // Flicker the glow light (candle flame inside)
+      const flicker = 1.0 + Math.sin(time * 8.5 + lo.phase * 3) * 0.08
+                          + Math.sin(time * 13.2 + lo.phase * 5) * 0.05
+                          + Math.sin(time * 21.7 + lo.phase * 7) * 0.03;
+      const isVisible = myEventT > -2 && myEventT < LANTERN_EVENT_DUR + 10;
+      li.glow.intensity = isVisible ? 1.5 * flicker : 0;
+      li.fill.intensity = isVisible ? 0.4 * flicker : 0;
+    }
   }
 
   cubeCamera.update(renderer, contentScene);
