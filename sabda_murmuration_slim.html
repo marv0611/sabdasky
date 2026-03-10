@@ -1094,19 +1094,19 @@ const lanternGroup = new THREE.Group();
 contentScene.add(lanternGroup);
 
 // 3 lanterns at slightly different positions/altitudes
-const LANTERN_SCALE = 0.06;
+const LANTERN_SCALE = 0.008;
 const LANTERN_EVENT_START = 1100;  // t=18min20s — between balloon crossings 2 and 3
 const LANTERN_EVENT_DUR = 120;    // 2 minutes to cross (slower than balloons — more floaty)
 const LANTERN_Y_START = -60;
 const LANTERN_Y_END = 70;
 const LANTERN_ANGLE = Math.PI * 1.20;  // Left wall B ~58%
-const LANTERN_DIST = 80;              // slightly closer than balloons for depth variety
+const LANTERN_DIST = 70;              // slightly closer than balloons for depth variety
 
 // Each lantern: offset from group center, individual sway phase
 const LANTERN_OFFSETS = [
   { dx: 0,   dy: 0,    dz: 0,   phase: 0,    riseDelay: 0,  scale: 1.0  },  // center, first to rise
-  { dx: 3.5, dy: -2.5, dz: 1.5, phase: 1.7,  riseDelay: 4,  scale: 0.85 },  // right, slightly behind & lower
-  { dx:-2.8, dy: -4.0, dz:-1.2, phase: 3.1,  riseDelay: 8,  scale: 0.92 },  // left, lowest, last to rise
+  { dx: 5.0, dy: 1.5,  dz: 3.0, phase: 1.7,  riseDelay: 4,  scale: 0.90 },  // right, slightly behind & lower
+  { dx:-4.5, dy: -1.0, dz:-2.5, phase: 3.1,  riseDelay: 7,  scale: 0.85 },  // left, lowest, last to rise
 ];
 
 const lanternInstances = [];
