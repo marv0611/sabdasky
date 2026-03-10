@@ -1765,8 +1765,11 @@ if (!window.__SABDA_PUPPETEER__) {
     window.SABDA_RENDER_FRAME(liveT, timeScale);
     renderer.setRenderTarget(null);
     if (roomMode) {
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 0.85;
       if (roomControls) roomControls.update();
       renderer.render(roomScene, roomCamera);
+      renderer.toneMapping = THREE.NoToneMapping;
     } else if(projMode === 0) {
       renderer.render(compScene, compCam);
     } else if(projMode === 1) {
