@@ -295,7 +295,7 @@ wL.position.set(-ROOM_W/2, ROOM_H/2, 0);
 roomScene.add(wL);
 
 // Floor — matte gray
-const floorMat = new THREE.MeshStandardMaterial({color: 0x787878, roughness: 0.85, metalness: 0});
+const floorMat = new THREE.MeshBasicMaterial({color: 0x2a2a2a});
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_L), floorMat);
 floor.rotation.x = -Math.PI/2;
 roomScene.add(floor);
@@ -1759,11 +1759,9 @@ if (!window.__SABDA_PUPPETEER__) {
     window.SABDA_RENDER_FRAME(liveT, timeScale);
     renderer.setRenderTarget(null);
     if (roomMode) {
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 0.85;
+      renderer.toneMapping = THREE.NoToneMapping;
       if (roomControls) roomControls.update();
       renderer.render(roomScene, roomCamera);
-      renderer.toneMapping = THREE.NoToneMapping;
     } else if(projMode === 0) {
       renderer.render(compScene, compCam);
     } else if(projMode === 1) {
