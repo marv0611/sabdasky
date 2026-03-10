@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 20px; background: #1a1a2e; color: #eee; font-family: monospace; }
+  h2 { color: #c8a0ff; margin-bottom: 5px; }
+  p { color: #aaa; margin-top: 0; }
+  .row { display: flex; margin-bottom: 2px; }
+  .wall {
+    position: relative;
+    height: 180px;
+    background: linear-gradient(to bottom, #2d1b4e, #4a2070, #2d1b4e);
+    border: 1px solid #666;
+    overflow: hidden;
+  }
+  .left  { width: 720px; } /* 5008 / 6928 * 1000 ≈ 723 */
+  .front { width: 277px; } /* 1920 / 6928 * 1000 ≈ 277 */
+  .right { width: 720px; }
+  .back  { width: 277px; }
+  .wall-label {
+    position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
+    font-size: 14px; color: #c8a0ff; font-weight: bold; z-index: 10;
+  }
+  .marker {
+    position: absolute;
+    bottom: 0;
+    width: 1px;
+    height: 100%;
+    background: rgba(255,255,255,0.15);
+  }
+  .marker-label {
+    position: absolute;
+    bottom: 4px;
+    font-size: 9px;
+    color: #ffd700;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .marker-label-top {
+    position: absolute;
+    top: 22px;
+    font-size: 8px;
+    color: #88aaff;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .marker-10 { background: rgba(255,215,0,0.4); width: 2px; }
+  .instructions {
+    background: #2a2a4a; padding: 15px; border-radius: 8px; margin: 15px 0;
+    max-width: 1000px; line-height: 1.6;
+  }
+  .instructions b { color: #ffd700; }
+</style>
+</head>
+<body>
+<h2>SABDA Murmuration — Balloon House Angle Reference</h2>
+<p>Pick the angle for each crossing (X @ 5min, Y @ 15min, Z @ 25min)</p>
+
+<div class="instructions">
+  <b>Gold numbers</b> = percentage across the wall (left→right as you see it).<br>
+  <b>Blue numbers</b> = the 3D angle value (what goes into the code).<br>
+  Tell me something like: <b>"X = Left 30%, Y = Right 20%, Z = Left 70%"</b>
+</div>
+
+<h3 style="color:#888; margin-bottom:4px;">Top Row (Left + Front)</h3>
+<div class="row">
+  <div class="wall left" id="wallLeft">
+    <div class="wall-label">LEFT WALL (B)</div>
+  </div>
+  <div class="wall front" id="wallFront">
+    <div class="wall-label">FRONT (C)</div>
+  </div>
+</div>
+
+<h3 style="color:#888; margin-bottom:4px;">Bottom Row (Right + Back)</h3>
+<div class="row">
+  <div class="wall right" id="wallRight">
+    <div class="wall-label">RIGHT WALL (D)</div>
+  </div>
+  <div class="wall back" id="wallBack">
+    <div class="wall-label">BACK (A)</div>
+  </div>
+</div>
+
+<script>
+const PI = Math.PI;
+const ROOM_L = 15.00, ROOM_W = 5.63;
+const PERIM = 2*ROOM_L + 2*ROOM_W;
+const uF = ROOM_W/PERIM, uR = (ROOM_W+ROOM_L)/PERIM, uB = (2*ROOM_W+ROOM_L)/PERIM;
+
+function fracTo3D(frac) {
+  const az = frac * 2 * PI;
+  return ((PI/2 - az) % (2*PI) + 2*PI) % (2*PI);
+}
+
+function addMarkers(wallEl, azStart, azEnd, count) {
+  const w = wallEl.offsetWidth;
+  for (let i = 0; i <= count; i++) {
+    const pct = i * (100 / count);
+    const frac = azStart + (azEnd - azStart) * pct / 100;
+    const theta = fracTo3D(frac > 1 ? frac - 1 : frac);
+    const x = (pct / 100) * w;
+
+    const m = document.createElement('div');
+    m.className = 'marker' + (i % 2 === 0 ? ' marker-10' : '');
+    m.style.left = x + 'px';
+    wallEl.appendChild(m);
+
+    if (i % 2 === 0) {
+      const lbl = document.createElement('div');
+      lbl.className = 'marker-label';
+      lbl.style.left = x + 'px';
+      lbl.textContent = pct + '%';
+      wallEl.appendChild(lbl);
+
+      const lbl2 = document.createElement('div');
+      lbl2.className = 'marker-label-top';
+      lbl2.style.left = x + 'px';
+      lbl2.textContent = (theta/PI).toFixed(2) + 'π';
+      wallEl.appendChild(lbl2);
+    }
+  }
+}
+
+addMarkers(document.getElementById('wallLeft'),  uB, 1.0, 10);
+addMarkers(document.getElementById('wallFront'), 0.0, uF, 10);
+addMarkers(document.getElementById('wallRight'), uF, uR, 10);
+addMarkers(document.getElementById('wallBack'),  uR, uB, 10);
+</script>
+</body>
+</html>
